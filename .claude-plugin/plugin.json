@@ -1,0 +1,19 @@
+{
+  "name": "agents-in-sync",
+  "description": "Your team's Claude Code sessions see each other: who works on which repo, branch and files, early overlap warnings, messages to a teammate's Claude that wake a waiting session, and a local live board in the browser. No server: a private GitHub repo is the bus.",
+  "version": "0.1.0",
+  "author": {
+    "name": "ursalfas11",
+    "url": "https://github.com/ursalfas11"
+  },
+  "homepage": "https://github.com/ursalfas11/agents-in-sync",
+  "repository": "https://github.com/ursalfas11/agents-in-sync",
+  "license": "MIT",
+  "keywords": [
+    "multi-agent",
+    "coding-agents",
+    "collaboration",
+    "team",
+    "coordination"
+  ]
+}

@@ -1,0 +1,1231 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="ais-token" content="__TOKEN__">
+<title>agents-in-sync</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='15' fill='%2310131a'/%3E%3Ccircle cx='16' cy='16' r='9' fill='none' stroke='%238ea2ff' stroke-width='2.5'/%3E%3Ccircle cx='16' cy='16' r='3.5' fill='%2334d399'/%3E%3C/svg%3E">
+<script nonce="__NONCE__">
+  try { const saved = localStorage.getItem('ais-theme'); if (saved === 'light' || saved === 'dark') document.documentElement.dataset.theme = saved; } catch (_) {}
+</script>
+<style nonce="__NONCE__">
+:root {
+  color-scheme: light dark;
+  --bg: light-dark(#f4f5f9, #090b10);
+  --glow: light-dark(rgb(61 90 254 / .08), rgb(142 162 255 / .10));
+  --surface: light-dark(#ffffff, #10131a);
+  --surface-2: light-dark(#f1f3f8, #161a23);
+  --line: light-dark(#e3e6ee, #222735);
+  --line-strong: light-dark(#cdd2de, #323a4c);
+  --text: light-dark(#121722, #e8ebf1);
+  --text-2: light-dark(#454d5e, #b3bbca);
+  --muted: light-dark(#697184, #7f899c);
+  --accent: light-dark(#3d5afe, #8ea2ff);
+  --on-accent: light-dark(#ffffff, #0b0e16);
+  --working: light-dark(#059669, #34d399);
+  --approval: light-dark(#c2410c, #fb923c);
+  --waiting: light-dark(#2563eb, #60a5fa);
+  --quiet: light-dark(#8a92a3, #646c7c);
+  --error: light-dark(#dc2626, #f87171);
+  --red: light-dark(#d92d20, #f97066);
+  --yellow: light-dark(#b54708, #fdb022);
+  --shadow-color: light-dark(rgb(16 24 40 / .07), rgb(0 0 0 / .55));
+  --shadow: 0 1px 2px var(--shadow-color), 0 1px 3px var(--shadow-color);
+  --shadow-high: 0 10px 30px var(--shadow-color), 0 2px 6px var(--shadow-color);
+  --radius: 14px;
+  --sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Inter, Roboto, "Helvetica Neue", sans-serif;
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+}
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; }
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; }
+body {
+  min-height: 100vh;
+  background: radial-gradient(1200px 500px at 15% -10%, var(--glow), transparent 70%), var(--bg);
+  background-attachment: fixed;
+  color: var(--text);
+  font: 14px/1.5 var(--sans);
+  -webkit-font-smoothing: antialiased;
+}
+button, select, textarea { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+code, .code { font-family: var(--mono); font-size: .92em; overflow-wrap: anywhere; }
+
+/* Header */
+.top {
+  position: sticky; top: 0; z-index: 10;
+  display: flex; align-items: center; gap: 12px 20px; flex-wrap: wrap;
+  padding: 12px 24px;
+  background: color-mix(in srgb, var(--bg) 80%, transparent);
+  backdrop-filter: blur(14px) saturate(1.4); -webkit-backdrop-filter: blur(14px) saturate(1.4);
+  border-bottom: 1px solid var(--line);
+}
+.brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.logo { width: 28px; height: 28px; flex: none; }
+.logo .arc { transform-origin: 16px 16px; animation: spin 6s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.wordmark { font-weight: 700; font-size: 16px; letter-spacing: -.02em; white-space: nowrap; }
+.room {
+  font: 12px var(--mono); color: var(--muted);
+  padding: 2px 8px; border: 1px solid var(--line); border-radius: 999px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 260px;
+}
+.stats { display: flex; gap: 6px; flex-wrap: wrap; margin-left: auto; }
+.stat {
+  display: inline-flex; align-items: baseline; gap: 6px;
+  padding: 4px 11px; border-radius: 999px;
+  background: var(--surface); border: 1px solid var(--line);
+  font-size: 12.5px; color: var(--text-2); white-space: nowrap;
+}
+.stat b { color: var(--text); font-weight: 700; font-variant-numeric: tabular-nums; }
+.stat.warn { color: var(--approval); border-color: color-mix(in srgb, var(--approval) 45%, var(--line)); background: color-mix(in srgb, var(--approval) 8%, var(--surface)); }
+.stat.warn b, .stat.red b { color: inherit; }
+.stat.red { color: var(--red); border-color: color-mix(in srgb, var(--red) 45%, var(--line)); background: color-mix(in srgb, var(--red) 8%, var(--surface)); }
+.tools { display: flex; align-items: center; gap: 6px; }
+.live { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--text-2); padding: 0 6px; white-space: nowrap; }
+.live .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--working); box-shadow: 0 0 0 3px color-mix(in srgb, var(--working) 22%, transparent); }
+.live.degraded .dot { background: var(--yellow); box-shadow: 0 0 0 3px color-mix(in srgb, var(--yellow) 22%, transparent); }
+.live.off .dot { background: var(--red); box-shadow: 0 0 0 3px color-mix(in srgb, var(--red) 22%, transparent); }
+.icon-btn {
+  display: inline-grid; place-items: center; width: 32px; height: 32px;
+  border-radius: 10px; border: 1px solid var(--line); background: var(--surface); color: var(--text-2); cursor: pointer;
+}
+.icon-btn:hover { color: var(--text); border-color: var(--line-strong); }
+.icon-btn svg { width: 16px; height: 16px; }
+.icon-btn[aria-pressed="true"] { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); background: color-mix(in srgb, var(--accent) 10%, var(--surface)); }
+
+/* Layout */
+.layout {
+  display: grid; grid-template-columns: minmax(0, 1fr) 400px; gap: 24px; align-items: start;
+  max-width: 1640px; margin: 0 auto; padding: 24px;
+}
+.side { display: flex; flex-direction: column; gap: 16px; position: sticky; top: 80px; height: calc(100vh - 100px); min-height: 540px; }
+@media (max-width: 1100px) {
+  .layout { grid-template-columns: minmax(0, 1fr); padding: 16px; }
+  .side { position: static; height: auto; min-height: 0; }
+  .mail-list { max-height: 420px; }
+  .history { max-height: 520px; }
+}
+.heading {
+  display: flex; align-items: baseline; gap: 8px; margin: 0 0 12px;
+  font-size: 11.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
+}
+.heading-note { font-weight: 500; letter-spacing: 0; text-transform: none; font-size: 12px; }
+
+/* Banner */
+.banner {
+  display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+  padding: 10px 14px; border-radius: 12px; margin: 0 0 16px; font-size: 13px; border: 1px solid;
+  overflow-wrap: anywhere;
+}
+.banner.red { color: var(--red); background: color-mix(in srgb, var(--red) 8%, var(--surface)); border-color: color-mix(in srgb, var(--red) 35%, var(--line)); }
+.banner.yellow { color: var(--yellow); background: color-mix(in srgb, var(--yellow) 9%, var(--surface)); border-color: color-mix(in srgb, var(--yellow) 35%, var(--line)); }
+.banner.wide { margin: 16px 24px 0; }
+.banner button { margin-left: auto; }
+
+/* People and cards */
+.person { margin-bottom: 28px; }
+.person-head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.avatar {
+  width: 36px; height: 36px; flex: none; border-radius: 50%;
+  display: grid; place-items: center; font-weight: 700; font-size: 13px; color: #fff; letter-spacing: .02em;
+  background: linear-gradient(135deg, hsl(var(--hue) 72% 60%), hsl(calc(var(--hue) + 45) 62% 44%));
+  box-shadow: 0 0 0 2px var(--bg), 0 0 0 3.5px hsl(var(--hue) 60% 55% / .45);
+}
+.person-name { font-weight: 650; font-size: 15px; display: flex; align-items: center; gap: 6px; }
+.you { font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--line)); border-radius: 6px; padding: 0 5px; }
+.person-info { color: var(--muted); font-size: 12.5px; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr)); gap: 12px; }
+
+.session {
+  --state: var(--quiet);
+  position: relative; overflow: hidden;
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 15px 16px 12px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  transition: box-shadow .2s, transform .2s, border-color .2s;
+}
+.session::before { content: ""; position: absolute; inset: 0 0 auto; height: 3px; background: var(--state); }
+.session:hover { box-shadow: var(--shadow-high); transform: translateY(-1px); }
+.s-working { --state: var(--working); }
+.s-approval { --state: var(--approval); }
+.s-waiting { --state: var(--waiting); }
+.s-error { --state: var(--error); }
+.session.s-approval, .session.s-error {
+  border-color: color-mix(in srgb, var(--state) 55%, var(--line));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--state) 14%, transparent), var(--shadow);
+}
+.session.s-quiet { opacity: .7; }
+.session.s-quiet:hover { opacity: 1; }
+.session.local { background: var(--surface-2); border-style: dashed; box-shadow: none; }
+.card-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.state { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 650; color: var(--state); white-space: nowrap; }
+.state .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--state); flex: none; }
+.s-working .state .dot { animation: pulse 1.8s ease-out infinite; }
+.s-approval .state .dot { animation: blink 1.2s ease-in-out infinite; }
+@keyframes pulse { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--state) 55%, transparent); } 100% { box-shadow: 0 0 0 9px transparent; } }
+@keyframes blink { 50% { opacity: .25; } }
+.since { color: var(--muted); font-weight: 450; }
+.machine {
+  font-size: 11.5px; color: var(--muted); border: 1px solid var(--line); border-radius: 6px; padding: 0 6px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 50%;
+}
+.repos { display: flex; flex-direction: column; gap: 4px; }
+.repo { display: flex; align-items: center; gap: 6px; font: 13px var(--mono); min-width: 0; }
+.repo svg { width: 14px; height: 14px; flex: none; color: var(--muted); }
+.repo .name { font-weight: 650; color: var(--text); }
+.repo .branch {
+  color: var(--accent); background: color-mix(in srgb, var(--accent) 11%, transparent);
+  border-radius: 6px; padding: 0 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+}
+.task { margin: 0; font-size: 14.5px; line-height: 1.45; color: var(--text); overflow-wrap: anywhere; }
+.task.empty { color: var(--muted); font-style: italic; font-size: 13px; }
+.cwd { font: 12.5px var(--mono); color: var(--text-2); overflow-wrap: anywhere; }
+.files { display: flex; flex-wrap: wrap; gap: 4px; }
+.file {
+  font: 11.5px var(--mono); color: var(--text-2);
+  background: var(--surface-2); border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px;
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.file.hot { color: var(--red); border-color: color-mix(in srgb, var(--red) 45%, var(--line)); background: color-mix(in srgb, var(--red) 8%, var(--surface)); }
+.file.more { color: var(--muted); }
+.overlap { display: flex; gap: 8px; align-items: flex-start; font-size: 12.5px; line-height: 1.4; padding: 7px 10px; border-radius: 10px; overflow-wrap: anywhere; }
+.overlap b { font-family: var(--mono); font-weight: 600; font-size: 12px; }
+.overlap .mark {
+  flex: none; width: 16px; height: 16px; border-radius: 50%; display: grid; place-items: center;
+  font-size: 11px; font-weight: 800; background: currentColor; margin-top: 1px;
+}
+.overlap .mark span { color: var(--surface); line-height: 1; }
+.o-file { color: var(--red); background: color-mix(in srgb, var(--red) 9%, transparent); }
+.o-branch { color: var(--yellow); background: color-mix(in srgb, var(--yellow) 11%, transparent); }
+.o-repo { color: var(--text-2); background: var(--surface-2); }
+.card-foot {
+  display: flex; justify-content: space-between; align-items: center; gap: 8px;
+  font-size: 12px; color: var(--muted); border-top: 1px dashed var(--line); padding-top: 9px; margin-top: auto;
+}
+.wakeable { color: var(--waiting); }
+.link { background: none; border: 0; color: var(--accent); font-size: 12.5px; font-weight: 600; cursor: pointer; padding: 3px 8px; border-radius: 8px; }
+.link:hover { background: color-mix(in srgb, var(--accent) 11%, transparent); }
+.empty-state {
+  color: var(--muted); font-size: 13px; text-align: center;
+  padding: 22px 16px; border: 1px dashed var(--line-strong); border-radius: var(--radius);
+  overflow-wrap: anywhere;
+}
+.empty-state.small { padding: 14px; font-size: 12.5px; }
+
+/* Side panels */
+.panel {
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+  box-shadow: var(--shadow); padding: 16px; display: flex; flex-direction: column; min-height: 0;
+}
+.panel.mail-panel { flex: 1 1 56%; }
+.panel.history-panel { flex: 1 1 44%; }
+@media (max-width: 1100px) { .panel.mail-panel, .panel.history-panel { flex: none; } }
+.panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 9px; padding: 2px; gap: 2px; }
+.seg button { border: 0; background: none; color: var(--muted); font-size: 12px; padding: 2px 9px; border-radius: 7px; cursor: pointer; }
+.seg button:hover { color: var(--text); }
+.seg button[aria-pressed="true"] { background: var(--surface-2); color: var(--text); font-weight: 600; }
+.seg.lang { height: 32px; border-radius: 10px; background: var(--surface); }
+.seg.lang button { font-size: 11.5px; font-weight: 650; letter-spacing: .03em; padding: 0 8px; border-radius: 8px; }
+.compose { display: grid; gap: 8px; flex: none; }
+.fields { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.field { display: grid; gap: 3px; font-size: 11.5px; color: var(--muted); font-weight: 600; min-width: 0; }
+select, textarea {
+  width: 100%; background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px;
+  padding: 7px 10px; color: var(--text); font-size: 13.5px; font-weight: 400;
+}
+select:hover, textarea:hover { border-color: var(--line-strong); }
+textarea { resize: vertical; min-height: 74px; line-height: 1.45; }
+:disabled { opacity: .55; cursor: not-allowed; }
+.send-row { display: flex; align-items: center; gap: 10px; }
+.counter { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.counter.full { color: var(--red); }
+.keys { font-size: 11.5px; color: var(--muted); margin-left: auto; }
+.primary {
+  border: 0; border-radius: 10px; padding: 8px 16px; font-weight: 650; cursor: pointer;
+  background: var(--accent); color: var(--on-accent);
+  box-shadow: 0 1px 2px var(--shadow-color), inset 0 1px 0 rgb(255 255 255 / .15);
+}
+.primary:hover:not(:disabled) { filter: brightness(1.08); }
+.form-note { margin: 0; font-size: 12.5px; min-height: 0; overflow-wrap: anywhere; }
+.form-note.ok { color: var(--working); }
+.form-note.red { color: var(--red); }
+.mail-list { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 10px; overflow-y: auto; margin-top: 14px; padding-right: 2px; }
+.msg { border: 1px solid var(--line); border-radius: 12px; padding: 9px 12px; background: var(--surface-2); }
+.msg.mine { background: color-mix(in srgb, var(--accent) 8%, var(--surface)); border-color: color-mix(in srgb, var(--accent) 28%, var(--line)); }
+.msg.new { box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 40%, transparent); }
+.msg-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+.msg-head b { color: var(--text); font-weight: 650; }
+.msg-head time { margin-left: auto; font-variant-numeric: tabular-nums; }
+.mini-avatar {
+  width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; flex: none;
+  font-size: 8.5px; font-weight: 800; color: #fff;
+  background: linear-gradient(135deg, hsl(var(--hue) 72% 60%), hsl(calc(var(--hue) + 45) 62% 44%));
+}
+.target { font: 11px var(--mono); color: var(--text-2); background: var(--surface); border: 1px solid var(--line); border-radius: 5px; padding: 0 5px; }
+.origin { font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; border-radius: 5px; padding: 0 5px; }
+.origin.claude { color: var(--muted); border: 1px solid var(--line); }
+.origin.human { color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--line)); }
+.delivery { font-weight: 700; color: var(--muted); }
+.delivery.ok { color: var(--working); }
+.msg-text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13.5px; line-height: 1.45; }
+.history { flex: 1 1 auto; min-height: 0; list-style: none; margin: 0; padding: 0 2px 0 0; overflow-y: auto; }
+.history .day { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 12px 0 4px; }
+.history .day:first-child { margin-top: 0; }
+.entry { position: relative; display: grid; grid-template-columns: 42px 12px minmax(0, 1fr); gap: 8px; padding: 5px 0; font-size: 13px; line-height: 1.4; }
+.entry::before { content: ""; position: absolute; left: 55px; top: 0; bottom: 0; width: 1px; background: var(--line); }
+.entry time { font: 11.5px var(--mono); color: var(--muted); padding-top: 1px; font-variant-numeric: tabular-nums; }
+.bullet { position: relative; z-index: 1; width: 9px; height: 9px; margin-top: 5px; border-radius: 50%; background: hsl(var(--hue) 65% 55%); box-shadow: 0 0 3px 3px var(--surface); }
+.what { color: var(--text-2); overflow-wrap: anywhere; }
+.what b { color: var(--text); font-weight: 650; }
+.what .code { color: var(--text); }
+.e-warning .what { color: var(--red); }
+.e-approval .what, .e-error .what { color: var(--approval); }
+.e-mail .what { color: var(--text); }
+
+.footer { text-align: center; color: var(--muted); font-size: 12px; padding: 4px 24px 28px; overflow-wrap: anywhere; }
+.toasts { position: fixed; right: 20px; bottom: 20px; z-index: 50; display: flex; flex-direction: column; gap: 8px; width: min(380px, calc(100vw - 40px)); }
+.toast {
+  background: var(--surface); border: 1px solid var(--line-strong); border-left: 4px solid var(--accent);
+  border-radius: 12px; padding: 10px 14px; box-shadow: var(--shadow-high); font-size: 13px;
+  animation: slide-in .25s ease-out;
+}
+.toast strong { display: block; font-size: 13px; margin-bottom: 1px; }
+.toast div { color: var(--text-2); overflow-wrap: anywhere; }
+.toast.approval { border-left-color: var(--approval); }
+.toast.warning { border-left-color: var(--red); }
+@keyframes slide-in { from { transform: translateY(8px); opacity: 0; } }
+@media (max-width: 640px) {
+  .top { padding: 10px 16px; gap: 10px 12px; }
+  .stats { margin-left: 0; order: 3; width: 100%; }
+  .tools { margin-left: auto; gap: 4px; }
+  .live { padding: 0 4px 0 2px; }
+  .room { display: none; }
+  .fields { grid-template-columns: 1fr; }
+  .banner.wide { margin: 12px 16px 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <svg class="logo" viewBox="0 0 32 32" aria-hidden="true">
+      <defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#8ea2ff"/><stop offset="1" stop-color="#34d399"/></linearGradient></defs>
+      <circle cx="16" cy="16" r="13" fill="none" stroke="url(#lg)" stroke-width="2" opacity=".3"/>
+      <circle cx="16" cy="16" r="8" fill="none" stroke="url(#lg)" stroke-width="2" opacity=".65"/>
+      <path class="arc" d="M16 3a13 13 0 0 1 13 13" fill="none" stroke="url(#lg)" stroke-width="2.6" stroke-linecap="round"/>
+      <circle cx="16" cy="16" r="3.2" fill="#34d399"/>
+    </svg>
+    <span class="wordmark">agents-in-sync</span>
+    <span class="room" id="room"></span>
+  </div>
+  <div class="stats" id="stats"></div>
+  <div class="tools">
+    <span class="live" id="live"><span class="dot"></span><span id="live-text"></span></span>
+    <button class="icon-btn" id="bell" type="button" aria-pressed="false">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+    </button>
+    <button class="icon-btn" id="theme" type="button">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 0 0 18z" fill="currentColor"/></svg>
+    </button>
+    <div class="seg lang" id="lang" role="group" data-t-label="lang.label">
+      <button type="button" data-lang="en" lang="en" title="English" aria-pressed="false">EN</button>
+      <button type="button" data-lang="de" lang="de" title="Deutsch" aria-pressed="false">DE</button>
+    </div>
+  </div>
+</header>
+<div class="banner red wide" id="conn" hidden></div>
+<main class="layout">
+  <section aria-labelledby="board-title">
+    <h2 class="heading" id="board-title" data-t="board.title"></h2>
+    <div id="board"><div class="empty-state" data-t="board.loading"></div></div>
+  </section>
+  <aside class="side">
+    <section class="panel mail-panel" aria-labelledby="mail-title">
+      <div class="panel-head">
+        <h2 class="heading" id="mail-title" data-t="mail.title"></h2>
+        <div class="seg" role="group" data-t-label="mail.filter">
+          <button type="button" data-filter="mine" aria-pressed="true" data-t="mail.mine"></button>
+          <button type="button" data-filter="all" aria-pressed="false" data-t="mail.all"></button>
+        </div>
+      </div>
+      <form class="compose" id="compose" autocomplete="off">
+        <div class="fields">
+          <label class="field"><span data-t="form.to"></span><select id="to"></select></label>
+          <label class="field"><span data-t="form.session"></span><select id="where"></select></label>
+        </div>
+        <textarea id="text" rows="3" data-t-label="form.message"></textarea>
+        <div class="send-row">
+          <span class="counter" id="counter">0 / 1500</span>
+          <span class="keys" id="keys"></span>
+          <button class="primary" id="send" type="submit" data-t="form.send"></button>
+        </div>
+        <p class="form-note" id="form-note" role="status"></p>
+      </form>
+      <div class="mail-list" id="mail"></div>
+    </section>
+    <section class="panel history-panel" aria-labelledby="history-title">
+      <h2 class="heading" id="history-title"><span data-t="history.title"></span> <span class="heading-note" data-t="history.window"></span></h2>
+      <ol class="history" id="history"></ol>
+    </section>
+  </aside>
+</main>
+<footer class="footer" id="foot"></footer>
+<div class="toasts" id="toasts" aria-live="polite"></div>
+<noscript><p class="empty-state">agents-in-sync needs JavaScript. · agents-in-sync braucht JavaScript.</p></noscript>
+
+<script nonce="__NONCE__">
+'use strict';
+// Everything that comes from other people (tasks, file names, messages) only ever reaches the DOM as a text node,
+// never as HTML: all rendering goes through h(), and no string from the server is ever parsed as markup.
+const TOKEN = document.querySelector('meta[name="ais-token"]').content;
+const CMD = 'python3 ~/.agents-in-sync/ais.py';
+const $ = (sel) => document.querySelector(sel);
+
+// --- Texts --------------------------------------------------------------------
+// Every visible string lives here, in English and German. {0}, {1} … are filled in by t() and tx(); an object value is
+// a plural ({one, other}) picked by the first argument.
+const I18N = {
+  en: {
+    'live.connecting': 'connecting …',
+    'live.ok': 'live',
+    'live.off': 'disconnected',
+    'live.degraded': 'sync problem',
+    'live.waiting': 'waiting for sync',
+    'live.synced': 'synced {0}',
+    'live.tip': 'Last time the room was checked for changes',
+    'room.tip': 'The room: the shared Git repo of this team',
+    'bell.on': 'Browser notifications on (for messages, approvals and overlaps)',
+    'bell.off': 'Turn on browser notifications',
+    'bell.title': 'Notifications',
+    'bell.unsupported': 'This browser cannot show notifications.',
+    'bell.blocked': 'The browser blocks them. You can allow them in the site settings.',
+    'theme.tip': 'Color scheme: {0} (click to change)',
+    'theme.system': 'system',
+    'theme.light': 'light',
+    'theme.dark': 'dark',
+    'lang.label': 'Language',
+    'conn.restarted': 'agents-in-sync was restarted. Reload the page.',
+    'conn.down': 'The agents-in-sync server is not responding. Restart it with {0}',
+    'conn.reload': 'Reload',
+    'stat.active': { one: 'session active', other: 'sessions active' },
+    'stat.people': { one: 'person', other: 'people' },
+    'stat.approval': { one: 'waiting for approval', other: 'waiting for approval' },
+    'stat.overlaps': { one: 'overlap', other: 'overlaps' },
+    'board.title': 'Team',
+    'board.loading': 'Loading the board …',
+    'board.degraded': 'Sync problem.',
+    'board.degradedBody': ' The board may be out of date: {0}',
+    'board.you': 'you',
+    'board.sessions': { one: '{0} session in team repos', other: '{0} sessions in team repos' },
+    'board.noSession': 'no session right now',
+    'board.emptyMine': 'None of your sessions is working in a team repo right now.',
+    'board.emptyOther': '{0} has no active session right now.',
+    'board.alone': 'Nobody else in the room yet. Anyone who sets up the plugin and can read and write {0} shows up here. Teammates join with {1}',
+    'state.working': 'working',
+    'state.working.tip': 'Claude is working right now',
+    'state.approval': 'waiting for approval',
+    'state.approval.tip': 'A permission or input prompt has been open for a few seconds',
+    'state.waiting': 'waiting',
+    'state.waiting.tip': 'The turn is over, the session is waiting for its human',
+    'state.quiet': 'quiet',
+    'state.quiet.tip': 'Nothing has happened for a while',
+    'state.error': 'API error',
+    'state.error.tip': 'The last turn stopped with an API error',
+    'card.thisMachine': 'this machine',
+    'card.machine': 'Machine {0}',
+    'card.noTask': 'No task set yet',
+    'card.noTask.tip': 'Claude sets it with {0}',
+    'card.since': 'since {0}',
+    'card.active': 'active {0}',
+    'card.wakeable': 'wakeable',
+    'card.wakeable.tip': 'A message wakes this session right away (up to {0} min after its last step)',
+    'card.message': 'Message',
+    'card.localOnly': 'only here',
+    'card.localOnly.tip': 'Only you can see this session',
+    'card.outside': 'outside the team repos',
+    'ov.file': 'Same file as {0}: {1}',
+    'ov.branch': 'Same branch as {0} in {1}',
+    'ov.repo': 'Also in {0}: {1}',
+    'ov.repoBranch': 'Also in {0}: {1}, branch {2}',
+    'who.yours': 'your other session',
+    'who.other': 'another session of {0}',
+    'who.otherDat': 'another session of {0}',
+    'mail.title': 'Messages',
+    'mail.filter': 'Which messages',
+    'mail.mine': 'Mine',
+    'mail.all': 'All',
+    'mail.emptyMine': 'No messages from you or to you yet.',
+    'mail.emptyAll': 'No messages in the room yet.',
+    'mail.you': 'You',
+    'mail.ui': 'UI',
+    'mail.ui.tip': "To the recipient's UI, not to one of their sessions. Claude replies to a UI with {0}",
+    'mail.session.tip': 'To the session in this repo',
+    'mail.human': 'Human',
+    'mail.human.tip': 'Written in the UI',
+    'mail.claude': 'Claude',
+    'mail.claude.tip': 'Written by Claude',
+    'mail.claude.from': 'Written by Claude, from {0}',
+    'mail.uploaded': 'Uploaded, the recipient gets it at the next sync',
+    'mail.uploading': 'Uploading …',
+    'form.to': 'To',
+    'form.session': 'Session',
+    'form.message': 'Message',
+    'form.send': 'Send',
+    'form.recent': 'last active',
+    'form.inRepo': 'in {0}',
+    'form.all': 'all',
+    'form.none': 'Nobody else in the room yet',
+    'form.toAll': 'Message to the Claudes of everyone else …',
+    'form.toOne': 'Message to {1} Claude …',
+    'form.sessionIn': 'session in {0}',
+    'form.sent': 'Ready for {0}.',
+    'form.missing': '{0}: no session in {1} right now, the most recently active one shows it.',
+    'form.tooLong': 'Too long ({0} characters, at most {1}). Please shorten it.',
+    'form.error': 'Error {0}',
+    'form.keys.mac': '⌘ ↵',
+    'form.keys.other': 'Ctrl ↵',
+    'history.title': 'History',
+    'history.window': 'last 24 hours',
+    'history.empty': 'Nothing has happened in the last 24 hours.',
+    'day.today': 'Today',
+    'day.yesterday': 'Yesterday',
+    'ev.repo': '{0} starts in {1}',
+    'ev.repoBranch': '{0} starts in {1}, branch {2}',
+    'ev.branch': '{0} switches to {2} in {1}',
+    'ev.file': '{0} edits {2} in {1}',
+    'ev.task': '{0} sets the task: {1}',
+    'ev.approval': '{0} is waiting for an approval{1}',
+    'ev.error': '{0}: turn aborted with an API error{1}',
+    'ev.warnFile': '{1} Claude was warned: {2} is editing the same file: {3}{4}',
+    'ev.warnBranch': '{1} Claude was warned: {2} is on the same branch: {3}{4}',
+    'ev.woken': '{0} session was woken by a message{1}',
+    'ev.wokenFrom': ' (from {0})',
+    'ev.end': '{0} ends a session in {1}',
+    'ago.now': 'just now',
+    'ago.sec': '{0} s ago',
+    'ago.min': '{0} min ago',
+    'ago.hour': '{0} h ago',
+    'ago.hourMin': '{0} h {1} min ago',
+    'toast.mail': 'Message from {0}',
+    'toast.approval': 'Approval needed',
+    'toast.approvalBody': 'Your session {0} is waiting for your approval.',
+    'toast.overlap': 'Overlap',
+    'toast.overlapFile': '{0} is editing the same file in {1}: {2}',
+    'toast.overlapBranch': '{0} is working on the same branch in {1}.',
+    'where': 'in {0}',
+    'q': '“{0}”',
+    'foot': 'agents-in-sync {0} · room {1} · team repos are those owned by {2} · this view runs on your machine only',
+  },
+  de: {
+    'live.connecting': 'verbinde …',
+    'live.ok': 'live',
+    'live.off': 'getrennt',
+    'live.degraded': 'Abgleich gestört',
+    'live.waiting': 'warte auf Abgleich',
+    'live.synced': 'Abgleich {0}',
+    'live.tip': 'Letzte Prüfung des Raums auf Änderungen',
+    'room.tip': 'Der Raum: das gemeinsame Git-Repo dieses Teams',
+    'bell.on': 'Browser-Benachrichtigungen an (bei Nachrichten, Freigaben und Überschneidungen)',
+    'bell.off': 'Browser-Benachrichtigungen einschalten',
+    'bell.title': 'Benachrichtigungen',
+    'bell.unsupported': 'Dieser Browser kann keine Benachrichtigungen zeigen.',
+    'bell.blocked': 'Der Browser blockiert sie. Erlauben lässt es sich in den Website-Einstellungen.',
+    'theme.tip': 'Farbschema: {0} (klicken zum Wechseln)',
+    'theme.system': 'wie das System',
+    'theme.light': 'hell',
+    'theme.dark': 'dunkel',
+    'lang.label': 'Sprache',
+    'conn.restarted': 'agents-in-sync wurde neu gestartet. Lade die Seite neu.',
+    'conn.down': 'Der agents-in-sync-Server antwortet nicht. Neu starten mit {0}',
+    'conn.reload': 'Neu laden',
+    'stat.active': { one: 'Session aktiv', other: 'Sessions aktiv' },
+    'stat.people': { one: 'Person', other: 'Personen' },
+    'stat.approval': { one: 'wartet auf Freigabe', other: 'warten auf Freigabe' },
+    'stat.overlaps': { one: 'Überschneidung', other: 'Überschneidungen' },
+    'board.title': 'Team',
+    'board.loading': 'Lade die Übersicht …',
+    'board.degraded': 'Abgleich gestört.',
+    'board.degradedBody': ' Die Übersicht kann veraltet sein: {0}',
+    'board.you': 'du',
+    'board.sessions': { one: '{0} Session in Team-Repos', other: '{0} Sessions in Team-Repos' },
+    'board.noSession': 'gerade keine Session',
+    'board.emptyMine': 'Keine deiner Sessions arbeitet gerade in einem Team-Repo.',
+    'board.emptyOther': '{0} hat gerade keine aktive Session.',
+    'board.alone': 'Noch niemand sonst im Raum. Wer das Plugin einrichtet und {0} lesen und schreiben darf, erscheint hier. Beitreten mit {1}',
+    'state.working': 'arbeitet',
+    'state.working.tip': 'Claude arbeitet gerade',
+    'state.approval': 'wartet auf Freigabe',
+    'state.approval.tip': 'Eine Freigabe oder Eingabe ist seit einigen Sekunden offen',
+    'state.waiting': 'wartet',
+    'state.waiting.tip': 'Der Turn ist zu Ende, die Session wartet auf ihren Menschen',
+    'state.quiet': 'ruhig',
+    'state.quiet.tip': 'Länger nichts passiert',
+    'state.error': 'API-Fehler',
+    'state.error.tip': 'Der letzte Turn brach mit einem API-Fehler ab',
+    'card.thisMachine': 'dieser Rechner',
+    'card.machine': 'Rechner {0}',
+    'card.noTask': 'Noch kein Vorhaben eingetragen',
+    'card.noTask.tip': 'Claude trägt es ein mit {0}',
+    'card.since': 'seit {0}',
+    'card.active': 'aktiv {0}',
+    'card.wakeable': 'weckbar',
+    'card.wakeable.tip': 'Eine Nachricht weckt diese Session sofort (bis {0} min nach ihrem letzten Schritt)',
+    'card.message': 'Nachricht',
+    'card.localOnly': 'nur hier',
+    'card.localOnly.tip': 'Diese Session sieht nur du',
+    'card.outside': 'außerhalb der Team-Repos',
+    'ov.file': 'Dieselbe Datei wie {0}: {1}',
+    'ov.branch': 'Derselbe Branch wie {0} in {1}',
+    'ov.repo': 'Auch in {0}: {1}',
+    'ov.repoBranch': 'Auch in {0}: {1}, Branch {2}',
+    'who.yours': 'deine andere Session',
+    'who.other': 'eine andere Session von {0}',
+    'who.otherDat': 'einer anderen Session von {0}',
+    'mail.title': 'Nachrichten',
+    'mail.filter': 'Welche Nachrichten',
+    'mail.mine': 'Meine',
+    'mail.all': 'Alle',
+    'mail.emptyMine': 'Noch keine Nachrichten von dir oder an dich.',
+    'mail.emptyAll': 'Noch keine Nachrichten im Raum.',
+    'mail.you': 'Du',
+    'mail.ui': 'UI',
+    'mail.ui.tip': 'An die UI des Empfängers, nicht an eine seiner Sessions. Claude antwortet einer UI mit {0}',
+    'mail.session.tip': 'An die Session in diesem Repo',
+    'mail.human': 'Mensch',
+    'mail.human.tip': 'In der UI geschrieben',
+    'mail.claude': 'Claude',
+    'mail.claude.tip': 'Von Claude geschrieben',
+    'mail.claude.from': 'Von Claude geschrieben, aus {0}',
+    'mail.uploaded': 'Hochgeladen, der Empfänger bekommt sie beim nächsten Abgleich',
+    'mail.uploading': 'Wird hochgeladen …',
+    'form.to': 'An',
+    'form.session': 'Session',
+    'form.message': 'Nachricht',
+    'form.send': 'Senden',
+    'form.recent': 'die zuletzt aktive',
+    'form.inRepo': 'die in {0}',
+    'form.all': 'alle',
+    'form.none': 'Noch niemand sonst im Raum',
+    'form.toAll': 'Nachricht an die Claudes aller anderen …',
+    'form.toOne': 'Nachricht an den Claude von {0} …',
+    'form.sessionIn': 'Session in {0}',
+    'form.sent': 'Liegt bereit für {0}.',
+    'form.missing': '{0}: gerade keine Session in {1}, die zuletzt aktive zeigt sie.',
+    'form.tooLong': 'Zu lang ({0} Zeichen, höchstens {1}). Bitte kürzen.',
+    'form.error': 'Fehler {0}',
+    'form.keys.mac': '⌘ ↵',
+    'form.keys.other': 'Strg ↵',
+    'history.title': 'Verlauf',
+    'history.window': 'letzte 24 Stunden',
+    'history.empty': 'In den letzten 24 Stunden ist nichts passiert.',
+    'day.today': 'Heute',
+    'day.yesterday': 'Gestern',
+    'ev.repo': '{0} fängt in {1} an',
+    'ev.repoBranch': '{0} fängt in {1} an, Branch {2}',
+    'ev.branch': '{0} wechselt in {1} auf {2}',
+    'ev.file': '{0} bearbeitet in {1} {2}',
+    'ev.task': '{0} nimmt sich vor: {1}',
+    'ev.approval': '{0} wartet auf eine Freigabe{1}',
+    'ev.error': '{0}: Turn mit API-Fehler abgebrochen{1}',
+    'ev.warnFile': 'Claude von {0} gewarnt: dieselbe Datei wie bei {2}: {3}{4}',
+    'ev.warnBranch': 'Claude von {0} gewarnt: derselbe Branch wie bei {2}: {3}{4}',
+    'ev.woken': '{0} Session wurde durch eine Nachricht geweckt{1}',
+    'ev.wokenFrom': ' (von {0})',
+    'ev.end': '{0} beendet eine Session in {1}',
+    'ago.now': 'gerade eben',
+    'ago.sec': 'vor {0} s',
+    'ago.min': 'vor {0} min',
+    'ago.hour': 'vor {0} h',
+    'ago.hourMin': 'vor {0} h {1} min',
+    'toast.mail': 'Nachricht von {0}',
+    'toast.approval': 'Freigabe nötig',
+    'toast.approvalBody': 'Deine Session {0} wartet auf deine Freigabe.',
+    'toast.overlap': 'Überschneidung',
+    'toast.overlapFile': '{0} bearbeitet dieselbe Datei in {1}: {2}',
+    'toast.overlapBranch': '{0} arbeitet auf demselben Branch in {1}.',
+    'where': 'in {0}',
+    'q': '„{0}“',
+    'foot': 'agents-in-sync {0} · Raum {1} · Team-Repos sind die von {2} · diese Ansicht läuft nur auf deinem Rechner',
+  },
+};
+const LANGS = ['en', 'de'];
+const STATES = ['working', 'approval', 'waiting', 'quiet', 'error'];
+const RANK = { approval: 0, error: 1, working: 2, waiting: 3, quiet: 4 };
+const OVERLAP_RANK = { file: 0, branch: 1, repo: 2 };
+const FOLDER = 'M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z';
+
+function store(key, value) {  // every access in try/catch: private windows and blocked site data throw
+  try {
+    if (value === undefined) return localStorage.getItem(key);
+    if (value === null) localStorage.removeItem(key); else localStorage.setItem(key, value);
+  } catch (_) { /* then the choice only lasts for this visit */ }
+  return null;
+}
+
+let lang = store('ais-lang');
+if (!LANGS.includes(lang)) lang = (navigator.language || '').toLowerCase().startsWith('de') ? 'de' : 'en';
+let theme = store('ais-theme');
+if (theme !== 'light' && theme !== 'dark') theme = 'system';
+let bell = store('ais-bell') === 'on';
+
+let fmt, plural;
+function setFormats() {  // Intl formatters for the active language (the browser's own region wins if it speaks it)
+  const nav = navigator.language || '', locale = nav.toLowerCase().startsWith(lang) ? nav : lang;
+  fmt = {
+    time: new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }),
+    day: new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'short' }),
+    weekday: new Intl.DateTimeFormat(locale, { weekday: 'short', day: 'numeric', month: 'short' }),
+  };
+  plural = new Intl.PluralRules(locale);
+}
+setFormats();
+
+function tpl(key, count) {
+  let v = I18N[lang][key] ?? I18N.en[key];
+  if (v !== null && typeof v === 'object') v = v[plural.select(count)] ?? v.other;
+  return v ?? key;
+}
+const t = (key, ...args) => tpl(key, args[0]).replace(/\{(\d+)\}/g, (_, i) => args[i] ?? '');
+const tx = (key, ...args) => tpl(key).split(/\{(\d+)\}/).map((part, i) => (i % 2 ? args[part] : part));  // args may be nodes
+
+// --- State ------------------------------------------------------------------
+let data = null, etag = '', fetchedAt = null, connected = null, connKind = '', filter = 'mine';
+let timer = 0, busy = false, first = true, unread = 0, optionsKey = '';
+const seen = { mail: new Set(), state: new Map(), overlap: new Set() };
+const freshMail = new Set();
+
+// --- Helpers ------------------------------------------------------------------
+
+function h(tag, attrs, ...children) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v == null || v === false) continue;
+    if (k === 'class') el.className = v;
+    else if (k === 'style') for (const [p, w] of Object.entries(v)) el.style.setProperty(p, w);
+    else if (k.startsWith('on')) el.addEventListener(k.slice(2), v);
+    else el.setAttribute(k, v === true ? '' : v);
+  }
+  for (const child of children.flat(Infinity)) {
+    if (child != null && child !== false && child !== '') el.append(child instanceof Node ? child : String(child));
+  }
+  return el;
+}
+function fill(el, ...children) {  // replaceChildren would turn a null into the text "null"
+  el.replaceChildren(...children.flat(Infinity).filter((c) => c != null && c !== false));
+}
+function icon(...paths) {  // fixed path data from this script only
+  const ns = 'http://www.w3.org/2000/svg', svg = document.createElementNS(ns, 'svg');
+  for (const [k, v] of Object.entries({ viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'stroke-linejoin': 'round', 'aria-hidden': 'true' })) svg.setAttribute(k, v);
+  for (const d of paths) { const p = document.createElementNS(ns, 'path'); p.setAttribute('d', d); svg.append(p); }
+  return svg;
+}
+
+const list = (v) => (Array.isArray(v) ? v : []);
+const cls = (v) => String(v).replace(/[^\w-]/g, '');  // remote data in a class name: letters, digits, - and _ only
+const short = (repo) => String(repo || '').split('/').pop();
+const toDate = (s) => { const d = s ? new Date(s) : null; return d && !isNaN(d) && d.getFullYear() > 2000 ? d : null; };
+const hhmm = (s) => { const d = toDate(s); return d ? fmt.time.format(d) : ''; };
+const sameDay = (a, b) => a.toDateString() === b.toDateString();
+function stamp(s) {  // time today, otherwise date and time
+  const d = toDate(s);
+  if (!d) return '';
+  return sameDay(d, new Date()) ? hhmm(s) : `${fmt.day.format(d)} ${hhmm(s)}`;
+}
+function ago(s) {
+  const d = toDate(s);
+  if (!d) return '';
+  const sec = Math.max(0, (Date.now() - d) / 1000);
+  if (sec < 45) return t('ago.now');
+  if (sec < 3600) return t('ago.min', Math.max(1, Math.floor(sec / 60)));
+  if (sec < 86400) {
+    const hours = Math.floor(sec / 3600), min = Math.floor((sec % 3600) / 60);
+    return min ? t('ago.hourMin', hours, min) : t('ago.hour', hours);
+  }
+  return stamp(s);
+}
+function dayLabel(s) {
+  const d = toDate(s);
+  if (!d) return '';
+  if (sameDay(d, new Date())) return t('day.today');
+  if (sameDay(d, new Date(Date.now() - 864e5))) return t('day.yesterday');
+  return fmt.weekday.format(d);
+}
+function hue(login) {
+  let x = 7;
+  for (const c of String(login)) x = (x * 31 + c.codePointAt(0)) >>> 0;
+  return String(x % 360);
+}
+const person = (login) => (data && data.people.find((p) => p.login === login)) || { login, name: login, machines: [] };
+const name = (login) => person(login).name || login;
+const poss = (n) => (lang === 'de' ? (/[sßxz]$/i.test(n) ? `${n}’` : `${n}s`) : (/s$/i.test(n) ? `${n}’` : `${n}’s`));
+const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+const initials = (n) => String(n).trim().split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase() || '?';
+const loginOf = (key) => String(key || '').split('/')[0];
+const hasRepos = (s) => Object.keys(s.repos || {}).length > 0;
+const shorten = (s, n) => { s = String(s || ''); return s.length > n ? `${s.slice(0, n - 1)}…` : s; };
+const sessionOf = (key) => data.sessions.find((s) => s.key === key);
+function mainRepo(s) {
+  const e = Object.entries(s.repos || {}).sort((a, b) => String(b[1].last || '').localeCompare(String(a[1].last || '')));
+  return e.length ? e[0][0] : null;
+}
+function who(key, from) {  // a session, seen from a session of the person `from`
+  const login = loginOf(key);
+  if (login !== from) return name(login);
+  return login === data.me ? t('who.yours') : t('who.other', name(login));
+}
+const whoDat = (key, from) => (loginOf(key) === from ? t('who.otherDat', name(from)) : name(loginOf(key)));
+const where = (s) => (mainRepo(s) ? t('where', short(mainRepo(s))) : s.cwd ? t('where', s.cwd) : '');
+
+// --- Loading ------------------------------------------------------------------
+
+async function load() {
+  if (busy) return;
+  busy = true;
+  clearTimeout(timer);
+  try {
+    const headers = { 'X-AIS-Token': TOKEN };
+    if (etag) headers['If-None-Match'] = etag;
+    const r = await fetch('/api/state', { headers, cache: 'no-store' });
+    if (r.status === 403) return connection('restarted');
+    if (r.status !== 200 && r.status !== 304) throw new Error(`HTTP ${r.status}`);
+    fetchedAt = r.headers.get('X-AIS-Fetched') || fetchedAt;
+    if (r.status === 200) {
+      etag = r.headers.get('ETag') || '';
+      data = await r.json();
+      try { notify(); render(); } catch (e) { console.error(e); }
+    }
+    connection('ok');
+  } catch (_) {
+    connection('down');
+  } finally {
+    busy = false;
+    liveRender();
+    timer = setTimeout(load, document.hidden ? 15000 : 2000);
+  }
+}
+
+function connection(kind) {
+  const el = $('#conn');
+  connKind = kind;
+  connected = kind === 'ok';
+  if (connected) { el.hidden = true; return; }
+  fill(el,
+    h('span', {}, kind === 'restarted' ? t('conn.restarted') : tx('conn.down', h('code', {}, `${CMD} ui`))),
+    h('button', { class: 'link', type: 'button', onclick: () => location.reload() }, t('conn.reload')));
+  el.hidden = false;
+}
+
+// --- Telling: toast, tab title, browser notification ---------------------------
+
+function notify() {
+  const d = data, me = d.me;
+  for (const n of d.mail) {
+    if (seen.mail.has(n.id)) continue;
+    seen.mail.add(n.id);
+    if (first || n.from === me || !list(n.to).includes(me)) continue;
+    freshMail.add(n.id);
+    toast(t('toast.mail', name(n.from)), shorten(n.text, 160), 'mail');
+  }
+  for (const s of d.sessions) {
+    const before = seen.state.get(s.key);
+    seen.state.set(s.key, s.state);
+    if (!first && s.login === me && s.state === 'approval' && before !== 'approval') {
+      toast(t('toast.approval'), t('toast.approvalBody', where(s)).replace(/ {2,}/g, ' '), 'approval');
+    }
+  }
+  for (const o of d.overlaps) {
+    if (o.kind === 'repo') continue;
+    const key = [o.a, o.b, o.repo, o.kind, list(o.files).join(',')].join('|');
+    if (seen.overlap.has(key)) continue;
+    seen.overlap.add(key);
+    const mine = [o.a, o.b].find((x) => loginOf(x) === me);
+    if (first || !mine) continue;
+    const other = cap(who(mine === o.a ? o.b : o.a, me));
+    toast(t('toast.overlap'), o.kind === 'file'
+      ? t('toast.overlapFile', other, short(o.repo), list(o.files).join(', '))
+      : t('toast.overlapBranch', other, short(o.repo)), 'warning');
+  }
+  first = false;
+}
+
+function toast(title, text, kind) {
+  const el = h('div', { class: `toast ${kind}`, role: 'status' }, h('strong', {}, title), h('div', {}, text));
+  $('#toasts').append(el);
+  setTimeout(() => el.remove(), 9000);
+  if (document.hidden) { unread++; setTitle(); }
+  if (document.hidden && bell && 'Notification' in window && Notification.permission === 'granted') {
+    try { new Notification(title, { body: text, tag: `${kind}:${title}:${text}`.slice(0, 120) }); } catch (_) { /* never mind */ }
+  }
+}
+
+function setTitle() {
+  const approvals = data ? data.sessions.filter((s) => s.login === data.me && s.state === 'approval').length : 0;
+  const n = unread + approvals;
+  document.title = `${n ? `(${n}) ` : ''}agents-in-sync`;
+}
+
+// --- Drawing ------------------------------------------------------------------
+
+function render() {
+  if (!data) return;
+  headRender();
+  boardRender();
+  recipients();
+  mailRender();
+  historyRender();
+  count();
+  $('#foot').textContent = t('foot', data.version, data.room, list(data.orgs).join(', '));
+  setTitle();
+}
+
+const stat = (n, label, kind = '') => h('span', { class: `stat ${kind}` }, h('b', {}, String(n)), label);
+
+function headRender() {
+  const d = data;
+  $('#room').textContent = d.room;
+  $('#room').title = t('room.tip');
+  const active = d.sessions.filter((s) => hasRepos(s) && s.state !== 'quiet').length;
+  const approvals = d.sessions.filter((s) => s.state === 'approval').length;
+  const serious = d.overlaps.filter((o) => o.kind !== 'repo').length;
+  fill($('#stats'),
+    stat(active, t('stat.active', active)),
+    stat(d.people.length, t('stat.people', d.people.length)),
+    approvals ? stat(approvals, t('stat.approval', approvals), 'warn') : null,
+    serious ? stat(serious, t('stat.overlaps', serious), 'red') : null);
+}
+
+function liveRender() {
+  const el = $('#live'), when = toDate(fetchedAt), age = when ? (Date.now() - when) / 1000 : null;
+  let text = t('live.ok'), kind = '';
+  if (connected === false) { text = t('live.off'); kind = 'off'; }
+  else if (connected === null) text = t('live.connecting');
+  else if (data && data.error) { text = t('live.degraded'); kind = 'degraded'; }
+  else if (age == null) text = t('live.waiting');
+  else if (age > 60) { text = t('live.synced', ago(fetchedAt)); kind = 'degraded'; }
+  else if (age > 15) text = t('live.synced', t('ago.sec', Math.round(age)));
+  el.className = `live ${kind}`;
+  $('#live-text').textContent = text;
+  el.title = data && data.error ? data.error : t('live.tip');
+}
+
+function boardRender() {
+  const d = data, kids = [];
+  if (d.error) kids.push(h('div', { class: 'banner yellow' }, h('strong', {}, t('board.degraded')), t('board.degradedBody', d.error)));
+  const sorted = (arr) => arr.sort((a, b) => (RANK[a.state] ?? 9) - (RANK[b.state] ?? 9)
+    || String(b.last).localeCompare(String(a.last)));
+  for (const p of d.people) {
+    const all = d.sessions.filter((s) => s.login === p.login);
+    const team = sorted(all.filter(hasRepos)), local = sorted(all.filter((s) => !hasRepos(s)));
+    const me = p.login === d.me;
+    const info = [team.length ? t('board.sessions', team.length) : t('board.noSession'),
+      list(p.machines).join(', ')].filter(Boolean).join(' · ');
+    kids.push(h('section', { class: 'person', style: { '--hue': hue(p.login) } },
+      h('div', { class: 'person-head' },
+        h('span', { class: 'avatar', 'aria-hidden': 'true' }, initials(p.name)),
+        h('div', {},
+          h('div', { class: 'person-name' }, p.name, me ? h('span', { class: 'you' }, t('board.you')) : null),
+          h('div', { class: 'person-info' }, info))),
+      team.length || local.length
+        ? h('div', { class: 'cards' }, team.map(card), local.map(localCard))
+        : h('div', { class: 'empty-state small' }, me ? t('board.emptyMine') : t('board.emptyOther', p.name))));
+  }
+  if (d.people.length === 1) {
+    kids.push(h('div', { class: 'empty-state' },
+      tx('board.alone', h('code', {}, d.room), h('code', {}, `${CMD} setup ${d.room}`))));
+  }
+  fill($('#board'), kids);
+}
+
+function statePill(s) {
+  const known = STATES.includes(s.state);
+  const tip = known ? t(`state.${s.state}.tip`) : '';
+  return h('span', { class: 'state', title: tip + (s.wakeable ? ` · ${t('card.wakeable.tip', data.wake_min)}` : '') },
+    h('span', { class: 'dot', 'aria-hidden': 'true' }), known ? t(`state.${s.state}`) : String(s.state),
+    h('span', { class: 'since' }, s.state === 'quiet' ? ago(s.last) : t('card.since', hhmm(s.since))));
+}
+
+function card(s) {
+  const d = data;
+  const hits = d.overlaps.filter((o) => o.a === s.key || o.b === s.key)
+    .sort((a, b) => (OVERLAP_RANK[a.kind] ?? 9) - (OVERLAP_RANK[b.kind] ?? 9));
+  const hot = new Set(hits.flatMap((o) => list(o.files).map((f) => `${o.repo}|${f}`)));
+  const repos = Object.entries(s.repos).sort((a, b) => String(b[1].last || '').localeCompare(String(a[1].last || '')));
+  const files = repos.flatMap(([repo, r]) => list(r.files).slice().reverse().map((f) => [repo, String(f)]));
+  const shown = files.slice(0, 6);
+  return h('article', { class: `session s-${cls(s.state)}` },
+    h('div', { class: 'card-top' }, statePill(s),
+      h('span', { class: 'machine', title: s.here ? (s.cwd || t('card.machine', d.machine)) : t('card.machine', s.machine) },
+        s.here ? t('card.thisMachine') : s.machine)),
+    h('div', { class: 'repos' }, repos.map(([repo, r]) => h('div', { class: 'repo', title: repo },
+      icon(FOLDER), h('span', { class: 'name' }, short(repo)), h('span', { class: 'branch', title: r.branch || '' }, r.branch || '–')))),
+    s.task ? h('p', { class: 'task' }, t('q', s.task))
+      : h('p', { class: 'task empty', title: t('card.noTask.tip', `${CMD} task "…"`) }, t('card.noTask')),
+    shown.length ? h('div', { class: 'files' },
+      shown.map(([repo, f]) => h('span', { class: `file${hot.has(`${repo}|${f}`) ? ' hot' : ''}`, title: `${short(repo)}/${f}` },
+        f.length > 34 ? `…/${f.split('/').pop()}` : f)),
+      files.length > shown.length ? h('span', { class: 'file more' }, `+${files.length - shown.length}`) : null) : null,
+    hits.map((o) => overlapRow(o, s)),
+    h('div', { class: 'card-foot' },
+      h('span', {}, t('card.active', ago(s.last)),
+        s.wakeable ? h('span', { class: 'wakeable', title: t('card.wakeable.tip', d.wake_min) }, ` · ${t('card.wakeable')}`) : null),
+      s.login !== d.me ? h('button', { class: 'link', type: 'button', onclick: () => composeTo(s) }, t('card.message')) : null));
+}
+
+function overlapRow(o, s) {
+  const otherKey = o.a === s.key ? o.b : o.a, other = who(otherKey, s.login);
+  const mark = (c) => h('span', { class: 'mark', 'aria-hidden': 'true' }, h('span', {}, c));
+  if (o.kind === 'file') {
+    return h('div', { class: 'overlap o-file' }, mark('!'), h('span', {}, tx('ov.file', other, h('b', {}, list(o.files).join(', ')))));
+  }
+  if (o.kind === 'branch') {
+    return h('div', { class: 'overlap o-branch' }, mark('!'), h('span', {}, t('ov.branch', other, short(o.repo))));
+  }
+  const there = sessionOf(otherKey), branch = there && there.repos[o.repo] ? there.repos[o.repo].branch : '';
+  return h('div', { class: 'overlap o-repo' }, mark('i'),
+    h('span', {}, branch ? t('ov.repoBranch', short(o.repo), other, branch) : t('ov.repo', short(o.repo), other)));
+}
+
+function localCard(s) {
+  return h('article', { class: `session local s-${cls(s.state)}` },
+    h('div', { class: 'card-top' }, statePill(s), h('span', { class: 'machine', title: t('card.localOnly.tip') }, t('card.localOnly'))),
+    h('div', { class: 'cwd', title: t('card.outside') }, s.cwd || t('card.outside')),
+    s.task ? h('p', { class: 'task' }, t('q', s.task)) : null,
+    h('div', { class: 'card-foot' }, h('span', {}, t('card.active', ago(s.last))), h('span', {}, t('card.outside'))));
+}
+
+// --- Messages -----------------------------------------------------------------
+
+function recipients() {
+  const d = data, to = $('#to'), at = $('#where');
+  const others = d.people.filter((p) => p.login !== d.me);
+  const options = [...others.map((p) => p.login), ...(others.length > 1 ? ['all'] : [])];
+  const chosen = options.includes(to.value) ? to.value : options[0] || '';
+  const targets = chosen === 'all' ? others.map((p) => p.login) : [chosen];
+  const repos = [...new Set(d.sessions.filter((s) => targets.includes(s.login) && s.state !== 'quiet')
+    .flatMap((s) => Object.keys(s.repos).map(short)))].sort();
+  const key = JSON.stringify([lang, others.map((p) => [p.login, p.name]), chosen, repos]);
+  if (key === optionsKey) return;
+  optionsKey = key;
+  const atBefore = at.value;
+  fill(to, others.map((p) => h('option', { value: p.login }, p.name)), others.length > 1 ? h('option', { value: 'all' }, t('form.all')) : null);
+  to.value = chosen;
+  fill(at, h('option', { value: '' }, t('form.recent')), repos.map((r) => h('option', { value: r }, t('form.inRepo', r))));
+  at.value = repos.includes(atBefore) ? atBefore : '';
+  const empty = !others.length;
+  for (const el of [to, at, $('#text'), $('#send')]) el.disabled = empty;
+  $('#text').placeholder = empty ? t('form.none')
+    : chosen === 'all' ? t('form.toAll') : t('form.toOne', name(chosen), poss(name(chosen)));
+}
+
+function composeTo(s) {
+  $('#to').value = s.login;
+  optionsKey = '';  // the sessions to pick from depend on the recipient
+  recipients();
+  const r = mainRepo(s);
+  if (r && [...$('#where').options].some((o) => o.value === short(r))) $('#where').value = short(r);
+  $('#compose').scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  $('#text').focus();
+}
+
+function mailRender() {
+  const d = data, box = $('#mail');
+  const mine = d.mail.filter((n) => filter === 'all' || n.from === d.me || list(n.to).includes(d.me));
+  const atEnd = box.scrollHeight - box.scrollTop - box.clientHeight < 60;
+  fill(box, mine.length ? mine.slice(-80).map(msg)
+    : h('div', { class: 'empty-state small' }, t(filter === 'all' ? 'mail.emptyAll' : 'mail.emptyMine')));
+  if (atEnd) box.scrollTop = box.scrollHeight;
+}
+
+function msg(n) {
+  const mine = n.from === data.me, human = n.source === 'ui', toUi = n.repo === 'ui';
+  const target = toUi ? t('mail.ui') : n.repo || '';
+  return h('article', { class: `msg${mine ? ' mine' : ''}${freshMail.has(n.id) ? ' new' : ''}` },
+    h('div', { class: 'msg-head' },
+      h('span', { class: 'mini-avatar', style: { '--hue': hue(n.from) }, 'aria-hidden': 'true' }, initials(name(n.from))),
+      h('b', {}, mine ? t('mail.you') : name(n.from)), '→', h('b', {}, list(n.to).map((l) => name(l)).join(', ')),
+      target ? h('span', { class: 'target', title: toUi ? t('mail.ui.tip', `${CMD} send <name>@ui "…"`) : t('mail.session.tip') }, target) : null,
+      h('span', { class: `origin ${human ? 'human' : 'claude'}`, title: human ? t('mail.human.tip')
+        : n.from_repo ? t('mail.claude.from', n.from_repo) : t('mail.claude.tip') }, human ? t('mail.human') : t('mail.claude')),
+      h('time', { datetime: n.time }, stamp(n.time)),
+      mine ? h('span', { class: `delivery${n.uploaded ? ' ok' : ''}`, title: n.uploaded ? t('mail.uploaded') : t('mail.uploading') },
+        n.uploaded ? '✓' : '…') : null),
+    h('p', { class: 'msg-text' }, n.text || ''));
+}
+
+$('#compose').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const text = $('#text').value.trim(), note = $('#form-note');
+  if (!text || $('#send').disabled) return;
+  const max = data ? data.max_text : 1500, to = $('#to').value, repo = $('#where').value;
+  note.className = 'form-note';
+  note.textContent = '';
+  if ([...text].length > max) {
+    note.className = 'form-note red';
+    note.textContent = t('form.tooLong', [...text].length, max);
+    return;
+  }
+  $('#send').disabled = true;
+  try {
+    const r = await fetch('/api/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-AIS-Token': TOKEN },
+      body: JSON.stringify({ to, repo, text }),
+    });
+    const a = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(a.error || t('form.error', r.status));
+    $('#text').value = '';
+    count();
+    // The server's `who` is English prose; build the same sentence in the active language instead.
+    const names = to === 'all' ? data.people.filter((p) => p.login !== data.me).map((p) => p.name) : [name(to)];
+    const recipient = names.join(', ') + (repo ? ` (${t('form.sessionIn', repo)})` : '');
+    note.className = 'form-note ok';
+    note.textContent = t('form.sent', names.length ? recipient : a.who)
+      + (list(a.missing).length ? ` ${t('form.missing', a.missing.join(', '), repo)}` : '');
+    setTimeout(() => { if (note.classList.contains('ok')) note.textContent = ''; }, 8000);
+    load();
+  } catch (f) {
+    note.className = 'form-note red';
+    note.textContent = f.message;
+  } finally {
+    $('#send').disabled = false;
+  }
+});
+
+function count() {
+  const n = [...$('#text').value].length, max = data ? data.max_text : 1500, el = $('#counter');
+  el.textContent = `${n} / ${max}`;
+  el.classList.toggle('full', n > max);
+}
+
+// --- History ------------------------------------------------------------------
+
+function historyRender() {
+  const d = data, kids = [];
+  const entries = [...d.events, ...d.mail.map((n) => ({ time: n.time, kind: 'mail', login: n.from, n }))]
+    .filter((x) => toDate(x.time) && Date.now() - toDate(x.time) < 864e5)
+    .sort((a, b) => toDate(b.time) - toDate(a.time)).slice(0, 150);
+  let day = '';
+  for (const x of entries) {
+    const label = dayLabel(x.time);
+    if (label !== day) { day = label; kids.push(h('li', { class: 'day' }, label)); }
+    kids.push(h('li', { class: `entry e-${cls(x.kind)}`, style: { '--hue': hue(x.login) } },
+      h('time', { datetime: x.time }, hhmm(x.time)), h('span', { class: 'bullet', 'aria-hidden': 'true' }),
+      h('span', { class: 'what' }, historyText(x))));
+  }
+  fill($('#history'), kids.length ? kids : h('li', { class: 'empty-state small' }, t('history.empty')));
+}
+
+function historyText(x) {
+  const w = h('b', {}, name(x.login)), r = short(x.repo), code = (c) => h('span', { class: 'code' }, c);
+  const inRepo = r ? ` (${r})` : '';
+  switch (x.kind) {
+    case 'repo': return x.branch ? tx('ev.repoBranch', w, r, code(x.branch)) : tx('ev.repo', w, r);
+    case 'branch': return tx('ev.branch', w, r, code(x.branch || ''));
+    case 'file': return tx('ev.file', w, r, code(list(x.files).join(', ')));
+    case 'task': return tx('ev.task', w, t('q', x.text || ''));
+    case 'approval': return tx('ev.approval', w, inRepo);
+    case 'error': return tx('ev.error', w, inRepo);
+    case 'warning': {
+      const owner = h('b', {}, poss(name(x.login))), other = whoDat(x.with, x.login);
+      return x.files ? tx('ev.warnFile', w, owner, other, code(list(x.files).join(', ')), inRepo)
+        : tx('ev.warnBranch', w, owner, other, code(x.branch || ''), inRepo);
+    }
+    case 'woken': return tx('ev.woken', h('b', {}, poss(name(x.login))),
+      list(x.from).length ? t('ev.wokenFrom', list(x.from).map((l) => name(l)).join(', ')) : '');
+    case 'end': return tx('ev.end', w, r);
+    case 'mail': return [w, ' → ', h('b', {}, list(x.n.to).map((l) => name(l)).join(', ')),
+      x.n.repo === 'ui' ? ` (${t('mail.ui')})` : x.n.repo ? ` (${x.n.repo})` : '', ': ', t('q', shorten(x.n.text, 100))];
+    default: return [w, ` ${x.kind}`];
+  }
+}
+
+// --- Settings and start ---------------------------------------------------------
+
+function themeRender() {
+  if (theme === 'system') delete document.documentElement.dataset.theme;
+  else document.documentElement.dataset.theme = theme;
+  $('#theme').title = t('theme.tip', t(`theme.${theme}`));
+}
+$('#theme').addEventListener('click', () => {
+  theme = { system: 'light', light: 'dark', dark: 'system' }[theme];
+  store('ais-theme', theme === 'system' ? null : theme);
+  themeRender();
+});
+
+function bellRender() {
+  const on = bell && 'Notification' in window && Notification.permission === 'granted';
+  $('#bell').setAttribute('aria-pressed', String(on));
+  $('#bell').title = on ? t('bell.on') : t('bell.off');
+}
+$('#bell').addEventListener('click', async () => {
+  if (!('Notification' in window)) return toast(t('bell.title'), t('bell.unsupported'), 'info');
+  if (bell && Notification.permission === 'granted') {
+    bell = false;
+  } else {
+    const answer = Notification.permission === 'default' ? await Notification.requestPermission() : Notification.permission;
+    bell = answer === 'granted';
+    if (!bell) toast(t('bell.title'), t('bell.blocked'), 'info');
+  }
+  store('ais-bell', bell ? 'on' : null);
+  bellRender();
+});
+
+function langRender() {  // everything that is not redrawn from the data: static texts, titles, the language buttons
+  document.documentElement.lang = lang;
+  setFormats();
+  for (const el of document.querySelectorAll('[data-t]')) el.textContent = t(el.dataset.t);
+  for (const el of document.querySelectorAll('[data-t-label]')) el.setAttribute('aria-label', t(el.dataset.tLabel));
+  for (const b of document.querySelectorAll('#lang button')) b.setAttribute('aria-pressed', String(b.dataset.lang === lang));
+  $('#keys').textContent = t(/Mac|iPhone|iPad/.test(navigator.platform) ? 'form.keys.mac' : 'form.keys.other');
+  $('#form-note').textContent = '';
+  themeRender();
+  bellRender();
+  liveRender();
+  if (connKind && connKind !== 'ok') connection(connKind);
+  render();
+}
+document.querySelectorAll('#lang button').forEach((b) => b.addEventListener('click', () => {
+  if (b.dataset.lang === lang) return;
+  lang = b.dataset.lang;
+  store('ais-lang', lang);
+  langRender();
+}));
+
+document.querySelectorAll('.seg button[data-filter]').forEach((b) => b.addEventListener('click', () => {
+  filter = b.dataset.filter;
+  document.querySelectorAll('.seg button[data-filter]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+  if (data) mailRender();
+}));
+$('#to').addEventListener('change', () => { optionsKey = ''; recipients(); });
+$('#text').addEventListener('input', count);
+$('#text').addEventListener('keydown', (ev) => {
+  if (ev.key === 'Enter' && (ev.metaKey || ev.ctrlKey)) { ev.preventDefault(); $('#compose').requestSubmit(); }
+});
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) return;
+  unread = 0;
+  setTitle();
+  load();
+  setTimeout(() => { if (freshMail.size && data) { freshMail.clear(); mailRender(); } }, 10000);
+});
+setInterval(() => {  // keep the relative times current
+  if (data && !document.hidden) { boardRender(); historyRender(); }
+  liveRender();
+}, 30000);
+
+langRender();
+load();
+</script>
+</body>
+</html>
