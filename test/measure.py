@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Measures how much text agents-in-sync writes into Claude's context in a typical flow.
-Usage: measure.py <ais.py> <SKILL.md>   (SHOW=1 also prints the texts)"""
+"""Measures how much text Synchronauts writes into Claude's context in a typical flow.
+Usage: measure.py <syn.py> <SKILL.md>   (SHOW=1 also prints the texts)"""
 import json
 import os
 import re
@@ -10,12 +10,12 @@ import tempfile
 import time
 from pathlib import Path
 
-AIS = str(Path(sys.argv[1]).resolve())
+SYN = str(Path(sys.argv[1]).resolve())
 SKILL = Path(sys.argv[2]).read_text(encoding='utf-8')
-REAL = '~/.agents-in-sync/ais.py'  # the path in real use, in case a version prints it
+REAL = '~/.synchronauts/syn.py'  # the path in real use, in case a version prints it
 T = Path(tempfile.mkdtemp())
 BASE = {k: v for k, v in os.environ.items() if k not in ('CLAUDE_PID', 'CLAUDE_CODE_ENTRYPOINT', 'CLAUDE_CODE_SESSION_ID')}
-BASE.update(AIS_REMOTE=str(T / 'remote.git'), AIS_ORGS='acme', AIS_TICK='0.3', AIS_IDLE='60')
+BASE.update(SYN_REMOTE=str(T / 'remote.git'), SYN_ORGS='acme', SYN_TICK='0.3', SYN_IDLE='60')
 
 
 def sh(*a):
@@ -34,29 +34,29 @@ def repo(name, slug):
 
 
 def env(who, sid=None):
-    e = dict(BASE, AIS_HOME=str(T / f'home-{who}'), AIS_ME=f'{who}-gh', AIS_NAME=who.capitalize(), AIS_MACHINE='one')
+    e = dict(BASE, SYN_HOME=str(T / f'home-{who}'), SYN_ME=f'{who}-gh', SYN_NAME=who.capitalize(), SYN_MACHINE='one')
     if sid:
         e['CLAUDE_CODE_SESSION_ID'] = f'{sid}-0000-0000'
     return e
 
 
-def ais(who, *a, sid=None):
-    return subprocess.run([sys.executable, AIS, *a], capture_output=True, text=True, env=env(who, sid), timeout=60)
+def syn(who, *a, sid=None):
+    return subprocess.run([sys.executable, SYN, *a], capture_output=True, text=True, env=env(who, sid), timeout=60)
 
 
 def hook(who, event, sid, cwd, tool=None, path=None):
     d = {'session_id': sid, 'cwd': str(cwd), 'source': 'startup'}
     if tool:
         d.update(tool_name=tool, tool_input={'file_path': str(path)} if path else {})
-    r = subprocess.run([sys.executable, AIS, 'hook', event], input=json.dumps(d), capture_output=True, text=True,
+    r = subprocess.run([sys.executable, SYN, 'hook', event], input=json.dumps(d), capture_output=True, text=True,
                        env=env(who), timeout=60)
     return (json.loads(r.stdout).get('hookSpecificOutput') or {}).get('additionalContext', '') if r.stdout.strip() else ''
 
 
 def real(text):
-    text = text.replace(AIS, REAL)
+    text = text.replace(SYN, REAL)
     for who in ('sam', 'alex'):
-        text = text.replace(str(T / f'home-{who}'), '~/.agents-in-sync')
+        text = text.replace(str(T / f'home-{who}'), '~/.synchronauts')
     return text
 
 
@@ -83,7 +83,7 @@ def text_in(path, *parts):
 
 
 def wait_for_mail(sid, cwd):
-    w = subprocess.Popen([sys.executable, AIS, 'hook', 'Stop'], stdin=subprocess.PIPE, stderr=subprocess.PIPE,
+    w = subprocess.Popen([sys.executable, SYN, 'hook', 'Stop'], stdin=subprocess.PIPE, stderr=subprocess.PIPE,
                          stdout=subprocess.DEVNULL, text=True, env=env('alex'))
     w.stdin.write(json.dumps({'session_id': sid, 'cwd': str(cwd)}))
     w.stdin.close()
@@ -96,15 +96,15 @@ try:
     SD, AD, AO = repo('sam-demo', 'acme/demo'), repo('alex-demo', 'acme/demo'), repo('alex-other', 'acme/other')
     NOTES = T / 'notes'
     NOTES.mkdir()
-    ais('sam', 'setup')
-    ais('alex', 'setup')
+    syn('sam', 'setup')
+    syn('alex', 'setup')
 
     hook('alex', 'SessionStart', 'ale11111', AD)
     hook('alex', 'PostToolUse', 'ale11111', AD, 'Edit', AD / 'src' / 'a.ts')
-    ais('alex', 'task', 'Ticket routes in demo, route /tickets/:id', sid='ale11111')
+    syn('alex', 'task', 'Ticket routes in demo, route /tickets/:id', sid='ale11111')
     hook('alex', 'PostToolUse', 'ale11111', AD, 'Bash')
     hook('alex', 'SessionStart', 'ale22222', AO)
-    ais('alex', 'task', 'Rebuild the price import for the shop', sid='ale22222')
+    syn('alex', 'task', 'Rebuild the price import for the shop', sid='ale22222')
     hook('alex', 'PostToolUse', 'ale22222', AO, 'Bash')
     hook('sam', 'UserPromptSubmit', 'sam00000', NOTES)  # starts Sam's watcher
     until(text_in(T / 'home-sam' / 'others.json', 'price import', 'Ticket routes'))
@@ -114,14 +114,14 @@ try:
     measure('Prompt with nothing new', hook('sam', 'UserPromptSubmit', 'sam11111', SD))
     measure('Tool call with nothing new', hook('sam', 'PostToolUse', 'sam11111', SD, 'Bash'))
     measure("First edit of Alex's file", hook('sam', 'PostToolUse', 'sam11111', SD, 'Edit', SD / 'src' / 'a.ts'))
-    ais('sam', 'task', 'Secure the ticket routes', sid='sam11111')
+    syn('sam', 'task', 'Secure the ticket routes', sid='sam11111')
     hook('sam', 'PostToolUse', 'sam11111', SD, 'Bash')
     measure('Second own session in the same repo, start', hook('sam', 'SessionStart', 'sam22222', SD))
     measure('First session, next prompt', hook('sam', 'UserPromptSubmit', 'sam11111', SD))
 
     hook('alex', 'UserPromptSubmit', 'ale11111', AD)
     w = wait_for_mail('ale11111', AD)
-    ais('sam', 'send', 'alex@demo', "I'm changing src/a.ts right now (ticket routes). Are you touching that file today? "
+    syn('sam', 'send', 'alex@demo', "I'm changing src/a.ts right now (ticket routes). Are you touching that file today? "
                                     "Otherwise I'll take the tests as well.", sid='sam11111')
     try:
         w.wait(20)
@@ -129,7 +129,7 @@ try:
         w.kill()
     measure(f'Wake-up with one message (exit {w.returncode})', w.stderr.read())
 
-    ais('sam', 'send', 'alex', 'Quick question: who builds the tests for the price import?', sid='sam11111')
+    syn('sam', 'send', 'alex', 'Quick question: who builds the tests for the price import?', sid='sam11111')
     until(text_in(T / 'home-alex' / 'others.json', 'who builds the tests'))
     measure('Message without a repo, target session at the next prompt', hook('alex', 'UserPromptSubmit', 'ale11111', AD))
     measure("The same message, Alex's other session", hook('alex', 'UserPromptSubmit', 'ale22222', AO))

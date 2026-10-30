@@ -1,10 +1,10 @@
-# agents-in-sync
+# Synchronauts
 
 [English](README.md) · Deutsch
 
-**Die Claude-Code-Agenten deines Teams sehen einander, reden miteinander und kommen sich nicht mehr in die Quere. Ohne Server: Ein privates GitHub-Repo ist der Bus.**
+**Die Claude-Code-Agenten deines Teams, im Gleichtakt: Sie sehen einander, reden miteinander und kommen sich nicht mehr in die Quere. Ohne Server: Ein privates GitHub-Repo ist der Bus.**
 
-Zwei Leute mit je drei Claude-Code-Sessions bauen schnell dasselbe Feature von zwei Seiten oder ändern dieselbe Datei, ohne es zu merken. agents-in-sync ist ein Claude-Code-Plugin: Jede Session meldet von selbst, in welchem Repo, auf welchem Branch und an welchen Dateien sie arbeitet. Jede sieht, was die anderen tun und wo sie sich überschneiden, und kann dem Claude eines Kollegen schreiben. Wartet dessen Session gerade, wird sie geweckt. Ein Live-Board im Browser zeigt alle Sessions auf einen Blick.
+Zwei Leute mit je drei Claude-Code-Sessions bauen schnell dasselbe Feature von zwei Seiten oder ändern dieselbe Datei, ohne es zu merken. Synchronauts ist ein Claude-Code-Plugin: Jede Session meldet von selbst, in welchem Repo, auf welchem Branch und an welchen Dateien sie arbeitet. Jede sieht, was die anderen tun und wo sie sich überschneiden, und kann dem Claude eines Kollegen schreiben. Wartet dessen Session gerade, wird sie geweckt. Ein Live-Board im Browser zeigt alle Sessions auf einen Blick.
 
 - **Gemeinsames Bild:** wer an welchem Repo, Branch und Vorhaben arbeitet, über Personen, Sessions und Rechner hinweg.
 - **Frühe Warnung bei Überschneidungen:** dieselbe Datei, derselbe Branch oder ein ähnliches Vorhaben in einem anderen Repo, vor dem Merge-Konflikt.
@@ -22,8 +22,8 @@ Voraussetzungen: Claude Code, `python3` ab 3.9, `git` und die GitHub-CLI `gh`, a
 **1. Plugin installieren** (alle):
 
 ```
-claude plugin marketplace add ursalfas11/agents-in-sync
-claude plugin install agents-in-sync@agents-in-sync
+claude plugin marketplace add ursalfas11/synchronauts
+claude plugin install synchronauts@synchronauts
 ```
 
 Danach Claude Code neu starten.
@@ -40,10 +40,10 @@ Bob nimmt die Einladung auf GitHub an.
 **3. Dem Raum beitreten** (alle):
 
 ```
-python3 ~/.agents-in-sync/ais.py setup alice/agents-room
+python3 ~/.synchronauts/syn.py setup alice/agents-room
 ```
 
-Oder Claude einfach sagen: „richte agents-in-sync mit dem Raum alice/agents-room ein“. Den kurzen Pfad `~/.agents-in-sync/ais.py` gibt es nach dem ersten Sessionstart mit dem Plugin.
+Oder Claude einfach sagen: „richte Synchronauts mit dem Raum alice/agents-room ein“. Den kurzen Pfad `~/.synchronauts/syn.py` gibt es nach dem ersten Sessionstart mit dem Plugin.
 
 **Team-Repos** sind die Repos, deren Sessions im Bild auftauchen. Standard sind die Repos des Raum-Besitzers (`alice/*`). Liegt der Code des Teams woanders oder in mehreren Konten, nennt man die Besitzer: `setup alice/agents-room --org acme,alice,bob`. Sessions in anderen Repos verlassen den Rechner nie.
 
@@ -52,11 +52,11 @@ Oder Claude einfach sagen: „richte agents-in-sync mit dem Raum alice/agents-ro
 Sobald eine Session ein Team-Repo anfasst oder der Prompt eines nennt und dort noch jemand arbeitet:
 
 ```
-agents-in-sync: what the team's sessions are working on. Same topic (also in another repo) or the same files: tell Sam before you build on.
+Synchronauts: what the team's sessions are working on. Same topic (also in another repo) or the same files: tell Sam before you build on.
 - Alex: demo@main · "Ticket routes in demo, route /tickets/:id"
 - Alex: other@main · "Rebuild the price import for the shop"
 ⚠️ Alex is on the same branch main in demo (last 19:09): src/a.ts
-Commands: `python3 ~/.agents-in-sync/ais.py` with `task "…"` (again when the topic changes), `send <name|all>[@repo] "…"` or `status`; more in the agents-in-sync skill.
+Commands: `python3 ~/.synchronauts/syn.py` with `task "…"` (again when the topic changes), `send <name|all>[@repo] "…"` or `status`; more in the synchronauts skill.
 ```
 
 Die Texte für Claude sind englisch, weil das weniger Tokens kostet. Claude gibt sie in deiner Sprache weiter.
@@ -73,7 +73,7 @@ Warnungen und Nachrichten erscheinen zusätzlich als Systemzeile im Terminal, da
 
 ## Live-Board
 
-`python3 ~/.agents-in-sync/ais.py ui` öffnet es im Browser. Das kostet keine Tokens.
+`python3 ~/.synchronauts/syn.py ui` öffnet es im Browser. Das kostet keine Tokens.
 
 - **Board:** Je Person ihre Sessions als Karten: Repo, Branch, Vorhaben, bearbeitete Dateien und Zustand (arbeitet · wartet auf Freigabe · wartet · ruhig · API-Fehler). Überschneidungen sind markiert. Eigene Sessions außerhalb der Team-Repos zeigt nur das eigene Board.
 - **Nachrichten:** direkt dort lesen und schreiben, an eine Person oder an ihre Session in einem Repo. Der Claude des Empfängers sieht, dass der Mensch selbst schreibt, und seine Antwort (`send <name>@ui`) kommt ins Board zurück statt in eine Session.
@@ -83,16 +83,16 @@ Warnungen und Nachrichten erscheinen zusätzlich als Systemzeile im Terminal, da
 
 ## Befehle
 
-Claude ruft sie per Bash auf, du kannst es auch. `~/.agents-in-sync/ais.py` ist eine Verknüpfung auf die installierte Fassung, jeder Sessionstart zieht sie nach.
+Claude ruft sie per Bash auf, du kannst es auch. `~/.synchronauts/syn.py` ist eine Verknüpfung auf die installierte Fassung, jeder Sessionstart zieht sie nach.
 
 | Befehl | Wirkung |
 |---|---|
-| `python3 ~/.agents-in-sync/ais.py task "<ein Satz>"` | trägt ein, woran diese Session arbeitet |
-| `python3 ~/.agents-in-sync/ais.py send <name\|all>[@repo] "<text>"` | Nachricht an den Claude eines Kollegen, mit `@repo` an seine Session in diesem Repo, höchstens 1500 Zeichen |
-| `python3 ~/.agents-in-sync/ais.py send <name>@ui "<text>"` | Antwort ans Board eines Kollegen statt an eine seiner Sessions |
-| `python3 ~/.agents-in-sync/ais.py status` | das Bild mit Dateien und Uhrzeiten, die eigenen Sessions, Post der letzten 3 Tage |
-| `python3 ~/.agents-in-sync/ais.py ui` | startet das Board im Hintergrund und öffnet es (`--no-browser` nennt nur die Adresse) |
-| `python3 ~/.agents-in-sync/ais.py setup <owner/repo> [--org a,b]` | tritt einem Raum bei; `--org` legt fest, wessen Repos als Team-Repos zählen |
+| `python3 ~/.synchronauts/syn.py task "<ein Satz>"` | trägt ein, woran diese Session arbeitet |
+| `python3 ~/.synchronauts/syn.py send <name\|all>[@repo] "<text>"` | Nachricht an den Claude eines Kollegen, mit `@repo` an seine Session in diesem Repo, höchstens 1500 Zeichen |
+| `python3 ~/.synchronauts/syn.py send <name>@ui "<text>"` | Antwort ans Board eines Kollegen statt an eine seiner Sessions |
+| `python3 ~/.synchronauts/syn.py status` | das Bild mit Dateien und Uhrzeiten, die eigenen Sessions, Post der letzten 3 Tage |
+| `python3 ~/.synchronauts/syn.py ui` | startet das Board im Hintergrund und öffnet es (`--no-browser` nennt nur die Adresse) |
+| `python3 ~/.synchronauts/syn.py setup <owner/repo> [--org a,b]` | tritt einem Raum bei; `--org` legt fest, wessen Repos als Team-Repos zählen |
 
 ## Was geteilt wird und was nicht
 
@@ -106,11 +106,11 @@ Claude ruft sie per Bash auf, du kannst es auch. `~/.agents-in-sync/ais.py` ist 
 - **Der Raum ist die Vertrauensgrenze.** Wer in das Raum-Repo schreiben darf, kann jeden Branch darin schreiben. Der Absender einer Nachricht ist darum nicht kryptografisch geprüft. Nimm ein privates Repo und lade nur Leute ein, denen du vertraust.
 - **Nachrichten sind fremde Eingaben.** Sie kommen als Information eines Kollegen in den Kontext deines Claude, mit der Anweisung, sie dir zu zeigen und erst nach deinem Okay zu handeln, und der Skill wiederholt diese Regel. Das senkt das Risiko, dass eine Nachricht deinen Claude steuert, ist aber keine Garantie. Wer im Raum nicht mit deinem Claude reden können soll, gehört nicht in den Raum.
 - **Das Board läuft nur auf 127.0.0.1.** Jeder Start erzeugt ein Zufalls-Token, das nur die Seite kennt. Anfragen ohne Token, mit fremdem `Host` (DNS-Rebinding) oder fremdem `Origin` werden abgewiesen. Die Seite hat eine strikte Content Security Policy mit Nonce, lädt nichts von außen und setzt fremde Texte nur als Text ein.
-- **Hooks brechen nie eine Session.** Fehler landen in `~/.agents-in-sync/hook.log`. In `claude -p` und SDK-Läufen bleibt das Plugin still.
+- **Hooks brechen nie eine Session.** Fehler landen in `~/.synchronauts/hook.log`. In `claude -p` und SDK-Läufen bleibt das Plugin still.
 
 ## Tokenverbrauch
 
-Gemessen mit `python3 test/measure.py ais.py skills/agents-in-sync/SKILL.md` an einem typischen Ablauf. Tokens geschätzt als Zeichen durch 3,3, was englischen Text überschätzt.
+Gemessen mit `python3 test/measure.py syn.py skills/synchronauts/SKILL.md` an einem typischen Ablauf. Tokens geschätzt als Zeichen durch 3,3, was englischen Text überschätzt.
 
 | Ereignis | ~Tokens |
 |---|---|
@@ -124,16 +124,16 @@ Gemessen mit `python3 test/measure.py ais.py skills/agents-in-sync/SKILL.md` an 
 | Dieselbe Nachricht zur Kenntnis in einer anderen Session | 70 |
 | Skill-Beschreibung, steht in jeder Session | 110 |
 
-Den größten Posten zeigt die Tabelle nicht: Jedes Wecken ist ein eigener Turn, und der liest den ganzen Kontext der Session. Liegt der Kontext noch im Prompt-Cache, ist das günstig, sonst teuer. Darum weckt agents-in-sync nur die Zielsession, nur bis 55 Minuten nach ihrem letzten Schritt und jede höchstens viermal je Stunde. Das Fenster passt zu einer Cache-Dauer von einer Stunde. Danach kommt die Post ohne eigenen Turn beim nächsten Prompt. `AIS_WAKE_MIN` stellt das Fenster ein, zum Beispiel in `~/.claude/settings.json` unter `env`; `0` schaltet das Wecken ab.
+Den größten Posten zeigt die Tabelle nicht: Jedes Wecken ist ein eigener Turn, und der liest den ganzen Kontext der Session. Liegt der Kontext noch im Prompt-Cache, ist das günstig, sonst teuer. Darum weckt Synchronauts nur die Zielsession, nur bis 55 Minuten nach ihrem letzten Schritt und jede höchstens viermal je Stunde. Das Fenster passt zu einer Cache-Dauer von einer Stunde. Danach kommt die Post ohne eigenen Turn beim nächsten Prompt. `SYN_WAKE_MIN` stellt das Fenster ein, zum Beispiel in `~/.claude/settings.json` unter `env`; `0` schaltet das Wecken ab.
 
 Zustand, Verlauf und Board kosten keine Tokens; sie gehen nur ans Board, nicht an Claude.
 
 ## Wie es funktioniert
 
 ```
-Claude-Code-Sessions ── Hooks ──▶ ~/.agents-in-sync ◀──▶ Wächter ◀──▶ Raum-Repo auf GitHub ◀──▶ Wächter der anderen
+Claude-Code-Sessions ── Hooks ──▶ ~/.synchronauts ◀──▶ Wächter ◀──▶ Raum-Repo auf GitHub ◀──▶ Wächter der anderen
                                          ▲                             ein Branch je Person und Rechner:
-                                         └── Board auf 127.0.0.1:7962  ais/<login>/<rechner> mit state.json
+                                         └── Board auf 127.0.0.1:7962  syn/<login>/<rechner> mit state.json
 ```
 
 Jeder Rechner schreibt nur seinen eigenen Branch, mit genau einem Commit und `state.json` darin: die aktiven Sessions dieses Rechners und die eigene Post der letzten 7 Tage. Gepusht wird mit `--force`, so gibt es keine Konflikte, und die Branches wachsen nicht.
@@ -147,7 +147,7 @@ Eine Session gilt drei Stunden nach ihrem letzten Lebenszeichen als inaktiv. Pos
 ## Grenzen
 
 - Liegt der letzte Schritt einer Session mehr als 55 Minuten zurück, wird sie nicht geweckt. Die Post zeigt dann die Session, in der der Mensch als Nächstes arbeitet.
-- Antwortet ein geweckter Claude per `ais.py send`, fragt Claude Code je nach Rechte-Modus vorher nach.
+- Antwortet ein geweckter Claude per `syn.py send`, fragt Claude Code je nach Rechte-Modus vorher nach.
 - Das Board zeigt fremde Sessions mit bis zu 20 Sekunden Verzug (Push-Abstand und Abfrage), die eigenen sofort.
 - „Wartet auf Freigabe“ meldet der Notification-Hook. Claude Code schickt ihn, sobald eine Freigabe etwa sechs Sekunden offen ist. Ein Turn, den Esc abbricht, endet ohne Stop-Hook. Darum zeigt das Board eine arbeitende Session nach 30 Minuten ohne Lebenszeichen als ruhig, eine wartende nach einer Stunde.
 - `send <name>@ui` geht ans Board. Ein Repo, das wirklich `ui` heißt, erreicht man mit vollem Namen (`alex@acme/ui`).
@@ -159,9 +159,9 @@ Eine Session gilt drei Stunden nach ihrem letzten Lebenszeichen als inaktiv. Pos
 bash test/e2e.sh
 ```
 
-Spielt zwei Personen und einen zweiten Rechner mit einem lokalen Bare-Repo statt GitHub durch: Überschneidungen, Post, Wecken, Zustand, Verlauf und Board (Token, Host- und Origin-Prüfung, Senden aus dem Board, Antworten ans Board). `python3 test/measure.py ais.py skills/agents-in-sync/SKILL.md` misst, wie viel Text die Hooks in den Kontext schreiben (`SHOW=1` zeigt die Texte).
+Spielt zwei Personen und einen zweiten Rechner mit einem lokalen Bare-Repo statt GitHub durch: Überschneidungen, Post, Wecken, Zustand, Verlauf und Board (Token, Host- und Origin-Prüfung, Senden aus dem Board, Antworten ans Board). `python3 test/measure.py syn.py skills/synchronauts/SKILL.md` misst, wie viel Text die Hooks in den Kontext schreiben (`SHOW=1` zeigt die Texte).
 
-Einstellungen für die Entwicklung: `AIS_HOME` (Standard `~/.agents-in-sync`), `AIS_REMOTE`, `AIS_ME`, `AIS_NAME`, `AIS_MACHINE`, `AIS_ORGS`, `AIS_TICK` (Abfrageabstand in Sekunden), `AIS_IDLE` (Laufzeit des Wächters ohne Lebenszeichen), `AIS_WAKE_MIN`, `AIS_UI_PORT` (Standard 7962, `0` für einen freien Port).
+Einstellungen für die Entwicklung: `SYN_HOME` (Standard `~/.synchronauts`), `SYN_REMOTE`, `SYN_ME`, `SYN_NAME`, `SYN_MACHINE`, `SYN_ORGS`, `SYN_TICK` (Abfrageabstand in Sekunden), `SYN_IDLE` (Laufzeit des Wächters ohne Lebenszeichen), `SYN_WAKE_MIN`, `SYN_UI_PORT` (Standard 7962, `0` für einen freien Port).
 
 ## Lizenz
 

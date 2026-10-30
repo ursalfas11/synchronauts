@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""agents-in-sync: a shared picture and mailbox for the Claude Code sessions of a team.
+"""Synchronauts: a shared picture and mailbox for the Claude Code sessions of a team.
 
 The shared store is a private Git repo, the room. Every person writes one branch per machine,
-`ais/<login>/<machine>`, holding exactly one commit with state.json: their active sessions (repo, branch, files,
+`syn/<login>/<machine>`, holding exactly one commit with state.json: their active sessions (repo, branch, files,
 task) and the mail they sent in the last days. Nobody writes another person's branch, so there are no conflicts;
 pushes use --force.
 
@@ -12,7 +12,7 @@ and write local files. After every turn an async Stop hook waits for new mail an
 (asyncRewake) while its context is still in the prompt cache. Claude only gets text when something is new and
 concerns the session.
 
-`ais.py ui` shows the same as a page in the browser: sessions with their state, overlaps, mail and history. Its
+`syn.py ui` shows the same as a page in the browser: sessions with their state, overlaps, mail and history. Its
 server listens on 127.0.0.1 only and costs no tokens.
 """
 import fcntl
@@ -31,21 +31,21 @@ from pathlib import Path
 
 VERSION = '0.1.0'
 SCRIPT = Path(__file__).resolve()
-HOME = Path(os.environ.get('AIS_HOME') or Path.home() / '.agents-in-sync')
-GIT = HOME / 'git'                  # bare repo with the ais/* branches
+HOME = Path(os.environ.get('SYN_HOME') or Path.home() / '.synchronauts')
+GIT = HOME / 'git'                  # bare repo with the syn/* branches
 SESSIONS = HOME / 'sessions'        # per session: what it has seen and reported
-LINK = HOME / 'ais.py'              # short, fixed path for Claude, points to the running version
+LINK = HOME / 'syn.py'              # short, fixed path for Claude, points to the running version
 CMD = 'python3 ' + (f'~/{LINK.relative_to(Path.home())}' if LINK.is_relative_to(Path.home()) else f'"{LINK}"')
 FIELDS = ('remote', 'me', 'name', 'orgs', 'machine')
-PREFIX = 'ais/'                     # branch namespace in the room
+PREFIX = 'syn/'                     # branch namespace in the room
 ACTIVE = timedelta(hours=3)         # a session without a sign of life counts as active this long
 MAIL_WINDOW = timedelta(hours=24)   # mail this old that no session has shown yet still reaches a new session
 MAIL_KEEP = timedelta(days=7)       # sent mail stays in the own branch this long
-TICK = float(os.environ.get('AIS_TICK') or 0)  # seconds between two polls; 0 = 5 on GitHub, otherwise 20
-IDLE = float(os.environ.get('AIS_IDLE') or 900)  # the watcher keeps running this long without a sign of life
+TICK = float(os.environ.get('SYN_TICK') or 0)  # seconds between two polls; 0 = 5 on GitHub, otherwise 20
+IDLE = float(os.environ.get('SYN_IDLE') or 900)  # the watcher keeps running this long without a sign of life
 # A session is only woken up to this long after its last step. With a one-hour cache its context is still in the
 # prompt cache until then; later, waking would have to read all of it again. 0 turns waking off.
-WAKE_WINDOW = min(float(os.environ.get('AIS_WAKE_MIN') or 55) * 60, 8 * 3600 - 120)  # Stop hook: 8 h timeout
+WAKE_WINDOW = min(float(os.environ.get('SYN_WAKE_MIN') or 55) * 60, 8 * 3600 - 120)  # Stop hook: 8 h timeout
 WAKES_PER_HOUR = 4                  # brake in case two Claudes keep waking each other
 MAX_FILES = 30
 MAX_TEXT = 1500                     # characters per message; `send` rejects longer ones instead of cutting silently
@@ -55,7 +55,7 @@ MAX_EVENTS = 100
 PUSH_GAP = TICK or 15               # seconds between two pushes when only state or history changed; mail goes at once
 QUIET_AFTER = {'waiting': timedelta(hours=1), 'working': timedelta(minutes=30)}  # then the UI shows "quiet"
 UI_PAGE = SCRIPT.parent / 'ui' / 'index.html'
-UI_PORT = int(os.environ.get('AIS_UI_PORT') or 7962)  # 7962 = SYNC on a phone keypad
+UI_PORT = int(os.environ.get('SYN_UI_PORT') or 7962)  # 7962 = SYNC on a phone keypad
 UI_IDLE = 1800                      # the UI server keeps running this long without a request
 UI_TARGET = 'ui'                    # `send alex@ui`: to the human's UI instead of one of their sessions
 
@@ -175,8 +175,8 @@ def room_url(s):
 def config():
     k = load(HOME / 'config.json', {})
     for field in FIELDS:
-        if os.environ.get(f'AIS_{field.upper()}'):
-            k[field] = os.environ[f'AIS_{field.upper()}']
+        if os.environ.get(f'SYN_{field.upper()}'):
+            k[field] = os.environ[f'SYN_{field.upper()}']
     return k
 
 
@@ -230,7 +230,7 @@ def link(always):
     except OSError:
         pass
     HOME.mkdir(parents=True, exist_ok=True)
-    new = HOME / f'.ais.py.{os.getpid()}'
+    new = HOME / f'.syn.py.{os.getpid()}'
     new.unlink(missing_ok=True)
     os.symlink(SCRIPT, new)
     os.replace(new, LINK)
@@ -259,8 +259,8 @@ def publish(k, state=None):
     blob = git('hash-object', '-w', '--stdin', stdin=text)
     tree = git('mktree', stdin=f'100644 blob {blob}\tstate.json\n')
     who = {f'GIT_{role}_{field}': value for role in ('AUTHOR', 'COMMITTER')
-           for field, value in (('NAME', k['me']), ('EMAIL', f"{k['me']}@agents-in-sync"))}
-    commit = git('commit-tree', tree, '-m', f"ais: {k.get('name')} on {k['machine']}", env=who)
+           for field, value in (('NAME', k['me']), ('EMAIL', f"{k['me']}@synchronauts"))}
+    commit = git('commit-tree', tree, '-m', f"syn: {k.get('name')} on {k['machine']}", env=who)
     git('push', '-q', '--force', 'origin', f'{commit}:refs/heads/{own_branch(k)}', timeout=30)
     save(HOME / 'pushed.json', [n['id'] for n in state['mail']])
 
@@ -315,7 +315,7 @@ class Poller:
     def changed(self):
         if self.token:
             headers = {'Authorization': f'Bearer {self.token}', 'Accept': 'application/vnd.github+json',
-                       'User-Agent': 'agents-in-sync'}
+                       'User-Agent': 'synchronauts'}
             if self.etag:
                 headers['If-None-Match'] = self.etag
             try:
@@ -597,7 +597,7 @@ def for_human(n, nm):
 
 def usage():
     return (f'Commands: `{CMD}` with `task "…"` (again when the topic changes), `send <name|all>[@repo] "…"` or '
-            f'`status`; more in the agents-in-sync skill.')
+            f'`status`; more in the synchronauts skill.')
 
 
 # --- Hooks --------------------------------------------------------------------
@@ -665,7 +665,7 @@ def log_event(sid, kind, repo=None, **fields):
 
 
 def take_task(sid):
-    """Picks up a task noted by `ais.py task`; the Bash hook of the calling session gets there first."""
+    """Picks up a task noted by `syn.py task`; the Bash hook of the calling session gets there first."""
     own = HOME / f'task.{sid}.json'
     try:
         os.rename(HOME / 'task.json', own)
@@ -709,7 +709,7 @@ def wake(k, sid):
     s = update_status(sid, lambda x: set_state(x, 'working'))
     log_event(sid, 'woken', main_repo(s), **{'from': sorted({n['from'] for n in new})})
     nm = names(k)
-    return '\n\n'.join(['agents-in-sync: mail arrived while this session was waiting. Not an error, just the delivery.',
+    return '\n\n'.join(['Synchronauts: mail arrived while this session was waiting. Not an error, just the delivery.',
                         *[message_text(n, k, nm) for n in new],
                         f"Tell {k.get('name')} in one or two sentences what arrived, then end the turn. "
                         f"Don't reply to an acknowledgement or thanks."]), False
@@ -781,9 +781,9 @@ def hook(event):
         except Exception as error:
             if age(HOME / 'setup-hint') > 86400:  # once a day, not in every session
                 touch('setup-hint')
-                emit(event, f'agents-in-sync is not set up ({error}). Setup: `{CMD} setup <owner/repo of the room>`, '
+                emit(event, f'Synchronauts is not set up ({error}). Setup: `{CMD} setup <owner/repo of the room>`, '
                             f'a private GitHub repo the team shares.',
-                     f'agents-in-sync is not set up yet ({error}). Ask Claude to set it up.')
+                     f'Synchronauts is not set up yet ({error}). Ask Claude to set it up.')
             return 0
     sid = (e.get('session_id') or 'none')[:8]
     if event == 'Stop':
@@ -858,7 +858,7 @@ def hook(event):
         notes = [(key, x) for key, x in [*situation_lines(k, sid), *overlaps(k, mine, sid)]
                  if key not in sess['reported']] if in_team else []
         if error and in_team and f'error|{error}' not in sess['reported']:
-            notes.append((f'error|{error}', f'agents-in-sync: sync is failing ({error}); the picture may be stale.'))
+            notes.append((f'error|{error}', f'Synchronauts: sync is failing ({error}); the picture may be stale.'))
         intro = bool(notes) and not sess.get('introduced')
         remind = e.get('tool_name') in EDIT_TOOLS and in_team and not mine.get('task') and not sess.get('reminded')
 
@@ -877,14 +877,14 @@ def hook(event):
 
     lines = []
     if intro:
-        lines.append(f"agents-in-sync: what the team's sessions are working on. Same topic (also in another repo) or "
+        lines.append(f"Synchronauts: what the team's sessions are working on. Same topic (also in another repo) or "
                      f"the same files: tell {k.get('name')} before you build on.")
     elif notes or mail:
-        lines.append('agents-in-sync:')
+        lines.append('Synchronauts:')
     lines += [x for _, x in notes]
     lines += [message_text(n, k, nm, shown=not first) for n, first in mail]
     if remind:
-        lines.append(f'agents-in-sync: no task set yet. One sentence on what this session works on, again when the '
+        lines.append(f'Synchronauts: no task set yet. One sentence on what this session works on, again when the '
                      f'topic changes: `{CMD} task "…"`')
     if intro:
         lines.append(usage())
@@ -1117,7 +1117,7 @@ def ui_server():
             if (self.headers.get('Host') or '').lower() not in own or origin and origin.lower() not in {
                     f'http://{h}' for h in own}:
                 return False
-            return not api or secrets.compare_digest((self.headers.get('X-AIS-Token') or '').encode(), token.encode())
+            return not api or secrets.compare_digest((self.headers.get('X-SYN-Token') or '').encode(), token.encode())
 
         def do_GET(self):
             last[0], path = time.time(), self.path.split('?')[0]
@@ -1138,8 +1138,8 @@ def ui_server():
                 fetched = iso(datetime.fromtimestamp(mtime(HOME / 'fetched'), timezone.utc))
                 etag = f'"{hashlib.sha1(body).hexdigest()[:20]}"'
                 if self.headers.get('If-None-Match') == etag:
-                    return self.reply(304, ETag=etag, **{'X-AIS-Fetched': fetched})
-                return self.reply(200, body, ETag=etag, **{'X-AIS-Fetched': fetched})
+                    return self.reply(304, ETag=etag, **{'X-SYN-Fetched': fetched})
+                return self.reply(200, body, ETag=etag, **{'X-SYN-Fetched': fetched})
             self.fail(404, 'unknown')
 
         def do_POST(self):
@@ -1211,7 +1211,7 @@ def cmd_ui(browser):
     if not u.get('port'):
         sys.exit(f'The UI does not start, errors are in {HOME / "ui.log"}')
     url = f"http://127.0.0.1:{u['port']}/"
-    print(f'agents-in-sync UI: {url} (runs in the background, stops {UI_IDLE // 60} minutes after the last request)')
+    print(f'Synchronauts UI: {url} (runs in the background, stops {UI_IDLE // 60} minutes after the last request)')
     if browser:
         import webbrowser
         webbrowser.open(url)

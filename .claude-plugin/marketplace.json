@@ -1,15 +1,15 @@
 {
-  "name": "agents-in-sync",
+  "name": "synchronauts",
   "owner": {
     "name": "ursalfas11",
     "url": "https://github.com/ursalfas11"
   },
   "metadata": {
-    "description": "agents-in-sync: keep the Claude Code sessions of a team in sync."
+    "description": "Synchronauts: keep the Claude Code sessions of a team in sync."
   },
   "plugins": [
     {
-      "name": "agents-in-sync",
+      "name": "synchronauts",
       "source": "./",
       "description": "Team awareness and messaging for Claude Code sessions; mail wakes a waiting session; live board in the browser.",
       "version": "0.1.0"
