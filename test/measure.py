@@ -53,6 +53,14 @@ def hook(who, event, sid, cwd, tool=None, path=None):
     return (json.loads(r.stdout).get('hookSpecificOutput') or {}).get('additionalContext', '') if r.stdout.strip() else ''
 
 
+def question(who, sid, cwd, path):
+    """The hook's answer before an edit; the reason of a permission prompt is only shown to the human."""
+    d = {'session_id': sid, 'cwd': str(cwd), 'tool_name': 'Edit', 'tool_input': {'file_path': str(path)}}
+    r = subprocess.run([sys.executable, SYN, 'hook', 'PreToolUse'], input=json.dumps(d), capture_output=True,
+                       text=True, env=env(who), timeout=60)
+    return json.loads(r.stdout).get('hookSpecificOutput') or {} if r.stdout.strip() else {}
+
+
 def real(text):
     text = text.replace(SYN, REAL)
     for who in ('sam', 'alex'):
@@ -113,7 +121,13 @@ try:
     measure('Start outside the team repos (notes, home)', hook('sam', 'SessionStart', 'sam99999', NOTES))
     measure('Prompt with nothing new', hook('sam', 'UserPromptSubmit', 'sam11111', SD))
     measure('Tool call with nothing new', hook('sam', 'PostToolUse', 'sam11111', SD, 'Bash'))
-    measure("First edit of Alex's file", hook('sam', 'PostToolUse', 'sam11111', SD, 'Edit', SD / 'src' / 'a.ts'))
+    q = question('sam', 'sam11111', SD, SD / 'src' / 'a.ts')
+    if os.environ.get('SHOW'):
+        print(f"--- Permission prompt before the edit, only for Sam ({q.get('permissionDecision')})\n"
+              f"{q.get('permissionDecisionReason')}\n")
+    measure("Question before the first edit of Alex's file", q.get('additionalContext', ''))
+    measure("First edit of Alex's file, after Sam allowed it",
+            hook('sam', 'PostToolUse', 'sam11111', SD, 'Edit', SD / 'src' / 'a.ts'))
     syn('sam', 'task', 'Secure the ticket routes', sid='sam11111')
     hook('sam', 'PostToolUse', 'sam11111', SD, 'Bash')
     measure('Second own session in the same repo, start', hook('sam', 'SessionStart', 'sam22222', SD))

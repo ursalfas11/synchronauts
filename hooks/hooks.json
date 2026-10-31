@@ -1,25 +1,28 @@
 {
   "hooks": {
     "SessionStart": [
-      {"hooks": [{"type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/syn.py\" hook SessionStart", "timeout": 60}]}
+      {"hooks": [{"type": "command", "command": "py=python3; [ \"$OS\" = Windows_NT ] && py=python; \"$py\" \"${CLAUDE_PLUGIN_ROOT}/hook.py\" SessionStart", "timeout": 60}]}
     ],
     "UserPromptSubmit": [
-      {"hooks": [{"type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/syn.py\" hook UserPromptSubmit", "timeout": 10}]}
+      {"hooks": [{"type": "command", "command": "py=python3; [ \"$OS\" = Windows_NT ] && py=python; \"$py\" \"${CLAUDE_PLUGIN_ROOT}/hook.py\" UserPromptSubmit", "timeout": 10}]}
+    ],
+    "PreToolUse": [
+      {"matcher": "Edit|Write|MultiEdit|NotebookEdit", "hooks": [{"type": "command", "command": "py=python3; [ \"$OS\" = Windows_NT ] && py=python; \"$py\" \"${CLAUDE_PLUGIN_ROOT}/hook.py\" PreToolUse", "timeout": 10}]}
     ],
     "PostToolUse": [
-      {"matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash", "hooks": [{"type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/syn.py\" hook PostToolUse", "timeout": 10}]}
+      {"matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash", "hooks": [{"type": "command", "command": "py=python3; [ \"$OS\" = Windows_NT ] && py=python; \"$py\" \"${CLAUDE_PLUGIN_ROOT}/hook.py\" PostToolUse", "timeout": 10}]}
     ],
     "Notification": [
-      {"matcher": "permission_prompt|elicitation_dialog", "hooks": [{"type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/syn.py\" hook Notification", "timeout": 10}]}
+      {"matcher": "permission_prompt|elicitation_dialog", "hooks": [{"type": "command", "command": "py=python3; [ \"$OS\" = Windows_NT ] && py=python; \"$py\" \"${CLAUDE_PLUGIN_ROOT}/hook.py\" Notification", "timeout": 10}]}
     ],
     "Stop": [
-      {"hooks": [{"type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/syn.py\" hook Stop", "async": true, "asyncRewake": true, "timeout": 28800}]}
+      {"hooks": [{"type": "command", "command": "py=python3; [ \"$OS\" = Windows_NT ] && py=python; \"$py\" \"${CLAUDE_PLUGIN_ROOT}/hook.py\" Stop", "async": true, "asyncRewake": true, "timeout": 28800}]}
     ],
     "StopFailure": [
-      {"hooks": [{"type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/syn.py\" hook StopFailure", "timeout": 10}]}
+      {"hooks": [{"type": "command", "command": "py=python3; [ \"$OS\" = Windows_NT ] && py=python; \"$py\" \"${CLAUDE_PLUGIN_ROOT}/hook.py\" StopFailure", "timeout": 10}]}
     ],
     "SessionEnd": [
-      {"hooks": [{"type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/syn.py\" hook SessionEnd", "timeout": 10}]}
+      {"hooks": [{"type": "command", "command": "py=python3; [ \"$OS\" = Windows_NT ] && py=python; \"$py\" \"${CLAUDE_PLUGIN_ROOT}/hook.py\" SessionEnd", "timeout": 10}]}
     ]
   }
 }

@@ -389,7 +389,7 @@ textarea { resize: vertical; min-height: 74px; line-height: 1.45; }
 // Everything that comes from other people (tasks, file names, messages) only ever reaches the DOM as a text node,
 // never as HTML: all rendering goes through h(), and no string from the server is ever parsed as markup.
 const TOKEN = document.querySelector('meta[name="syn-token"]').content;
-const CMD = 'python3 ~/.synchronauts/syn.py';
+const CMD = '~/.synchronauts/syn';
 const $ = (sel) => document.querySelector(sel);
 
 // --- Texts --------------------------------------------------------------------

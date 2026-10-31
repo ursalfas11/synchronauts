@@ -7,17 +7,18 @@
 Zwei Leute mit je drei Claude-Code-Sessions bauen schnell dasselbe Feature von zwei Seiten oder ändern dieselbe Datei, ohne es zu merken. Synchronauts ist ein Claude-Code-Plugin: Jede Session meldet von selbst, in welchem Repo, auf welchem Branch und an welchen Dateien sie arbeitet. Jede sieht, was die anderen tun und wo sie sich überschneiden, und kann dem Claude eines Kollegen schreiben. Wartet dessen Session gerade, wird sie geweckt. Ein Live-Board im Browser zeigt alle Sessions auf einen Blick.
 
 - **Gemeinsames Bild:** wer an welchem Repo, Branch und Vorhaben arbeitet, über Personen, Sessions und Rechner hinweg.
+- **Eine Rückfrage, bevor es einem Kollegen in die Datei fährt:** Bevor Claude zum ersten Mal eine Datei ändert, an der die Session eines Kollegen gerade arbeitet, fragt Claude Code dich, mit wer, wo und woran.
 - **Frühe Warnung bei Überschneidungen:** dieselbe Datei, derselbe Branch oder ein ähnliches Vorhaben in einem anderen Repo, vor dem Merge-Konflikt.
 - **Nachrichten von Agent zu Agent:** `send alex@api "…"` erreicht Alex' Session in `api` und weckt sie, wenn sie wartet.
 - **Live-Board:** eine lokale Webseite mit Sessions, Zuständen (arbeitet, wartet auf Freigabe, wartet, Fehler), Nachrichten und Verlauf.
 - **Sparsam mit Tokens:** Text für Claude nur, wenn etwas neu ist und die Session betrifft, außerhalb der Team-Repos gar keiner.
 - **Kein Server, kein Konto:** Der GitHub-Zugang ist die Zugangskontrolle. Nur die Python-Standardbibliothek.
 
-Stand: früh (0.1). Gedacht für kleine Teams, die einander vertrauen, siehe [Sicherheit](#sicherheit).
+Stand: früh (0.2). Gedacht für kleine Teams, die einander vertrauen, siehe [Sicherheit](#sicherheit).
 
 ## Schnellstart
 
-Voraussetzungen: Claude Code, `python3` ab 3.9, `git` und die GitHub-CLI `gh`, angemeldet (`gh auth status`) und als Git-Zugang eingerichtet (`gh auth setup-git`). macOS oder Linux.
+Voraussetzungen: Claude Code, Python ab 3.9, `git` und die GitHub-CLI `gh`, angemeldet (`gh auth status`) und als Git-Zugang eingerichtet (`gh auth setup-git`). macOS, Linux oder Windows; unter Windows mit [Git für Windows](https://gitforwindows.org), dessen Git Bash die Hooks ausführt.
 
 **1. Plugin installieren** (alle):
 
@@ -35,15 +36,13 @@ gh repo create alice/agents-room --private
 gh api -X PUT repos/alice/agents-room/collaborators/bob -f permission=push
 ```
 
-Bob nimmt die Einladung auf GitHub an.
-
 **3. Dem Raum beitreten** (alle):
 
 ```
-python3 ~/.synchronauts/syn.py setup alice/agents-room
+~/.synchronauts/syn setup alice/agents-room
 ```
 
-Oder Claude einfach sagen: „richte Synchronauts mit dem Raum alice/agents-room ein“. Den kurzen Pfad `~/.synchronauts/syn.py` gibt es nach dem ersten Sessionstart mit dem Plugin.
+Oder Claude einfach sagen: „richte Synchronauts mit dem Raum alice/agents-room ein“. Hat Bob die Einladung noch nicht angenommen, nimmt `setup` sie an. Den kurzen Befehl `~/.synchronauts/syn` gibt es nach dem ersten Sessionstart mit dem Plugin; unter Windows läuft er in Git Bash.
 
 **Team-Repos** sind die Repos, deren Sessions im Bild auftauchen. Standard sind die Repos des Raum-Besitzers (`alice/*`). Liegt der Code des Teams woanders oder in mehreren Konten, nennt man die Besitzer: `setup alice/agents-room --org acme,alice,bob`. Sessions in anderen Repos verlassen den Rechner nie.
 
@@ -56,7 +55,7 @@ Synchronauts: what the team's sessions are working on. Same topic (also in anoth
 - Alex: demo@main · "Ticket routes in demo, route /tickets/:id"
 - Alex: other@main · "Rebuild the price import for the shop"
 ⚠️ Alex is on the same branch main in demo (last 19:09): src/a.ts
-Commands: `python3 ~/.synchronauts/syn.py` with `task "…"` (again when the topic changes), `send <name|all>[@repo] "…"` or `status`; more in the synchronauts skill.
+Commands: `~/.synchronauts/syn` with `task "…"` (again when the topic changes), `send <name|all>[@repo] "…"` or `status`; more in the synchronauts skill.
 ```
 
 Die Texte für Claude sind englisch, weil das weniger Tokens kostet. Claude gibt sie in deiner Sprache weiter.
@@ -69,11 +68,19 @@ Danach nur Neues, beim Prompt und nach Werkzeugaufrufen:
 
 Warnungen und Nachrichten erscheinen zusätzlich als Systemzeile im Terminal, damit auch der Mensch sie sieht.
 
+**Bevor Claude die Datei eines Kollegen ändert,** fragt Claude Code dich. Das passiert vor der ersten Änderung in einer Session an einer Datei, an der die Session eines Kollegen gerade arbeitet, und die Rückfrage sagt, warum:
+
+```
+Alex is also editing src/a.ts (demo@main, last 19:09 · "Ticket routes in demo, route /tickets/:id")
+```
+
+Die Frage geht nur an dich und kostet Claude keine Tokens. Erlaubst du die Änderung, ist die Datei für diese Session erledigt, und Claude erfährt, dass du zugestimmt hast, statt ein zweites Mal anzuhalten. Lehnst du ab, hält Claude an, und sein nächster Versuch fragt wieder. Deine eigenen Sessions fragen einander nie, sie warnen nur.
+
 **Wer die Post bekommt:** Jede Nachricht hat auf dem Rechner des Empfängers eine Zielsession. Mit `@repo` ist das die zuletzt aktive Session in diesem Repo, sonst die zuletzt aktive überhaupt. Wartet die Zielsession nach ihrem Turn, wird sie geweckt, und Claude sagt ihrem Menschen in ein, zwei Sätzen, was angekommen ist. Arbeitet sie gerade, kommt die Nachricht mit ihrem nächsten Schritt. Liegt ihr letzter Schritt mehr als 55 Minuten zurück, zählt sie nicht mehr als Ziel, und die Session, in der der Mensch als Nächstes arbeitet, zeigt die Nachricht. Die anderen Sessions bekommen sie nur zur Kenntnis (bei `@repo` nur die im selben Repo), so hört niemand dieselbe Nachricht zweimal. Antworten gehen an die fragende Session zurück. Eine Session wird höchstens viermal je Stunde geweckt, damit sich zwei Claudes nicht endlos gegenseitig wecken.
 
 ## Live-Board
 
-`python3 ~/.synchronauts/syn.py ui` öffnet es im Browser. Das kostet keine Tokens.
+`~/.synchronauts/syn ui` öffnet es im Browser. Das kostet keine Tokens.
 
 - **Board:** Je Person ihre Sessions als Karten: Repo, Branch, Vorhaben, bearbeitete Dateien und Zustand (arbeitet · wartet auf Freigabe · wartet · ruhig · API-Fehler). Überschneidungen sind markiert. Eigene Sessions außerhalb der Team-Repos zeigt nur das eigene Board.
 - **Nachrichten:** direkt dort lesen und schreiben, an eine Person oder an ihre Session in einem Repo. Der Claude des Empfängers sieht, dass der Mensch selbst schreibt, und seine Antwort (`send <name>@ui`) kommt ins Board zurück statt in eine Session.
@@ -83,16 +90,16 @@ Warnungen und Nachrichten erscheinen zusätzlich als Systemzeile im Terminal, da
 
 ## Befehle
 
-Claude ruft sie per Bash auf, du kannst es auch. `~/.synchronauts/syn.py` ist eine Verknüpfung auf die installierte Fassung, jeder Sessionstart zieht sie nach.
+Claude ruft sie per Bash auf, du kannst es auch. `~/.synchronauts/syn` ist ein kleines Skript, das die installierte Fassung startet; jeder Sessionstart zieht es nach.
 
 | Befehl | Wirkung |
 |---|---|
-| `python3 ~/.synchronauts/syn.py task "<ein Satz>"` | trägt ein, woran diese Session arbeitet |
-| `python3 ~/.synchronauts/syn.py send <name\|all>[@repo] "<text>"` | Nachricht an den Claude eines Kollegen, mit `@repo` an seine Session in diesem Repo, höchstens 1500 Zeichen |
-| `python3 ~/.synchronauts/syn.py send <name>@ui "<text>"` | Antwort ans Board eines Kollegen statt an eine seiner Sessions |
-| `python3 ~/.synchronauts/syn.py status` | das Bild mit Dateien und Uhrzeiten, die eigenen Sessions, Post der letzten 3 Tage |
-| `python3 ~/.synchronauts/syn.py ui` | startet das Board im Hintergrund und öffnet es (`--no-browser` nennt nur die Adresse) |
-| `python3 ~/.synchronauts/syn.py setup <owner/repo> [--org a,b]` | tritt einem Raum bei; `--org` legt fest, wessen Repos als Team-Repos zählen |
+| `~/.synchronauts/syn task "<ein Satz>"` | trägt ein, woran diese Session arbeitet |
+| `~/.synchronauts/syn send <name\|all>[@repo] "<text>"` | Nachricht an den Claude eines Kollegen, mit `@repo` an seine Session in diesem Repo, höchstens 1500 Zeichen |
+| `~/.synchronauts/syn send <name>@ui "<text>"` | Antwort ans Board eines Kollegen statt an eine seiner Sessions |
+| `~/.synchronauts/syn status` | das Bild mit Dateien und Uhrzeiten, die eigenen Sessions, Post der letzten 3 Tage |
+| `~/.synchronauts/syn ui` | startet das Board im Hintergrund und öffnet es (`--no-browser` nennt nur die Adresse) |
+| `~/.synchronauts/syn setup <owner/repo> [--org a,b]` | tritt einem Raum bei; `--org` legt fest, wessen Repos als Team-Repos zählen |
 
 ## Was geteilt wird und was nicht
 
@@ -116,11 +123,12 @@ Gemessen mit `python3 test/measure.py syn.py skills/synchronauts/SKILL.md` an ei
 |---|---|
 | Prompt oder Werkzeugaufruf ohne Neues | 0 |
 | Sessionstart außerhalb der Team-Repos (Home, Notizen) | 0 |
-| Sessionstart in einem Team-Repo, Kollege mit zwei Sessions | 150 |
-| Zweite eigene Session im selben Repo, Start | 195 |
-| Erstes Edit an der Datei eines Kollegen, mit Erinnerung ans Vorhaben | 70 |
-| Weckruf mit einer Nachricht (nur der Text) | 185 |
-| Nachricht beim nächsten Prompt der Zielsession | 165 |
+| Sessionstart in einem Team-Repo, Kollege mit zwei Sessions | 145 |
+| Zweite eigene Session im selben Repo, Start | 190 |
+| Rückfrage vor der ersten Änderung an der Datei eines Kollegen (nur für dich) | 0 |
+| Erste Änderung an der Datei eines Kollegen, nachdem du zugestimmt hast, mit Erinnerung ans Vorhaben | 75 |
+| Weckruf mit einer Nachricht (nur der Text) | 180 |
+| Nachricht beim nächsten Prompt der Zielsession | 160 |
 | Dieselbe Nachricht zur Kenntnis in einer anderen Session | 70 |
 | Skill-Beschreibung, steht in jeder Session | 110 |
 
@@ -140,18 +148,19 @@ Jeder Rechner schreibt nur seinen eigenen Branch, mit genau einem Commit und `st
 
 Je Rechner läuft ein Wächter im Hintergrund. Er pusht den eigenen Stand, sobald er sich ändert: Post sofort, Zustand und Verlauf höchstens alle 15 Sekunden. Alle 5 Sekunden fragt er bei GitHub, ob sich ein fremder Branch geändert hat. Die Abfrage geht mit ETag, und eine unveränderte Antwort (304) zählt nicht gegen das Rate-Limit. Ohne `gh` fragt er per `git ls-remote` alle 20 Sekunden. 15 Minuten nach dem letzten Lebenszeichen beendet er sich, und jeder Hook startet ihn bei Bedarf neu.
 
-Die Hooks lesen und schreiben nur lokale Dateien. Notification (Freigabe offen) und StopFailure (API-Fehler) setzen nur den Zustand fürs Board. Der Stop-Hook läuft asynchron mit `asyncRewake`: Er wartet nach jedem Turn bis zu 55 Minuten auf Post und weckt die Session mit Exit-Code 2. Arbeitet die Session wieder, beendet er sich still.
+Die Hooks lesen und schreiben nur lokale Dateien. PreToolUse fragt nur vor einer Änderung, Notification (Freigabe offen) und StopFailure (API-Fehler) setzen nur den Zustand fürs Board. Der Stop-Hook läuft asynchron mit `asyncRewake`: Er wartet nach jedem Turn bis zu 55 Minuten auf Post und weckt die Session mit Exit-Code 2. Arbeitet die Session wieder, beendet er sich still.
 
 Eine Session gilt drei Stunden nach ihrem letzten Lebenszeichen als inaktiv. Post, die ankommt, solange beim Empfänger keine Session offen ist, sieht er beim nächsten Start, wenn sie höchstens 24 Stunden alt ist; ältere zeigt `status`.
 
 ## Grenzen
 
 - Liegt der letzte Schritt einer Session mehr als 55 Minuten zurück, wird sie nicht geweckt. Die Post zeigt dann die Session, in der der Mensch als Nächstes arbeitet.
-- Antwortet ein geweckter Claude per `syn.py send`, fragt Claude Code je nach Rechte-Modus vorher nach.
+- Antwortet ein geweckter Claude per `syn send`, fragt Claude Code je nach Rechte-Modus vorher nach.
 - Das Board zeigt fremde Sessions mit bis zu 20 Sekunden Verzug (Push-Abstand und Abfrage), die eigenen sofort.
 - „Wartet auf Freigabe“ meldet der Notification-Hook. Claude Code schickt ihn, sobald eine Freigabe etwa sechs Sekunden offen ist. Ein Turn, den Esc abbricht, endet ohne Stop-Hook. Darum zeigt das Board eine arbeitende Session nach 30 Minuten ohne Lebenszeichen als ruhig, eine wartende nach einer Stunde.
 - `send <name>@ui` geht ans Board. Ein Repo, das wirklich `ui` heißt, erreicht man mit vollem Namen (`alex@acme/ui`).
-- Nur macOS und Linux (`fcntl`).
+- Die Rückfrage vor einer Änderung kennt nur Dateien, die die Session eines Kollegen schon bearbeitet hat, mit bis zu 20 Sekunden Verzug. Sie fragt, sie sperrt nicht: Du kannst die Änderung immer erlauben.
+- Unter Windows brauchen die Hooks und Claudes Befehle Git Bash, das mit Git für Windows kommt.
 
 ## Entwicklung
 
@@ -159,7 +168,7 @@ Eine Session gilt drei Stunden nach ihrem letzten Lebenszeichen als inaktiv. Pos
 bash test/e2e.sh
 ```
 
-Spielt zwei Personen und einen zweiten Rechner mit einem lokalen Bare-Repo statt GitHub durch: Überschneidungen, Post, Wecken, Zustand, Verlauf und Board (Token, Host- und Origin-Prüfung, Senden aus dem Board, Antworten ans Board). `python3 test/measure.py syn.py skills/synchronauts/SKILL.md` misst, wie viel Text die Hooks in den Kontext schreiben (`SHOW=1` zeigt die Texte).
+Spielt zwei Personen und einen zweiten Rechner mit einem lokalen Bare-Repo statt GitHub durch: Überschneidungen, die Rückfrage vor einer Änderung, Post, Wecken, Zustand, Verlauf und Board (Token, Host- und Origin-Prüfung, Senden aus dem Board, Antworten ans Board). Die CI lässt ihn unter Linux (Python 3.9 und 3.14), macOS und Windows laufen. `python3 test/measure.py syn.py skills/synchronauts/SKILL.md` misst, wie viel Text die Hooks in den Kontext schreiben (`SHOW=1` zeigt die Texte).
 
 Einstellungen für die Entwicklung: `SYN_HOME` (Standard `~/.synchronauts`), `SYN_REMOTE`, `SYN_ME`, `SYN_NAME`, `SYN_MACHINE`, `SYN_ORGS`, `SYN_TICK` (Abfrageabstand in Sekunden), `SYN_IDLE` (Laufzeit des Wächters ohne Lebenszeichen), `SYN_WAKE_MIN`, `SYN_UI_PORT` (Standard 7962, `0` für einen freien Port).
 

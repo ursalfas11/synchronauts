@@ -10,12 +10,12 @@ One watcher per machine runs in the background. It pushes the own state as soon 
 seconds whether other branches changed (on GitHub via REST with ETag, otherwise via ls-remote). The hooks only read
 and write local files. After every turn an async Stop hook waits for new mail and wakes the session with exit code 2
 (asyncRewake) while its context is still in the prompt cache. Claude only gets text when something is new and
-concerns the session.
+concerns the session. Before the first edit of a file that a teammate's session is editing, Claude Code asks the
+human (PreToolUse).
 
 `syn.py ui` shows the same as a page in the browser: sessions with their state, overlaps, mail and history. Its
 server listens on 127.0.0.1 only and costs no tokens.
 """
-import fcntl
 import json
 import os
 import re
@@ -24,18 +24,21 @@ import socket
 import subprocess
 import sys
 import time
-import urllib.error
-import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-VERSION = '0.1.0'
+WINDOWS = os.name == 'nt'
+if WINDOWS:
+    import msvcrt
+else:
+    import fcntl
+
+VERSION = '0.2.0'
 SCRIPT = Path(__file__).resolve()
 HOME = Path(os.environ.get('SYN_HOME') or Path.home() / '.synchronauts')
 GIT = HOME / 'git'                  # bare repo with the syn/* branches
 SESSIONS = HOME / 'sessions'        # per session: what it has seen and reported
-LINK = HOME / 'syn.py'              # short, fixed path for Claude, points to the running version
-CMD = 'python3 ' + (f'~/{LINK.relative_to(Path.home())}' if LINK.is_relative_to(Path.home()) else f'"{LINK}"')
+LINK = HOME / 'syn'                 # short, fixed command for Claude, starts the running version
 FIELDS = ('remote', 'me', 'name', 'orgs', 'machine')
 PREFIX = 'syn/'                     # branch namespace in the room
 ACTIVE = timedelta(hours=3)         # a session without a sign of life counts as active this long
@@ -93,12 +96,22 @@ def load(path, default):
         return default
 
 
+def replace(tmp, path):
+    for attempt in range(50):
+        try:
+            return os.replace(tmp, path)
+        except PermissionError:  # Windows: another process has the file open right now
+            if not WINDOWS or attempt == 49:
+                raise
+            time.sleep(0.02)
+
+
 def save(path, data):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f'.{path.name}.{os.getpid()}')
     tmp.write_text(json.dumps(data, ensure_ascii=False, indent=1) + '\n', encoding='utf-8')
-    os.replace(tmp, path)
+    replace(tmp, path)
 
 
 def mtime(path):
@@ -127,27 +140,59 @@ class Lock:
 
     def __enter__(self):
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.f = open(self.path, 'w')
+        self.f = open(self.path, 'a')
         try:
-            fcntl.flock(self.f, fcntl.LOCK_EX | (0 if self.wait else fcntl.LOCK_NB))
+            if not WINDOWS:
+                fcntl.flock(self.f, fcntl.LOCK_EX | (0 if self.wait else fcntl.LOCK_NB))
+                return self
+            while True:  # Windows locks bytes and does not wait for long: try again every 50 ms
+                try:
+                    self.f.seek(0)
+                    msvcrt.locking(self.f.fileno(), msvcrt.LK_NBLCK, 1)
+                    return self
+                except OSError:
+                    if not self.wait:
+                        raise BlockingIOError(f'{self.path.name} is taken') from None
+                    time.sleep(0.05)
         except BlockingIOError:
             self.f.close()
             raise
-        return self
 
     def __exit__(self, *_):
+        if WINDOWS:
+            self.f.seek(0)
+            msvcrt.locking(self.f.fileno(), msvcrt.LK_UNLCK, 1)
         self.f.close()
 
 
 def git(*args, cwd=GIT, timeout=20, stdin=None, env=None):
-    io = {'input': stdin} if stdin is not None else {'stdin': subprocess.DEVNULL}
+    # bytes in and out: in text mode, Windows would turn every \n of the input into \r\n
+    io = {'input': stdin.encode('utf-8')} if stdin is not None else {'stdin': subprocess.DEVNULL}
     e = dict(os.environ, GIT_TERMINAL_PROMPT='0', **(env or {}))
     e.setdefault('GIT_SSH_COMMAND', 'ssh -o BatchMode=yes')
-    r = subprocess.run(['git', *args], cwd=cwd, capture_output=True, encoding='utf-8', errors='replace',
-                       timeout=timeout, env=e, **io)
+    r = subprocess.run(['git', *args], cwd=cwd, capture_output=True, timeout=timeout, env=e, **io)
+    out, err = (x.decode('utf-8', 'replace').strip() for x in (r.stdout, r.stderr))
     if r.returncode:
-        raise RuntimeError(f'git {args[0]}: {(r.stderr or r.stdout).strip()[:300]}')
-    return r.stdout.strip()
+        raise RuntimeError(f'git {args[0]}: {(err or out)[:300]}')
+    return out
+
+
+def spawn(*args, log, env=None):
+    """Starts this script in the background, so that it outlives the hook or command; on Windows without a window."""
+    detach = ({'creationflags': subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP} if WINDOWS
+              else {'start_new_session': True})
+    env = dict(env or os.environ, PYTHONUTF8='1')  # Windows writes logs in its ANSI code page otherwise
+    with open(log, 'a', encoding='utf-8') as f:
+        subprocess.Popen([sys.executable, str(SCRIPT), *args], stdin=subprocess.DEVNULL, stdout=f, stderr=f, env=env,
+                         **detach)
+
+
+def sh_quote(s):
+    return "'" + str(s).replace("'", "'\\''") + "'"
+
+
+# Claude calls the commands via its Bash tool, on Windows that is Git Bash
+CMD = f'~/{LINK.relative_to(Path.home()).as_posix()}' if LINK.is_relative_to(Path.home()) else sh_quote(LINK.as_posix())
 
 
 def gh(*args):
@@ -194,8 +239,25 @@ def own_branch(k):
     return f"{PREFIX}{k['me']}/{k['machine']}"
 
 
+def accept_invitation(remote):
+    """Accepts a pending GitHub invitation to the room, so nobody has to click it first. True if there was one."""
+    gp = github_path(remote)
+    if not gp:
+        return False
+    try:
+        invitations = json.loads(gh('api', 'user/repository_invitations') or '[]')
+    except ValueError:
+        return False
+    ids = [i['id'] for i in invitations if isinstance(i, dict) and isinstance(i.get('id'), int)
+           and str((i.get('repository') or {}).get('full_name')).lower() == f'{gp[0]}/{gp[1]}'.lower()]
+    for i in ids:
+        gh('api', '-X', 'PATCH', f'user/repository_invitations/{i}')
+    return bool(ids)
+
+
 def setup(k):
-    """Find out who and where, create the bare repo, check access, push the own branch, fetch the others."""
+    """Find out who and where, create the bare repo, check access, push the own branch, fetch the others. True if it
+    accepted an invitation to the room on the way."""
     if not k.get('remote'):
         raise RuntimeError('no room yet')
     if not k.get('me'):
@@ -212,28 +274,40 @@ def setup(k):
             git('remote', 'add', 'origin', k['remote'])
         else:
             git('remote', 'set-url', 'origin', k['remote'])
-        git('ls-remote', 'origin', f'refs/heads/{PREFIX}*', timeout=30)  # without access this fails with a clear message
+        accepted = False
+        try:
+            git('ls-remote', 'origin', f'refs/heads/{PREFIX}*', timeout=30)  # without access this fails clearly
+        except RuntimeError:
+            accepted = accept_invitation(k['remote'])
+            if not accepted:
+                raise
+            time.sleep(1)
+            git('ls-remote', 'origin', f'refs/heads/{PREFIX}*', timeout=30)
         save(HOME / 'config.json', {f: k[f] for f in FIELDS if k.get(f)})
         publish(k)
         fetch(k)
     link(always=True)
+    return accepted
 
 
 def link(always):
-    """Points LINK at this version: at session start always, so the newest one wins, otherwise only if it is missing
-    or dangling."""
-    if not always and LINK.exists():
-        return
+    """Writes LINK, a shell script that starts this version: at session start always, so the newest one wins,
+    otherwise only if it is missing. It takes `python` on Windows, where `python3` may only be the store's
+    placeholder."""
+    text = ('#!/bin/sh\n# Synchronauts: the short command for Claude, rewritten at every session start\n'
+            'py=python3; [ "$OS" = Windows_NT ] && py=python\n'
+            f'exec "$py" {sh_quote(SCRIPT.as_posix())} "$@"\n')
     try:
-        if os.readlink(LINK) == str(SCRIPT):
+        if LINK.read_text(encoding='utf-8') == text or not always:
             return
-    except OSError:
+    except OSError:  # missing
         pass
     HOME.mkdir(parents=True, exist_ok=True)
-    new = HOME / f'.syn.py.{os.getpid()}'
-    new.unlink(missing_ok=True)
-    os.symlink(SCRIPT, new)
-    os.replace(new, LINK)
+    new = HOME / f'.syn.{os.getpid()}'
+    with open(new, 'w', encoding='utf-8', newline='\n') as f:
+        f.write(text)
+    new.chmod(0o755)
+    replace(new, LINK)
 
 
 def own_state(k):
@@ -313,6 +387,8 @@ class Poller:
         self.tick = TICK or (5 if self.token else 20)
 
     def changed(self):
+        import urllib.error  # only here, so the hooks start fast
+        import urllib.request
         if self.token:
             headers = {'Authorization': f'Bearer {self.token}', 'Accept': 'application/vnd.github+json',
                        'User-Agent': 'synchronauts'}
@@ -403,9 +479,7 @@ def ensure_watcher():
     log = HOME / 'watcher.log'
     if mtime(log) and log.stat().st_size > 200_000:
         log.unlink()
-    with open(log, 'a') as f:
-        subprocess.Popen([sys.executable, str(SCRIPT), 'watcher'], stdin=subprocess.DEVNULL, stdout=f, stderr=f,
-                         start_new_session=True)
+    spawn('watcher', log=log)
 
 
 def alive():
@@ -444,6 +518,11 @@ def repo_of(path, owners):
     if not gp or gp[0].lower() not in owners:
         return None
     return f'{gp[0]}/{gp[1]}', root, branch
+
+
+def in_repo(path, root):
+    """Path of a file within its repo, with / on every system, so it matches the same file on a teammate's machine."""
+    return Path(os.path.relpath(os.path.realpath(path), os.path.realpath(root))).as_posix()
 
 
 def names(k):
@@ -493,7 +572,13 @@ def situation_lines(k, sid):
         yield f"line|{key}|{repos}|{s.get('task')}", line(who, s)
 
 
-def overlaps(k, mine, sid):
+def allowed(key, asked):
+    """A note on the same files that the human has already allowed when Claude Code asked before the edit."""
+    kind, _, repo, files = (key.split('|', 3) + [''] * 3)[:4]
+    return kind == 'file' and all(f'{repo}|{f}' in asked for f in files.split(','))
+
+
+def overlaps(k, mine, sid, asked=()):
     """(key, text) per contact of another session with the repos of this session, in the same repo with the files it
     edits there. Own sessions only count from the same file or the same branch on."""
     for who, key, s, own in others(k, sid):
@@ -506,9 +591,10 @@ def overlaps(k, mine, sid):
             more = f' +{len(f) - 4}' if len(f) > 4 else ''
             there = f" (last {clock(r.get('last'))})" + (f": {', '.join(f[-4:])}{more}" if f else '')
             if same:
-                yield (f"file|{key}|{repo}|{','.join(same)}",
-                       f"⚠️ {who} is editing the same files in {short(repo)} (branch {r.get('branch')}): "
-                       f"{', '.join(same[:6])}")
+                note = f"file|{key}|{repo}|{','.join(same)}"
+                files = f"the same files in {short(repo)} (branch {r.get('branch')}): {', '.join(same[:6])}"
+                yield note, (f"{who} is editing {files}. {k.get('name')} knows and allowed the edit."
+                             if allowed(note, asked) else f"⚠️ {who} is editing {files}")
             elif r.get('branch') == m.get('branch'):
                 yield (f"branch|{key}|{repo}|{m.get('branch')}",
                        f"⚠️ {who} is on the same branch {m.get('branch')} in {short(repo)}{there}")
@@ -668,7 +754,7 @@ def take_task(sid):
     """Picks up a task noted by `syn.py task`; the Bash hook of the calling session gets there first."""
     own = HOME / f'task.{sid}.json'
     try:
-        os.rename(HOME / 'task.json', own)
+        os.replace(HOME / 'task.json', own)
     except FileNotFoundError:
         return None
     text = load(own, {}).get('text')
@@ -684,6 +770,16 @@ def cleanup():
 
 
 def pid_alive(pid):
+    if WINDOWS:  # there, os.kill(pid, 0) would end the process
+        import ctypes
+        kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+        handle = kernel.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not handle:
+            return ctypes.get_last_error() == 5  # access denied: it exists
+        code = ctypes.c_ulong()
+        ok = kernel.GetExitCodeProcess(handle, ctypes.byref(code))
+        kernel.CloseHandle(handle)
+        return not ok or code.value == 259  # STILL_ACTIVE
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
@@ -713,6 +809,36 @@ def wake(k, sid):
                         *[message_text(n, k, nm) for n in new],
                         f"Tell {k.get('name')} in one or two sentences what arrived, then end the turn. "
                         f"Don't reply to an acknowledgement or thanks."]), False
+
+
+def ask_first(k, sid, e):
+    """PreToolUse before an edit: if a teammate's session is editing the same file and this session has not edited it
+    yet, Claude Code asks the human first. The reason only shows in the permission prompt, Claude gets no text. Once
+    an edit of the file went through, the PostToolUse hook adds it to the session's files and it passes."""
+    ti = e.get('tool_input') or {}
+    path = ti.get('file_path') or ti.get('notebook_path')
+    r = repo_of(path, orgs(k)) if path else None
+    if not r:
+        return 0
+    f = in_repo(path, r[1])
+    mine = load(HOME / 'status.json', {}).get('sessions', {}).get(sid, {}).get('repos', {}).get(r[0], {})
+    if f in mine.get('files', []):
+        return 0
+    on_it = sorted(((x.get('last') or s.get('last') or '', who, x.get('branch'), s.get('task'))
+                    for who, key, s, _ in others(k, own=False) if not key.startswith(f"{k['me']}/")
+                    for repo, x in s['repos'].items() if repo == r[0] and f in x.get('files', [])), reverse=True)
+    if not on_it:
+        return 0
+    people = list(dict.fromkeys(who for _, who, _, _ in on_it))
+    who = people[0] if len(people) == 1 else f"{', '.join(people[:-1])} and {people[-1]}"
+    last, _, branch, task = on_it[0]
+    task = f' · "{task}"' if task else ''
+    reason = (f"{who} {'is' if len(people) == 1 else 'are'} also editing {f} "
+              f"({short(r[0])}@{branch}, last {clock(last)}{task})")
+    update_session(sid, lambda s: s.update(asked=list(dict.fromkeys(s.get('asked', []) + [f'{r[0]}|{f}']))[-100:]))
+    print(json.dumps({'hookSpecificOutput': {'hookEventName': 'PreToolUse', 'permissionDecision': 'ask',
+                                             'permissionDecisionReason': reason}}, ensure_ascii=False))
+    return 0
 
 
 def wait_for_mail(k, sid):
@@ -768,7 +894,7 @@ def hook(event):
     if os.environ.get('CLAUDE_CODE_ENTRYPOINT', '').startswith('sdk'):
         return 0  # `claude -p` and SDK runs: no human present, and -p waited up to 30 s for the Stop hook
     try:
-        e = json.load(sys.stdin)
+        e = json.loads(sys.stdin.buffer.read())  # bytes: UTF-8 whatever the system's code page
     except ValueError:
         e = {}
     k = config()
@@ -786,6 +912,8 @@ def hook(event):
                      f'Synchronauts is not set up yet ({error}). Ask Claude to set it up.')
             return 0
     sid = (e.get('session_id') or 'none')[:8]
+    if event == 'PreToolUse':
+        return ask_first(k, sid, e)
     if event == 'Stop':
         update_status(sid, lambda s: set_state(s, 'waiting'))
         return wait_for_mail(k, sid)
@@ -807,7 +935,7 @@ def hook(event):
     if path and e.get('tool_name') in EDIT_TOOLS:
         r = repo_of(path, owners)
         if r:
-            hits.append((r, os.path.relpath(os.path.realpath(path), os.path.realpath(r[1]))))
+            hits.append((r, in_repo(path, r[1])))
     task = clean(take_task(sid) or '')[:200] if e.get('tool_name') == 'Bash' else ''
     history = []  # (kind, repo, fields) for the UI's history
 
@@ -855,7 +983,8 @@ def hook(event):
         sess = load(SESSIONS / f'{sid}.json', {})
         mail, _ = new_mail(k, sid, sess)
         mark_delivered([n for n, first in mail if first])
-        notes = [(key, x) for key, x in [*situation_lines(k, sid), *overlaps(k, mine, sid)]
+        asked = set(sess.get('asked', []))
+        notes = [(key, x) for key, x in [*situation_lines(k, sid), *overlaps(k, mine, sid, asked)]
                  if key not in sess['reported']] if in_team else []
         if error and in_team and f'error|{error}' not in sess['reported']:
             notes.append((f'error|{error}', f'Synchronauts: sync is failing ({error}); the picture may be stale.'))
@@ -889,7 +1018,8 @@ def hook(event):
     if intro:
         lines.append(usage())
 
-    for_user = [x for key, x in notes if key.startswith(('file|', 'branch|', 'error|'))]
+    # the human sees warnings, unless the permission prompt before the edit already told them
+    for_user = [x for key, x in notes if key.startswith(('file|', 'branch|', 'error|')) and not allowed(key, asked)]
     for_user += [for_human(n, nm) for n, first in mail if first]
     emit(event, '\n'.join(lines), ' · '.join(for_user) or None)
     return 0
@@ -1074,6 +1204,7 @@ def ui_server():
     """Background process of the UI: serves the page and its data to 127.0.0.1 only and keeps the watcher awake while
     the page is open. Ends after UI_IDLE without a request."""
     import hashlib  # only here, so the hooks start fast
+    import socketserver
     import threading
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
     k = config()
@@ -1162,10 +1293,15 @@ def ui_server():
             ensure_watcher()
             self.reply(200, json.dumps({'id': n['id'], 'who': who, 'missing': missing}, ensure_ascii=False).encode())
 
+    class Server(ThreadingHTTPServer):
+        def server_bind(self):  # without HTTPServer's reverse DNS lookup, which can take seconds
+            socketserver.TCPServer.server_bind(self)
+            self.server_name, self.server_port = self.server_address[:2]
+
     server = None
     for port in dict.fromkeys((UI_PORT, 0)):  # the fixed port, otherwise a free one
         try:
-            server = ThreadingHTTPServer(('127.0.0.1', port), Request)
+            server = Server(('127.0.0.1', port), Request)
             break
         except OSError:
             continue
@@ -1200,11 +1336,9 @@ def cmd_ui(browser):
             time.sleep(0.1)
     if not ui_running():
         (HOME / 'ui.json').unlink(missing_ok=True)
-        env = {x: y for x, y in os.environ.items() if x not in ('CLAUDE_CODE_SESSION_ID', 'CLAUDE_PID')}
-        with open(HOME / 'ui.log', 'a') as f:
-            subprocess.Popen([sys.executable, str(SCRIPT), 'ui-server'], stdin=subprocess.DEVNULL, stdout=f, stderr=f,
-                             start_new_session=True, env=env)
-        end = time.time() + 5
+        spawn('ui-server', log=HOME / 'ui.log',
+              env={x: y for x, y in os.environ.items() if x not in ('CLAUDE_CODE_SESSION_ID', 'CLAUDE_PID')})
+        end = time.time() + 10
         while time.time() < end and not load(HOME / 'ui.json', {}).get('port'):
             time.sleep(0.1)
     u = load(HOME / 'ui.json', {})
@@ -1218,13 +1352,15 @@ def cmd_ui(browser):
 
 
 def main(argv):
+    for stream in (sys.stdout, sys.stderr):  # Windows pipes would use the ANSI code page and \r\n
+        stream.reconfigure(encoding='utf-8', newline='\n')
     cmd, rest = (argv[0], argv[1:]) if argv else ('status', [])
     if cmd == 'hook':
         try:
             return hook(rest[0])
         except Exception as error:  # an error here must never disturb the Claude session
             HOME.mkdir(parents=True, exist_ok=True)
-            with open(HOME / 'hook.log', 'a') as f:
+            with open(HOME / 'hook.log', 'a', encoding='utf-8') as f:
                 f.write(f'{iso()} {rest[:1]} {type(error).__name__}: {error}\n')
             return 0
     if cmd in ('watcher', 'ui-server'):
@@ -1243,9 +1379,11 @@ def main(argv):
         if args:
             k['remote'] = room_url(args[0])
         try:
-            setup(k)
+            accepted = setup(k)
         except (RuntimeError, OSError, subprocess.TimeoutExpired) as error:
             sys.exit(f'Setup failed: {error}. Usage: setup <owner/repo of the room> [--org owner,...]')
+        if accepted:
+            print(f"Accepted the invitation to {'/'.join(github_path(k['remote']))}.")
         print(f"Set up: {k['name']} ({k['me']}) on {k['machine']}, room {k['remote']}, branch {own_branch(k)}. "
               f"Team repos are those owned by {', '.join(orgs(k))}.")
         return 0

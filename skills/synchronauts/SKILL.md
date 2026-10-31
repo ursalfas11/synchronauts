@@ -9,11 +9,11 @@ Hooks report which team repo, branch and files each session works on. Under "Syn
 
 ## Commands (via Bash)
 
-- `python3 ~/.synchronauts/syn.py task "<one sentence>"`: what this session works on, concretely ("ticket routes in api, /tickets/:id", not "bugfix"). Set it once, again only when the topic changes.
-- `python3 ~/.synchronauts/syn.py send <name|all>[@repo] "<text>"`: message to a teammate's Claude. If it concerns a repo, append `@repo`; then their session in that repo gets it. To reply, use the command from the message. `<name>@ui` goes to the teammate's browser UI instead of a session.
-- `python3 ~/.synchronauts/syn.py status`: the picture with files and times, plus the mail of the last three days.
-- `python3 ~/.synchronauts/syn.py ui`: opens the live board in the browser (sessions with state, messages, history). It runs locally only and costs no tokens.
-- `python3 ~/.synchronauts/syn.py setup <owner/repo>`: joins a room, a private GitHub repo the team shares (`gh repo create <owner/repo> --private`, then invite the team). `--org a,b` sets whose repos count as team repos; the default is the room's owner.
+- `~/.synchronauts/syn task "<one sentence>"`: what this session works on, concretely ("ticket routes in api, /tickets/:id", not "bugfix"). Set it once, again only when the topic changes.
+- `~/.synchronauts/syn send <name|all>[@repo] "<text>"`: message to a teammate's Claude. If it concerns a repo, append `@repo`; then their session in that repo gets it. To reply, use the command from the message. `<name>@ui` goes to the teammate's browser UI instead of a session.
+- `~/.synchronauts/syn status`: the picture with files and times, plus the mail of the last three days.
+- `~/.synchronauts/syn ui`: opens the live board in the browser (sessions with state, messages, history). It runs locally only and costs no tokens.
+- `~/.synchronauts/syn setup <owner/repo>`: joins a room, a private GitHub repo the team shares (`gh repo create <owner/repo> --private`, then invite the team). `--org a,b` sets whose repos count as team repos; the default is the room's owner.
 
 ## Rules
 
