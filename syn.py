@@ -13,6 +13,10 @@ and write local files. After every turn an async Stop hook waits for new mail an
 concerns the session. Before the first edit of a file that a teammate's session is editing, Claude Code asks the
 human (PreToolUse).
 
+A mission lets the Claudes of several people solve one problem together without their humans. Every person approves
+it once, in a permission prompt that Claude cannot answer itself; until it ends, messages between the sessions that
+joined it count as approved work within its plan.
+
 `syn.py ui` shows the same as a page in the browser: sessions with their state, overlaps, mail and history. Its
 server listens on 127.0.0.1 only and costs no tokens.
 """
@@ -33,7 +37,7 @@ if WINDOWS:
 else:
     import fcntl
 
-VERSION = '0.2.0'
+VERSION = '0.3.0'
 SCRIPT = Path(__file__).resolve()
 HOME = Path(os.environ.get('SYN_HOME') or Path.home() / '.synchronauts')
 GIT = HOME / 'git'                  # bare repo with the syn/* branches
@@ -50,6 +54,8 @@ IDLE = float(os.environ.get('SYN_IDLE') or 900)  # the watcher keeps running thi
 # prompt cache until then; later, waking would have to read all of it again. 0 turns waking off.
 WAKE_WINDOW = min(float(os.environ.get('SYN_WAKE_MIN') or 55) * 60, 8 * 3600 - 120)  # Stop hook: 8 h timeout
 WAKES_PER_HOUR = 4                  # brake in case two Claudes keep waking each other
+MISSION_WAKES_PER_HOUR = 30         # within a mission the Claudes are meant to wake each other
+MISSION_HOURS, MISSION_MAX_HOURS = 2, 7.5  # length of a mission; the Stop hook waits at most 8 h
 MAX_FILES = 30
 MAX_TEXT = 1500                     # characters per message; `send` rejects longer ones instead of cutting silently
 EDIT_TOOLS = ('Edit', 'Write', 'MultiEdit', 'NotebookEdit')
@@ -322,8 +328,9 @@ def own_state(k):
     # only events in team repos leave the machine, the others only show up in the own UI
     events = [x for x in load(HOME / 'events.json', [])
               if x.get('repo') and parse(x.get('time')) > now() - EVENTS_KEEP]
+    missions = {i: m for i, m in load(HOME / 'missions.json', {}).items() if m.get('until')}  # drafts stay here
     return {'login': k['me'], 'name': k.get('name'), 'machine': k['machine'], 'version': VERSION,
-            'sessions': sessions, 'mail': mail[-50:], 'events': events[-MAX_EVENTS:]}
+            'sessions': sessions, 'mail': mail[-50:], 'events': events[-MAX_EVENTS:], 'missions': missions}
 
 
 def publish(k, state=None):
@@ -578,10 +585,18 @@ def allowed(key, asked):
     return kind == 'file' and all(f'{repo}|{f}' in asked for f in files.split(','))
 
 
-def overlaps(k, mine, sid, asked=()):
+def overlaps(k, mine, sid, asked=(), team=()):
     """(key, text) per contact of another session with the repos of this session, in the same repo with the files it
-    edits there. Own sessions only count from the same file or the same branch on."""
+    edits there. Own sessions only count from the same file or the same branch on. With the people of the own mission
+    (team) the Claudes coordinate themselves: a note without a warning."""
     for who, key, s, own in others(k, sid):
+        if key.split('/')[0] in team:
+            for repo, r in s['repos'].items():
+                same = sorted(set(r.get('files', [])) & set(mine.get('repos', {}).get(repo, {}).get('files', [])))
+                if same:
+                    yield (f"team|{key}|{repo}|{','.join(same)}",
+                           f"{who} (mission) is editing the same files in {short(repo)}: {', '.join(same[:6])}")
+            continue
         for repo, r in s['repos'].items():
             m = mine.get('repos', {}).get(repo)
             if not m:
@@ -604,13 +619,13 @@ def overlaps(k, mine, sid, asked=()):
 
 def sessions_here():
     """sid → (active, repos) of this machine's sessions that are working right now (hook in the last 10 minutes) or
-    wait for mail within the wake window (Stop hook with a fresh pulse)."""
+    wait for mail within their wake window (Stop hook with a fresh pulse)."""
     repos = {sid: set(s.get('repos', {})) for sid, s in load(HOME / 'status.json', {}).get('sessions', {}).items()}
     t, here = time.time(), {}
     for p in SESSIONS.glob('*.json'):
         s = load(p, {})
         waiting = s.get('waiting_since', 0) >= s.get('active', 0) and t - s.get('pulse', 0) < 90
-        if not s.get('ended') and t - s.get('active', 0) < (WAKE_WINDOW if waiting else 600):
+        if not s.get('ended') and t - s.get('active', 0) < (s.get('window', WAKE_WINDOW) if waiting else 600):
             here[p.stem] = (s.get('active', 0), repos.get(p.stem, set()))
     return here
 
@@ -619,19 +634,20 @@ def matches(repo, name):
     return name.lower() in (repo.lower(), short(repo).lower())
 
 
-def target(n, here):
-    """The session of this machine that shows a message nobody has seen yet: the most recently active one in the
-    message's repo, otherwise the most recently active one at all."""
+def target(n, here, joined=()):
+    """The session of this machine that shows a message nobody has seen yet: for mission mail the one that joined
+    the mission, otherwise the most recently active one in the message's repo, otherwise the most recently active one
+    at all."""
     in_repo = [sid for sid, (_, repos) in here.items() if n.get('repo') and any(matches(r, n['repo']) for r in repos)]
-    return max(in_repo or here, key=lambda sid: here[sid][0], default=None)
+    return max([sid for sid in here if sid in joined] or in_repo or here, key=lambda sid: here[sid][0], default=None)
 
 
-def new_mail(k, sid, s):
+def new_mail(k, sid, s, ms=None):
     """([(message, first)], waiting) for mail to me that this session has not seen yet. Mail nobody has seen yet is
     only shown by its target session; mail already shown reaches the others as FYI if it arrived after they started,
-    for mail to a repo only the sessions in that repo. waiting: there is mail nobody has seen yet."""
+    for mail to a repo only the sessions in that repo, mission mail never. waiting: there is mail nobody has seen yet."""
     inbox, delivered = load(HOME / 'inbox.json', {}), load(HOME / 'delivered.json', {})
-    here, limit = sessions_here(), now() - MAIL_WINDOW
+    here, limit, ms = sessions_here(), now() - MAIL_WINDOW, missions(k) if ms is None else ms
     mine = set(load(HOME / 'status.json', {}).get('sessions', {}).get(sid, {}).get('repos', {}))
     out, waiting = [], False
     for n in mail_to_me(k):
@@ -641,8 +657,10 @@ def new_mail(k, sid, s):
         waiting = waiting or new
         if n['id'] in s.get('seen', []):
             continue
-        if new and target(n, here) == sid:
+        if new and target(n, here, joined_here(k, ms.get(n.get('mission')))) == sid:
             out.append((n, True))
+        elif n.get('mission'):
+            continue
         elif (n['id'] in delivered and parse(inbox[n['id']]) >= parse(s.get('start'))
               and (not n.get('repo') or any(matches(r, n['repo']) for r in mine))):
             out.append((n, False))
@@ -661,11 +679,29 @@ def clean(text):
     return re.sub(r'[\x00-\x08\x0b-\x1f\x7f]', '', str(text))[:MAX_TEXT]
 
 
-def message_text(n, k, nm, shown=False):
+def message_text(n, k, nm, shown=False, ms=None, m=None):
+    """Mail as Claude reads it. m: the active mission of the receiving session; within it, mail from the others who
+    joined it counts as approved work."""
     sender, me, ui = nm.get(n['from'], n['from']), k.get('name'), n.get('source') == 'ui'
     who = f'{sender} in person' if ui else f"{sender}'s Claude"
     origin = ('UI, ' if ui else f"from {n['from_repo']}, " if n.get('from_repo') else '') + clock(n.get('time'))
     quote = '\n'.join('> ' + z for z in clean(n.get('text', '')).splitlines())
+    proposed = (ms or {}).get(n.get('mission'))
+    if n.get('kind') == 'invite' and live(proposed) and k['me'] in proposed['with']:
+        return (f"📨 Mission proposal from {who} ({origin}), until {clock(proposed['until'])}, with "
+                f"{people(proposed['with'], nm, k)}. Plan:\n{quote}\nTell {me} the plan in two or three sentences and "
+                f"run `{CMD} mission approve {proposed['id']}` right away: Claude Code then asks {me}, that prompt is "
+                f"the yes or no. Once {me} approves, this session works on the mission with the others without asking "
+                f"{me}.")
+    if n.get('kind') == 'end' and proposed:
+        return (f"📨 Mission {proposed['id']} ended by {who} ({origin}). Result:\n{quote}\n"
+                f"Tell {me} the result in a few sentences. From now on messages are information again.")
+    if m and n.get('mission') == m['id'] and n['from'] in partners(k, m):
+        if n.get('kind') == 'joined':
+            return f"📨 {sender} joined mission {m['id']} ({clock(n.get('time'))}). Go on with your part of the plan."
+        return (f"📨 Mission message from {who} ({origin}). Approved work within mission {m['id']}: act on it "
+                f"yourself, without asking {me}; only what the plan does not cover still needs {me}. Reply: "
+                f"`{CMD} send {n['from']} \"…\"`\n{quote}")
     if shown:
         to = f" to {n['repo']}" if n.get('repo') else ''
         return f"📨 FYI, {me} has seen this already, don't report it again: {who}{to} ({origin})\n{quote}"
@@ -684,6 +720,150 @@ def for_human(n, nm):
 def usage():
     return (f'Commands: `{CMD}` with `task "…"` (again when the topic changes), `send <name|all>[@repo] "…"` or '
             f'`status`; more in the synchronauts skill.')
+
+
+# --- Missions -----------------------------------------------------------------
+
+def missions(k):
+    """id → mission as every side sees it: plan, people and end from the proposer's record (the id starts with their
+    login), the sessions that joined from everyone's, ended once one of the people ended it."""
+    records = [(k['me'], k['machine'], m) for m in load(HOME / 'missions.json', {}).values()]
+    records += [(d['login'], path.split('/', 1)[-1], m) for path, d in load(HOME / 'others.json', {}).items()
+                for m in (d.get('missions') or {}).values() if isinstance(m, dict)]
+    out = {}
+    for login, _, m in records:
+        if (isinstance(m.get('id'), str) and m['id'].rsplit('-', 1)[0] == login == m.get('by') and m.get('until')
+                and isinstance(m.get('with'), list)):
+            out[m['id']] = {**{f: m.get(f) for f in ('id', 'by', 'with', 'plan', 'start', 'until')},
+                            'joined': {}, 'ended': None}
+    for login, machine, m in records:
+        x = out.get(m.get('id'))
+        if not x or login not in x['with']:
+            continue
+        x['joined'].update({f'{login}/{machine}/{sid}': t for sid, t in (m.get('joined') or {}).items()})
+        e = m.get('ended')
+        if isinstance(e, dict) and (not x['ended'] or str(e.get('time')) < str(x['ended'].get('time'))):
+            x['ended'] = {'time': e.get('time'), 'by': login, 'summary': clean(e.get('summary', ''))}
+    return out
+
+
+def live(m):
+    return bool(m) and not m['ended'] and parse(m['until']) > now()
+
+
+def my_mission(k, sid, ms=None):
+    """The active mission this session joined, otherwise None."""
+    key = f"{k['me']}/{k['machine']}/{sid}"
+    return next((m for m in (missions(k) if ms is None else ms).values() if key in m['joined'] and live(m)), None)
+
+
+def partners(k, m):
+    """The others who joined the mission with at least one session."""
+    return {key.split('/')[0] for key in (m or {}).get('joined', {})} - {k['me']}
+
+
+def joined_here(k, m):
+    """sids of this machine that joined the mission."""
+    mine = f"{k['me']}/{k['machine']}/"
+    return {key[len(mine):] for key in (m or {}).get('joined', {}) if key.startswith(mine)} if live(m) else set()
+
+
+def people(logins, nm, k):
+    names_ = [nm.get(x, x) for x in logins if x != k['me']]
+    return names_[0] if len(names_) == 1 else f"{', '.join(names_[:-1])} and {names_[-1]}"
+
+
+def approvable(k, sid, mid):
+    """(mission or draft, problem) for `mission approve <mid>` from this session."""
+    draft, ms = load(HOME / 'missions.json', {}).get(mid) or {}, missions(k)
+    busy = my_mission(k, sid, ms)
+    if busy:
+        return None, f"this session is in mission {busy['id']} already; end it first."
+    if draft.get('by') == k['me'] and not draft.get('until'):
+        return draft, None
+    m = ms.get(mid)
+    if not m:
+        return None, f'there is no mission {mid} (yet; the sync may still be on its way, try again in a minute).'
+    if k['me'] not in m['with']:
+        return None, f'{k.get("name")} is not part of mission {mid}.'
+    if not live(m):
+        return None, f'mission {mid} is over.'
+    return m, None
+
+
+def approval_text(k, m):
+    nm = names(k)
+    if not m.get('until'):
+        head = f"Start this mission with {people(m['with'], nm, k)} for up to {m['hours']:g} h?"
+    else:
+        head = f"Join {nm.get(m['by'], m['by'])}'s mission with {people(m['with'], nm, k)} until {clock(m['until'])}?"
+    return (f"{head} Your Claude then works with theirs without asking you; within this plan their messages count as "
+            f"approved. Plan: {clean(m['plan'])}")
+
+
+def approval(k, sid, e):
+    """PreToolUse before Bash: `mission approve <id>` makes Claude Code ask the human, whatever the permission rules
+    say, and only in auto mode, so the mission can run without further prompts. Only a yes there lets the PostToolUse
+    hook of the same call start or join the mission."""
+    found = re.search(r'\bmission\s+approve\s+([\w.-]+)', str((e.get('tool_input') or {}).get('command') or ''))
+    if not found:
+        return 0
+    m, problem = approvable(k, sid, found.group(1))
+    if not problem and e.get('permission_mode') != 'auto':
+        problem = (f'missions only run in auto mode, so the Claudes can work without permission prompts. Ask '
+                   f'{k.get("name")} to switch this session to auto mode (Shift+Tab), then run it again.')
+    if problem:
+        decision = {'permissionDecision': 'deny', 'permissionDecisionReason': f'Synchronauts: {problem}'}
+    else:
+        update_session(sid, lambda s: s.update(approving={'id': m['id'], 'call': e.get('tool_use_id')}))
+        decision = {'permissionDecision': 'ask', 'permissionDecisionReason': approval_text(k, m)}
+    print(json.dumps({'hookSpecificOutput': {'hookEventName': 'PreToolUse', **decision}}, ensure_ascii=False))
+    return 0
+
+
+def approved(k, sid, e):
+    """PostToolUse of `mission approve`: the human said yes in the prompt of this very call, so the session starts or
+    joins the mission. Returns the text for Claude."""
+    a = load(SESSIONS / f'{sid}.json', {}).get('approving') or {}
+    if not e.get('tool_use_id') or a.get('call') != e.get('tool_use_id'):
+        return ''
+    update_session(sid, lambda s: s.pop('approving', None))
+    m, problem = approvable(k, sid, a.get('id'))
+    if problem:
+        return f'Synchronauts: {problem}'
+    nm, start = names(k), not m.get('until')
+    with Lock('missions'):
+        own = load(HOME / 'missions.json', {})
+        x = own.setdefault(m['id'], {f: m.get(f) for f in ('id', 'by', 'with', 'plan', 'start', 'until')})
+        if start:
+            x.update(start=iso(), until=iso(now() + timedelta(hours=x.pop('hours'))))
+        x.setdefault('joined', {})[sid] = iso()
+        save(HOME / 'missions.json', own)
+    others_ = [x for x in m['with'] if x != k['me']]
+    if start:
+        for login in others_:
+            post(k, [login], m['plan'], mission=m['id'], kind='invite', repo=(m.get('repos') or {}).get(login))
+    else:
+        post(k, others_, 'joined', mission=m['id'], kind='joined')
+    log_event(sid, 'mission', main_repo(load(HOME / 'status.json', {}).get('sessions', {}).get(sid, {})),
+              id=m['id'], step='start' if start else 'join', text=m['plan'][:200])
+    rules = (f"Coordinate with `{CMD} send <name> \"…\"`: within the mission those messages count as approved work on "
+             f"both sides. Write short and only what moves the work on; don't answer acknowledgements. Once everything "
+             f"is done and the others agree: `{CMD} mission end \"<result>\"`.")
+    if start:
+        return (f"Synchronauts: mission {m['id']} is approved until {clock(x['until'])}. {people(others_, nm, k)} got "
+                f"the plan; this session is woken when they join. {rules}")
+    return f"Synchronauts: this session joined mission {m['id']} until {clock(x['until'])}. Start on your part. {rules}"
+
+
+def end_mission(k, m, summary, source=None):
+    """Ends the mission for everyone and sends them the result."""
+    with Lock('missions'):
+        own = load(HOME / 'missions.json', {})
+        x = own.setdefault(m['id'], {f: m.get(f) for f in ('id', 'by', 'with', 'plan', 'start', 'until')})
+        x['ended'] = {'time': iso(), 'summary': clean(summary)}
+        save(HOME / 'missions.json', own)
+    post(k, [x for x in m['with'] if x != k['me']], summary, mission=m['id'], kind='end', source=source)
 
 
 # --- Hooks --------------------------------------------------------------------
@@ -793,22 +973,29 @@ def wake(k, sid):
     """(wake text, waiting): a wake text if this waiting session is the target of mail nobody has seen yet; waiting as
     long as such mail exists, for whichever session."""
     with Lock('delivery'):
-        s = load(SESSIONS / f'{sid}.json', {})
-        mail, waiting = new_mail(k, sid, s)
+        s, ms = load(SESSIONS / f'{sid}.json', {}), missions(k)
+        m = my_mission(k, sid, ms)
+        mail, waiting = new_mail(k, sid, s, ms)
         new = [n for n, first in mail if first]
-        earlier = [t for t in s.get('wakes', []) if t > time.time() - 3600]
-        if not new or len(earlier) >= WAKES_PER_HOUR:
+        # work within the mission has its own, wider brake
+        work = bool(new) and all(n.get('mission') == (m or {}).get('id') and n.get('kind') != 'end' for n in new)
+        brake, limit = ('mission_wakes', MISSION_WAKES_PER_HOUR) if work else ('wakes', WAKES_PER_HOUR)
+        earlier = [t for t in s.get(brake, []) if t > time.time() - 3600]
+        if not new or len(earlier) >= limit:
             return None, waiting
         mark_delivered(new)
-        update_session(sid, lambda x: x.update(seen=(x.get('seen', []) + [n['id'] for n in new])[-200:],
-                                               wakes=earlier + [time.time()], active=time.time(), waiting_since=0))
+        update_session(sid, lambda x: x.update(seen=(x.get('seen', []) + [n['id'] for n in new])[-200:], active=time.time(),
+                                               waiting_since=0, mission=(m or {}).get('id'),
+                                               **{brake: earlier + [time.time()]}))
     s = update_status(sid, lambda x: set_state(x, 'working'))
     log_event(sid, 'woken', main_repo(s), **{'from': sorted({n['from'] for n in new})})
     nm = names(k)
+    close = ("Go on with the mission. Don't reply to an acknowledgement or thanks." if work else
+             'Do what the proposal says, then end the turn.' if any(n.get('kind') == 'invite' for n in new) else
+             f"Tell {k.get('name')} in one or two sentences what arrived, then end the turn. "
+             f"Don't reply to an acknowledgement or thanks.")
     return '\n\n'.join(['Synchronauts: mail arrived while this session was waiting. Not an error, just the delivery.',
-                        *[message_text(n, k, nm) for n in new],
-                        f"Tell {k.get('name')} in one or two sentences what arrived, then end the turn. "
-                        f"Don't reply to an acknowledgement or thanks."]), False
+                        *[message_text(n, k, nm, False, ms, m) for n in new], close]), False
 
 
 def ask_first(k, sid, e):
@@ -824,8 +1011,9 @@ def ask_first(k, sid, e):
     mine = load(HOME / 'status.json', {}).get('sessions', {}).get(sid, {}).get('repos', {}).get(r[0], {})
     if f in mine.get('files', []):
         return 0
+    team = partners(k, my_mission(k, sid))  # within a mission the Claudes coordinate themselves
     on_it = sorted(((x.get('last') or s.get('last') or '', who, x.get('branch'), s.get('task'))
-                    for who, key, s, _ in others(k, own=False) if not key.startswith(f"{k['me']}/")
+                    for who, key, s, _ in others(k, own=False) if key.split('/')[0] not in team | {k['me']}
                     for repo, x in s['repos'].items() if repo == r[0] and f in x.get('files', [])), reverse=True)
     if not on_it:
         return 0
@@ -847,9 +1035,11 @@ def wait_for_mail(k, sid):
     window is over; the next prompt then shows the mail."""
     start, me = time.time(), os.getpid()
     claude = int(os.environ.get('CLAUDE_PID') or os.getppid())  # when this process ends, the session is over
-    update_session(sid, lambda s: s.update(waiter=me, waiting_since=start, pulse=start))
+    m = my_mission(k, sid)  # within a mission the session stays wakeable until its end
+    window = max(WAKE_WINDOW, min((parse(m['until']) - now()).total_seconds(), 8 * 3600 - 120)) if m else WAKE_WINDOW
+    update_session(sid, lambda s: s.update(waiter=me, waiting_since=start, pulse=start, window=window))
     seen, pulsed, checked, waiting = None, 0, 0, False
-    while time.time() - start < WAKE_WINDOW:
+    while time.time() - start < window:
         s = load(SESSIONS / f'{sid}.json', {})
         if s.get('waiter') != me or s.get('ended') or s.get('active', 0) > start or not pid_alive(claude):
             return 0
@@ -913,7 +1103,7 @@ def hook(event):
             return 0
     sid = (e.get('session_id') or 'none')[:8]
     if event == 'PreToolUse':
-        return ask_first(k, sid, e)
+        return (approval if e.get('tool_name') == 'Bash' else ask_first)(k, sid, e)
     if event == 'Stop':
         update_status(sid, lambda s: set_state(s, 'waiting'))
         return wait_for_mail(k, sid)
@@ -937,6 +1127,7 @@ def hook(event):
         if r:
             hits.append((r, in_repo(path, r[1])))
     task = clean(take_task(sid) or '')[:200] if e.get('tool_name') == 'Bash' else ''
+    joined = approved(k, sid, e) if event == 'PostToolUse' and e.get('tool_name') == 'Bash' else ''
     history = []  # (kind, repo, fields) for the UI's history
 
     def change(s):
@@ -978,17 +1169,21 @@ def hook(event):
     prompt = str(e.get('prompt') or '').lower()
     in_team = bool(mine.get('repos')) or bool(prompt) and any(
         len(short(r)) >= 4 and short(r).lower() in prompt for _, _, s, _ in others(k, sid) for r in s['repos'])
-    nm, error = names(k), error_text()
+    nm, error, ms = names(k), error_text(), missions(k)
+    m = my_mission(k, sid, ms)
     with Lock('delivery'):
         sess = load(SESSIONS / f'{sid}.json', {})
-        mail, _ = new_mail(k, sid, sess)
+        mail, _ = new_mail(k, sid, sess, ms)
         mark_delivered([n for n, first in mail if first])
         asked = set(sess.get('asked', []))
-        notes = [(key, x) for key, x in [*situation_lines(k, sid), *overlaps(k, mine, sid, asked)]
+        notes = [(key, x) for key, x in [*situation_lines(k, sid), *overlaps(k, mine, sid, asked, partners(k, m))]
                  if key not in sess['reported']] if in_team else []
         if error and in_team and f'error|{error}' not in sess['reported']:
             notes.append((f'error|{error}', f'Synchronauts: sync is failing ({error}); the picture may be stale.'))
         intro = bool(notes) and not sess.get('introduced')
+        over = ms.get(sess.get('mission')) if sess.get('mission') and not m else None
+        if over and any(n.get('kind') == 'end' and n.get('mission') == over['id'] for n, _ in mail):
+            over = None  # the end message says it already
         remind = e.get('tool_name') in EDIT_TOOLS and in_team and not mine.get('task') and not sess.get('reminded')
 
         def remember(s):
@@ -996,6 +1191,7 @@ def hook(event):
             s['seen'] = (s['seen'] + [n['id'] for n, _ in mail])[-200:]
             s['reminded'] = s.get('reminded') or bool(remind)
             s['introduced'] = s.get('introduced') or intro
+            s['mission'] = m['id'] if m else None
         update_session(sid, remember)
     for key, _ in notes:  # warnings to Claude also go into the history, with the session they concern
         kind, other, repo, rest = (key.split('|', 3) + [''] * 3)[:4]
@@ -1004,14 +1200,19 @@ def hook(event):
         elif kind == 'branch':
             log_event(sid, 'warning', repo, **{'with': other, 'branch': rest})
 
-    lines = []
+    lines = [joined] if joined else []
     if intro:
         lines.append(f"Synchronauts: what the team's sessions are working on. Same topic (also in another repo) or "
                      f"the same files: tell {k.get('name')} before you build on.")
     elif notes or mail:
         lines.append('Synchronauts:')
     lines += [x for _, x in notes]
-    lines += [message_text(n, k, nm, shown=not first) for n, first in mail]
+    lines += [message_text(n, k, nm, not first, ms, m) for n, first in mail]
+    if over:  # ended by someone or time is up: from now on messages are information again
+        how = (f"ended by {nm.get(over['ended']['by'], over['ended']['by'])}: {over['ended']['summary']}"
+               if over['ended'] else 'over, its time is up')
+        lines.append(f"Synchronauts: mission {over['id']} is {how}. Messages are information again; ask "
+                     f"{k.get('name')} before you act on them.")
     if remind:
         lines.append(f'Synchronauts: no task set yet. One sentence on what this session works on, again when the '
                      f'topic changes: `{CMD} task "…"`')
@@ -1039,6 +1240,16 @@ def check_text(text):
         raise ValueError('The message is empty.')
 
 
+def post(k, to, text, **fields):
+    """Puts a message into the own mail, the watcher pushes it."""
+    n = {'id': f"{now().strftime('%Y%m%dT%H%M%SZ')}-{k['me']}-{secrets.token_hex(3)}", 'to': to, 'time': iso(),
+         'text': clean(text), **{f: v for f, v in fields.items() if v}}
+    with Lock('mail'):
+        mail = [x for x in load(HOME / 'mail.json', []) if parse(x.get('time')) > now() - MAIL_KEEP]
+        save(HOME / 'mail.json', mail + [n])
+    return n
+
+
 def create_message(k, to, text, source=None):
     """Puts a message into the own mail, the watcher pushes it. (message, recipients, missing): missing are the
     recipients without a session in the named repo right now. ValueError for an unknown recipient."""
@@ -1054,19 +1265,16 @@ def create_message(k, to, text, source=None):
     if not targets:
         raise ValueError(f'Unknown: {person}. In the room: '
                          + (', '.join(f'{n} ({login})' for login, n in sorted(nm.items())) or 'nobody yet'))
-    n = {'id': f"{now().strftime('%Y%m%dT%H%M%SZ')}-{k['me']}-{secrets.token_hex(3)}", 'to': targets,
-         'time': iso(), 'text': clean(text)}
-    if repo:
-        n['repo'] = repo
-    if source:
-        n['source'] = source  # 'ui': the human writes in person, the reply goes to their UI
-    else:
-        own = load(HOME / 'status.json', {}).get('sessions', {}).get(current_session(), {}).get('repos') or {}
+    fields = {'repo': repo, 'source': source}  # source 'ui': the human writes in person, the reply goes to their UI
+    if not source:
+        sid = current_session()
+        own = load(HOME / 'status.json', {}).get('sessions', {}).get(sid, {}).get('repos') or {}
         if own:  # so that a reply finds its way back to this session
-            n['from_repo'] = short(max(own.items(), key=lambda x: x[1].get('last', ''))[0])
-    with Lock('mail'):
-        mail = [x for x in load(HOME / 'mail.json', []) if parse(x.get('time')) > now() - MAIL_KEEP]
-        save(HOME / 'mail.json', mail + [n])
+            fields['from_repo'] = short(max(own.items(), key=lambda x: x[1].get('last', ''))[0])
+        m = my_mission(k, sid) if sid else None
+        if m and set(targets) <= partners(k, m):  # within the mission: approved work on the other side
+            fields['mission'] = m['id']
+    n = post(k, targets, text, **fields)
     to_repo = repo and repo != UI_TARGET
     who = ', '.join(nm[login] for login in targets) + (f' (session in {repo})' if to_repo else ' (UI)' if repo else '')
     there = {key.split('/')[0] for _, key, s, _ in others(k, own=False)
@@ -1133,6 +1341,82 @@ def cmd_status(k):
              f"{clean(n.get('text', ''))}" for n in sorted(mail, key=lambda n: n.get('time', ''))
              if parse(n.get('time')) > limit]
     print('\n'.join(lines[-20:]) or '- none')
+    mine = [m for m in missions(k).values() if k['me'] in m['with'] and parse(m['until']) > limit]
+    if mine:
+        print('\nMissions:')
+    for m in sorted(mine, key=lambda m: m['start'] or ''):
+        on = sorted({nm.get(x.split('/')[0], x.split('/')[0]) for x in m['joined']})
+        state = (f"ended {clock(m['ended']['time'])}: {m['ended']['summary']}" if m['ended'] else
+                 f"until {clock(m['until'])}" if live(m) else 'over')
+        print(f"- {m['id']} by {nm.get(m['by'], m['by'])}, {state}. Joined: {', '.join(on)}\n  Plan: {clean(m['plan'])}")
+
+
+def cmd_mission(k, args):
+    """propose: a draft that `approve` turns into a mission once the human says yes in Claude Code's prompt;
+    approve: starts the mission or joins it; end: ends it for everyone, with the result."""
+    sid, sub, rest, me = current_session(), (args or [''])[0], list(args[1:]), k.get('name')
+    if not sid:
+        sys.exit('Run it from a Claude Code session: a mission belongs to sessions.')
+    if sub == 'propose':
+        hours, invite, nm = MISSION_HOURS, {}, {x: n for x, n in names(k).items() if x != k['me']}
+        while len(rest) > 1 and rest[0] in ('--with', '--hours'):
+            flag, value = rest.pop(0), rest.pop(0)
+            if flag == '--hours':
+                try:
+                    hours = float(value)
+                except ValueError:
+                    hours = 0
+                if not 0 < hours <= MISSION_MAX_HOURS:
+                    sys.exit(f'--hours: a number up to {MISSION_MAX_HOURS:g}.')
+                continue
+            for item in filter(None, value.split(',')):
+                person, _, repo = item.partition('@')
+                login = next((x for x in nm if person.lower() in (x.lower(), nm[x].lower())), None)
+                if not login:
+                    sys.exit(f'Unknown: {person}. In the room: '
+                             + (', '.join(f'{n} ({x})' for x, n in sorted(nm.items())) or 'nobody yet'))
+                invite[login] = clean(repo).strip()[:100]
+        plan = ' '.join(rest)
+        try:
+            check_text(plan)
+        except ValueError as f:
+            sys.exit(f'Plan: {f}')
+        if not invite:
+            sys.exit('Who takes part? --with <name>[@repo][,<name>...]')
+        if my_mission(k, sid):
+            sys.exit('This session is in a mission already; end it first.')
+        mid = f"{k['me']}-{secrets.token_hex(3)}"
+        with Lock('missions'):
+            limit = now() - MAIL_KEEP
+            own = {i: x for i, x in load(HOME / 'missions.json', {}).items()
+                   if parse(x.get('start') or x.get('created')) > limit}
+            own[mid] = {'id': mid, 'by': k['me'], 'with': [k['me'], *invite], 'plan': clean(plan), 'hours': hours,
+                        'repos': {x: r for x, r in invite.items() if r}, 'created': iso()}
+            save(HOME / 'missions.json', own)
+        print(f'Draft {mid}. Now run `{CMD} mission approve {mid}` as a command of its own: Claude Code asks {me} '
+              f'once (the session must be in auto mode).')
+    elif sub == 'approve' and len(rest) == 1:
+        if (load(SESSIONS / f'{sid}.json', {}).get('approving') or {}).get('id') != rest[0]:
+            sys.exit(f'Claude Code has not asked {me}: run `{CMD} mission approve {rest[0]}` as a command of its own, '
+                     f'in auto mode.')
+        print(f'{me} approved.')
+    elif sub == 'end' and rest:
+        m, summary = my_mission(k, sid), ' '.join(rest)
+        if not m:
+            sys.exit('This session is in no active mission.')
+        try:
+            check_text(summary)
+        except ValueError as f:
+            sys.exit(f'Result: {f}')
+        end_mission(k, m, summary)
+        log_event(sid, 'mission', main_repo(load(HOME / 'status.json', {}).get('sessions', {}).get(sid, {})),
+                  id=m['id'], step='end', text=summary[:200])
+        alive()
+        ensure_watcher()
+        print(f"Mission {m['id']} ended; {people(m['with'], names(k), k)} get the result.")
+    else:
+        sys.exit('mission propose --with <name>[@repo][,…] [--hours N] "<plan>" · mission approve <id> · '
+                 'mission end "<result>"')
 
 
 # --- UI -----------------------------------------------------------------------
@@ -1158,17 +1442,18 @@ def ui_session(login, machine, sid, s, local=None):
             'state': state, 'since': iso(since), 'wakeable': wakeable, 'cwd': (local or {}).get('cwd') or ''}
 
 
-def pairs(team):
+def pairs(team, crews=()):
     """Overlaps per pair of sessions: the same file, the same branch, otherwise the same repo (only between different
-    people, as in the hooks)."""
+    people, as in the hooks). Two sessions in the same mission (crews: their keys per mission) coordinate themselves."""
     for i, a in enumerate(team):
         for b in team[i + 1:]:
+            together = any(a['key'] in c and b['key'] in c for c in crews)
             for repo in sorted(set(a['repos']) & set(b['repos'])):
                 ra, rb = a['repos'][repo], b['repos'][repo]
                 same = sorted(set(ra.get('files') or []) & set(rb.get('files') or []))
                 kind = 'file' if same else 'branch' if ra.get('branch') == rb.get('branch') else 'repo'
                 if kind != 'repo' or a['login'] != b['login']:
-                    yield {'a': a['key'], 'b': b['key'], 'repo': repo, 'kind': kind, 'files': same}
+                    yield {'a': a['key'], 'b': b['key'], 'repo': repo, 'kind': kind, 'files': same, 'mission': together}
 
 
 def ui_data(k):
@@ -1189,14 +1474,19 @@ def ui_data(k):
         if parse(s.get('last')) > limit and not local.get(sid, {}).get('ended'):
             sessions.append(ui_session(me, k['machine'], sid, s, local.get(sid, {})))
     events += [dict(x, login=me, machine=k['machine']) for x in load(HOME / 'events.json', [])]
+    ms = [dict(m, live=live(m), joined=sorted(m['joined'])) for m in missions(k).values()
+          if me in m['with'] and parse(m['until']) > now() - EVENTS_KEEP]
     pushed = set(load(HOME / 'pushed.json', []))
     mail.update({n['id']: {**n, 'from': me, 'uploaded': n['id'] in pushed} for n in load(HOME / 'mail.json', [])})
     return {'version': VERSION, 'me': me, 'machine': k['machine'], 'orgs': orgs(k),
             'room': '/'.join(github_path(k['remote']) or ()) or k['remote'],
             'people': sorted(people.values(), key=lambda p: (p['login'] != me, str(p['name']).lower())),
-            'sessions': sessions, 'overlaps': list(pairs([s for s in sessions if s['repos']])),
-            'mail': sorted(mail.values(), key=lambda n: (str(n.get('time')), n['id']))[-200:],
+            'sessions': sessions,
+            'overlaps': list(pairs([s for s in sessions if s['repos']], [set(m['joined']) for m in ms if m['live']])),
+            # proposals, joins and ends show on the mission itself
+            'mail': sorted((n for n in mail.values() if not n.get('kind')), key=lambda n: (str(n.get('time')), n['id']))[-200:],
             'events': sorted(events, key=lambda x: parse(x.get('time')), reverse=True)[:300],
+            'missions': sorted(ms, key=lambda m: str(m['start']), reverse=True),
             'error': error_text(), 'max_text': MAX_TEXT, 'wake_min': round(WAKE_WINDOW / 60)}
 
 
@@ -1277,7 +1567,7 @@ def ui_server():
             last[0] = time.time()
             if not self.allowed(True):
                 return self.fail(403, 'forbidden')
-            if self.path != '/api/send':
+            if self.path not in ('/api/send', '/api/end'):
                 return self.fail(404, 'unknown')
             if not (self.headers.get('Content-Type') or '').startswith('application/json'):
                 return self.fail(415, 'JSON expected')
@@ -1286,12 +1576,20 @@ def ui_server():
                 if not 0 < length <= 20_000:
                     raise ValueError('Invalid length.')
                 d = json.loads(self.rfile.read(length))
-                to = str(d.get('to') or '') + (f"@{d['repo']}" if d.get('repo') else '')
-                n, who, missing = create_message(k, to, str(d.get('text') or ''), source='ui')
+                if self.path == '/api/end':  # the human stops a mission in person
+                    m = missions(k).get(str(d.get('id')))
+                    if not live(m) or k['me'] not in m['with']:
+                        raise ValueError('No such active mission.')
+                    end_mission(k, m, f"Stopped by {k.get('name')} in person.", source='ui')
+                    answer = {'id': m['id']}
+                else:
+                    to = str(d.get('to') or '') + (f"@{d['repo']}" if d.get('repo') else '')
+                    n, who, missing = create_message(k, to, str(d.get('text') or ''), source='ui')
+                    answer = {'id': n['id'], 'who': who, 'missing': missing}
             except (ValueError, TypeError, AttributeError) as f:
                 return self.fail(400, str(f))
             ensure_watcher()
-            self.reply(200, json.dumps({'id': n['id'], 'who': who, 'missing': missing}, ensure_ascii=False).encode())
+            self.reply(200, json.dumps(answer, ensure_ascii=False).encode())
 
     class Server(ThreadingHTTPServer):
         def server_bind(self):  # without HTTPServer's reverse DNS lookup, which can take seconds
@@ -1393,12 +1691,14 @@ def main(argv):
         cmd_send(k, rest[0], ' '.join(rest[1:]))
     elif cmd == 'task' and rest:
         cmd_task(' '.join(rest))
+    elif cmd == 'mission':
+        cmd_mission(k, rest)
     elif cmd == 'status':
         cmd_status(k)
     elif cmd == 'ui':
         cmd_ui(browser='--no-browser' not in rest)
     else:
-        sys.exit('Commands: status · send <name|all>[@repo] "<text>" · task "<one sentence>" · ui · '
+        sys.exit('Commands: status · send <name|all>[@repo] "<text>" · task "<one sentence>" · mission … · ui · '
                  'setup <owner/repo of the room> [--org owner,...]')
     return 0
 

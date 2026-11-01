@@ -287,6 +287,78 @@ until_ok 10 "the reply shows in Sam's UI" sh -c "curl -s -H 'X-SYN-Token: $tok' 
 out=$(hook sam UserPromptSubmit "$(session sam33333 "$T/sam-demo")")
 lacks "$out" 'leave src/a.ts alone' 'mail to the UI shows in no session'
 
+# Missions: Sam's and Alex's Claudes solve one problem together without their humans. Each human approves once, in
+# Claude Code's prompt and only in auto mode; until the end, messages between the two sessions count as approved work
+call() { echo "{\"session_id\":\"$1\",\"cwd\":\"$2\",\"tool_name\":\"Bash\",\"tool_use_id\":\"$3\",\"permission_mode\":\"$4\",\"tool_input\":{\"command\":\"~/.synchronauts/syn mission approve $5\"}}"; }
+out=$(from_session sam33333 as_user sam "$PY" "$SYN" mission propose --with alex@demo --hours 1 \
+  "Make the ticket tests green: Sam fixes src/a.ts, Alex writes the tests. Done when both agree.")
+check "$out" 'Draft sam-gh-' 'a mission starts as a draft'
+MID=$(sed -n 's/^Draft \([^.]*\)\..*/\1/p' <<<"$out")
+out=$(from_session sam33333 as_user sam "$PY" "$SYN" mission approve "$MID" 2>&1) && fail 'approved without a prompt' "$out" \
+  || check "$out" 'Claude Code has not asked Sam' 'without the prompt there is no approval'
+out=$(hook sam PreToolUse "$(call sam33333 "$T/sam-demo" toolu_1 default "$MID")")
+check "$out" '"permissionDecision": "deny"' 'outside auto mode a mission does not start'
+check "$out" 'only run in auto mode' 'and Claude learns why'
+out=$(hook sam PreToolUse "$(call sam33333 "$T/sam-demo" toolu_2 auto "$MID")")
+check "$out" '"permissionDecision": "ask"' 'in auto mode Claude Code asks Sam'
+check "$out" 'Start this mission with Alex for up to 1 h' 'the prompt says with whom and how long'
+check "$out" 'Plan: Make the ticket tests green' 'the prompt shows the plan'
+hook sam PostToolUse "$(call sam33333 "$T/sam-demo" toolu_other auto "$MID")" >/dev/null
+lacks "$(cat "$T/home-sam/missions.json")" '"joined"' 'another call does not count as the approval'
+hook alex UserPromptSubmit "$(session ale11111 "$T/alex-demo")" >/dev/null
+hook alex Stop "$(session ale11111 "$T/alex-demo")" 2>"$T/wake6" & W6=$!
+sleep 0.5
+check "$(from_session sam33333 as_user sam "$PY" "$SYN" mission approve "$MID")" 'Sam approved' 'the command after the yes'
+out=$(hook sam PostToolUse "$(call sam33333 "$T/sam-demo" toolu_2 auto "$MID")")
+check "$out" "mission $MID is approved until" 'the yes starts the mission'
+check "$out" 'woken when they join' 'Claude learns that it is woken'
+rc=0; exit_of $W6 15 || rc=$?
+[ $rc = 2 ] && ok "the proposal wakes Alex's session" || fail "wake: exit $rc" "$(cat "$T/wake6")"
+check "$(cat "$T/wake6")" 'Mission proposal from Sam' 'the wake text is the proposal'
+check "$(cat "$T/wake6")" "mission approve $MID" 'with the command that asks Alex'
+
+# Alex says yes: Sam's waiting session is woken and goes on without Sam
+hook sam Stop "$(session sam33333 "$T/sam-demo")" 2>"$T/wake7" & W7=$!
+sleep 0.5
+out=$(hook alex PreToolUse "$(call ale11111 "$T/alex-demo" toolu_3 auto "$MID")")
+check "$out" "Join Sam's mission with Sam until" 'Claude Code asks Alex'
+from_session ale11111 as_user alex "$PY" "$SYN" mission approve "$MID" >/dev/null
+check "$(hook alex PostToolUse "$(call ale11111 "$T/alex-demo" toolu_3 auto "$MID")")" "this session joined mission $MID" 'Alex joins'
+rc=0; exit_of $W7 15 || rc=$?
+[ $rc = 2 ] && ok "Alex's yes wakes Sam's session" || fail "wake: exit $rc" "$(cat "$T/wake7")"
+check "$(cat "$T/wake7")" "Alex joined mission $MID" 'the wake text says Alex joined'
+check "$(cat "$T/wake7")" 'Go on with the mission' 'and Claude goes on instead of asking Sam'
+
+# Within the mission: messages are approved work, and a file of the other side needs no question
+hook alex PostToolUse "$(edit ale11111 "$T/alex-demo" "$T/alex-demo/src/a.test.ts")" >/dev/null
+until_ok 10 'Sam sees the joined session and the test file' sh -c "grep -q a.test.ts '$T/home-sam/others.json' && grep -q '\"joined\"' '$T/home-sam/others.json'"
+out=$(hook sam PreToolUse "$(edit sam33333 "$T/sam-demo" "$T/sam-demo/src/a.test.ts")")
+[ -z "$out" ] && ok "within the mission, Alex's file needs no question" || fail 'question within the mission' "$out"
+check "$(hook sam PreToolUse "$(edit sam55555 "$T/sam-demo" "$T/sam-demo/src/a.test.ts")")" '"ask"' 'a session outside the mission is still asked'
+hook sam Stop "$(session sam33333 "$T/sam-demo")" 2>"$T/wake8" & W8=$!
+sleep 0.5
+from_session ale11111 as_user alex "$PY" "$SYN" send sam 'Tests are in src/a.test.ts, three of them fail on the id check.' >/dev/null
+rc=0; exit_of $W8 15 || rc=$?
+[ $rc = 2 ] && ok 'a mission message wakes the session that joined' || fail "wake: exit $rc" "$(cat "$T/wake8")"
+check "$(cat "$T/wake8")" "Approved work within mission $MID" 'it counts as approved work'
+check "$(cat "$T/wake8")" 'without asking Sam' 'without asking Sam'
+lacks "$(hook sam UserPromptSubmit "$(session sam55555 "$T/sam-demo")")" 'three of them fail' 'other sessions get no FYI of mission mail'
+data=$(curl -s -H "X-SYN-Token: $tok" "$U/api/state")
+ui_check "any(m['id'] == '$MID' and m['live'] and len(m['joined']) == 2 for m in d['missions'])" 'the UI shows the mission with both sessions'
+
+# The end: everyone gets the result, then messages are information again
+check "$(from_session ale11111 as_user alex "$PY" "$SYN" mission end 'All 12 tests green, PR #7 is open.')" "Mission $MID ended" 'Alex ends the mission'
+until_ok 10 'the end reaches Sam' grep -q '"ended"' "$T/home-sam/others.json"
+out=$(hook sam PostToolUse "$(bash_call sam33333 "$T/sam-demo")")
+check "$out" "Mission $MID ended by Alex's Claude" 'Sam learns that it is over'
+check "$out" 'All 12 tests green' 'with the result'
+lacks "$(hook sam PostToolUse "$(bash_call sam33333 "$T/sam-demo")")" 'mission' 'the end is reported once'
+from_session sam33333 as_user sam "$PY" "$SYN" send alex 'Thanks!' >/dev/null
+lacks "$(tail -12 "$T/home-sam/mail.json")" '"mission"' 'after the end, messages are no longer mission mail'
+out=$(curl -s -X POST -H "X-SYN-Token: $tok" -H 'Content-Type: application/json' -H "Origin: $U" -d "{\"id\":\"$MID\"}" "$U/api/end")
+check "$out" 'No such active mission' 'an ended mission cannot be stopped again'
+check "$(as_user sam "$PY" "$SYN" status)" "$MID by Sam, ended" 'status lists the mission'
+
 # Several owners count as team repos with --org a,b, for friends who each keep their repos in their own account
 out=$(echo "$(edit sam88888 "$T/private" "$T/private/src/a.ts")" | SYN_ORGS=acme,someone as_user sam "$PY" "$HOOK" PostToolUse)
 grep -q 'someone/private' "$T/home-sam/status.json" && ok 'a second owner in --org makes its repos team repos' || fail 'orgs list' "$(cat "$T/home-sam/status.json")"

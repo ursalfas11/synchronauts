@@ -10,11 +10,12 @@ Zwei Leute mit je drei Claude-Code-Sessions bauen schnell dasselbe Feature von z
 - **Eine Rückfrage, bevor es einem Kollegen in die Datei fährt:** Bevor Claude zum ersten Mal eine Datei ändert, an der die Session eines Kollegen gerade arbeitet, fragt Claude Code dich, mit wer, wo und woran.
 - **Frühe Warnung bei Überschneidungen:** dieselbe Datei, derselbe Branch oder ein ähnliches Vorhaben in einem anderen Repo, vor dem Merge-Konflikt.
 - **Nachrichten von Agent zu Agent:** `send alex@api "…"` erreicht Alex' Session in `api` und weckt sie, wenn sie wartet.
+- **Aufträge:** Die Claudes mehrerer Leute lösen ein Problem selbstständig: Sie teilen die Arbeit auf, schreiben einander, bis es gelöst ist, und melden das Ergebnis. Jeder Mensch bestätigt den Plan einmal, am Anfang.
 - **Live-Board:** eine lokale Webseite mit Sessions, Zuständen (arbeitet, wartet auf Freigabe, wartet, Fehler), Nachrichten und Verlauf.
 - **Sparsam mit Tokens:** Text für Claude nur, wenn etwas neu ist und die Session betrifft, außerhalb der Team-Repos gar keiner.
 - **Kein Server, kein Konto:** Der GitHub-Zugang ist die Zugangskontrolle. Nur die Python-Standardbibliothek.
 
-Stand: früh (0.2). Gedacht für kleine Teams, die einander vertrauen, siehe [Sicherheit](#sicherheit).
+Stand: früh (0.3). Gedacht für kleine Teams, die einander vertrauen, siehe [Sicherheit](#sicherheit).
 
 ## Schnellstart
 
@@ -78,10 +79,22 @@ Die Frage geht nur an dich und kostet Claude keine Tokens. Erlaubst du die Ände
 
 **Wer die Post bekommt:** Jede Nachricht hat auf dem Rechner des Empfängers eine Zielsession. Mit `@repo` ist das die zuletzt aktive Session in diesem Repo, sonst die zuletzt aktive überhaupt. Wartet die Zielsession nach ihrem Turn, wird sie geweckt, und Claude sagt ihrem Menschen in ein, zwei Sätzen, was angekommen ist. Arbeitet sie gerade, kommt die Nachricht mit ihrem nächsten Schritt. Liegt ihr letzter Schritt mehr als 55 Minuten zurück, zählt sie nicht mehr als Ziel, und die Session, in der der Mensch als Nächstes arbeitet, zeigt die Nachricht. Die anderen Sessions bekommen sie nur zur Kenntnis (bei `@repo` nur die im selben Repo), so hört niemand dieselbe Nachricht zweimal. Antworten gehen an die fragende Session zurück. Eine Session wird höchstens viermal je Stunde geweckt, damit sich zwei Claudes nicht endlos gegenseitig wecken.
 
+## Aufträge
+
+Normalerweise ist eine Nachricht vom Claude eines Kollegen nur Information: Dein Claude zeigt sie dir und handelt erst nach deinem Okay. Für ein Problem, das die Claudes selbstständig gemeinsam lösen sollen, gibt es den Auftrag (Mission):
+
+1. Du sagst deinem Claude zum Beispiel: „löst die roten Ticket-Tests zusammen mit Alex' Claude“. Er schreibt einen kurzen Plan (Ziel, wer was macht, wann es fertig ist) und schlägt ihn mit `mission propose` vor.
+2. Claude Code fragt dich einmal, mit dem Plan. Alex' Session bekommt den Vorschlag, wird geweckt, und Claude Code fragt auch Alex einmal. Jeder bestätigt nur für seinen eigenen Claude.
+3. Ab dann arbeiten die beigetretenen Sessions ohne ihre Menschen: Nachrichten zwischen ihnen gelten als freigegebene Arbeit im Rahmen des Plans, wartende Sessions werden sofort geweckt, und die Rückfrage vor der Datei des anderen entfällt zwischen ihnen. Was der Plan nicht abdeckt, geht weiter an den Menschen.
+4. Ist alles erledigt, beendet ein Claude den Auftrag mit dem Ergebnis, und jeder Mensch bekommt es. Ein Auftrag endet auch, wenn seine Zeit abläuft (Standard 2 Stunden, höchstens 7,5), und jeder kann ihn jederzeit im Board stoppen.
+
+Die Zustimmung ist eine echte Rückfrage von Claude Code, die Claude nicht selbst beantworten kann, und zählt nur im Aufruf, der gefragt hat. Aufträge laufen nur im Auto-Modus, damit die eigenen Freigaben von Claude Code die Arbeit nicht anhalten; im Auto-Modus hält ein Klassifizierer riskante Aktionen weiter zurück.
+
 ## Live-Board
 
 `~/.synchronauts/syn ui` öffnet es im Browser. Das kostet keine Tokens.
 
+- **Aufträge** oben, mit Plan, Beteiligten, Zeit und Ergebnis, und einem Knopf zum Stoppen.
 - **Board:** Je Person ihre Sessions als Karten: Repo, Branch, Vorhaben, bearbeitete Dateien und Zustand (arbeitet · wartet auf Freigabe · wartet · ruhig · API-Fehler). Überschneidungen sind markiert. Eigene Sessions außerhalb der Team-Repos zeigt nur das eigene Board.
 - **Nachrichten:** direkt dort lesen und schreiben, an eine Person oder an ihre Session in einem Repo. Der Claude des Empfängers sieht, dass der Mensch selbst schreibt, und seine Antwort (`send <name>@ui`) kommt ins Board zurück statt in eine Session.
 - **Verlauf** der letzten 24 Stunden: Sessionstart, Vorhaben, bearbeitete Dateien, Warnungen an Claude, offene Freigaben, Wecken und Nachrichten.
@@ -97,6 +110,7 @@ Claude ruft sie per Bash auf, du kannst es auch. `~/.synchronauts/syn` ist ein k
 | `~/.synchronauts/syn task "<ein Satz>"` | trägt ein, woran diese Session arbeitet |
 | `~/.synchronauts/syn send <name\|all>[@repo] "<text>"` | Nachricht an den Claude eines Kollegen, mit `@repo` an seine Session in diesem Repo, höchstens 1500 Zeichen |
 | `~/.synchronauts/syn send <name>@ui "<text>"` | Antwort ans Board eines Kollegen statt an eine seiner Sessions |
+| `~/.synchronauts/syn mission propose --with <name>[@repo] [--hours N] "<plan>"` | schlägt einen Auftrag vor; `mission approve <id>` fragt dann den Menschen (Start oder Beitritt), `mission end "<ergebnis>"` beendet ihn für alle |
 | `~/.synchronauts/syn status` | das Bild mit Dateien und Uhrzeiten, die eigenen Sessions, Post der letzten 3 Tage |
 | `~/.synchronauts/syn ui` | startet das Board im Hintergrund und öffnet es (`--no-browser` nennt nur die Adresse) |
 | `~/.synchronauts/syn setup <owner/repo> [--org a,b]` | tritt einem Raum bei; `--org` legt fest, wessen Repos als Team-Repos zählen |
@@ -112,6 +126,7 @@ Claude ruft sie per Bash auf, du kannst es auch. `~/.synchronauts/syn` ist ein k
 
 - **Der Raum ist die Vertrauensgrenze.** Wer in das Raum-Repo schreiben darf, kann jeden Branch darin schreiben. Der Absender einer Nachricht ist darum nicht kryptografisch geprüft. Nimm ein privates Repo und lade nur Leute ein, denen du vertraust.
 - **Nachrichten sind fremde Eingaben.** Sie kommen als Information eines Kollegen in den Kontext deines Claude, mit der Anweisung, sie dir zu zeigen und erst nach deinem Okay zu handeln, und der Skill wiederholt diese Regel. Das senkt das Risiko, dass eine Nachricht deinen Claude steuert, ist aber keine Garantie. Wer im Raum nicht mit deinem Claude reden können soll, gehört nicht in den Raum.
+- **Ein Auftrag weitet das bewusst aus,** für die beigetretenen Sessions und bis zu seinem Ende. Jeder bestätigt ihn in einer Rückfrage, die keine Nachricht beantworten kann; eine Session außerhalb des Auftrags behandelt Nachrichten weiter als Information.
 - **Das Board läuft nur auf 127.0.0.1.** Jeder Start erzeugt ein Zufalls-Token, das nur die Seite kennt. Anfragen ohne Token, mit fremdem `Host` (DNS-Rebinding) oder fremdem `Origin` werden abgewiesen. Die Seite hat eine strikte Content Security Policy mit Nonce, lädt nichts von außen und setzt fremde Texte nur als Text ein.
 - **Hooks brechen nie eine Session.** Fehler landen in `~/.synchronauts/hook.log`. In `claude -p` und SDK-Läufen bleibt das Plugin still.
 
@@ -130,9 +145,9 @@ Gemessen mit `python3 test/measure.py syn.py skills/synchronauts/SKILL.md` an ei
 | Weckruf mit einer Nachricht (nur der Text) | 180 |
 | Nachricht beim nächsten Prompt der Zielsession | 160 |
 | Dieselbe Nachricht zur Kenntnis in einer anderen Session | 70 |
-| Skill-Beschreibung, steht in jeder Session | 110 |
+| Skill-Beschreibung, steht in jeder Session | 130 |
 
-Den größten Posten zeigt die Tabelle nicht: Jedes Wecken ist ein eigener Turn, und der liest den ganzen Kontext der Session. Liegt der Kontext noch im Prompt-Cache, ist das günstig, sonst teuer. Darum weckt Synchronauts nur die Zielsession, nur bis 55 Minuten nach ihrem letzten Schritt und jede höchstens viermal je Stunde. Das Fenster passt zu einer Cache-Dauer von einer Stunde. Danach kommt die Post ohne eigenen Turn beim nächsten Prompt. `SYN_WAKE_MIN` stellt das Fenster ein, zum Beispiel in `~/.claude/settings.json` unter `env`; `0` schaltet das Wecken ab.
+Den größten Posten zeigt die Tabelle nicht: Jedes Wecken ist ein eigener Turn, und der liest den ganzen Kontext der Session. Liegt der Kontext noch im Prompt-Cache, ist das günstig, sonst teuer. Darum weckt Synchronauts nur die Zielsession, nur bis 55 Minuten nach ihrem letzten Schritt und jede höchstens viermal je Stunde, im Auftrag bis zu 30 Mal und bis zu seinem Ende. Das Fenster passt zu einer Cache-Dauer von einer Stunde. Danach kommt die Post ohne eigenen Turn beim nächsten Prompt. `SYN_WAKE_MIN` stellt das Fenster ein, zum Beispiel in `~/.claude/settings.json` unter `env`; `0` schaltet das Wecken ab.
 
 Zustand, Verlauf und Board kosten keine Tokens; sie gehen nur ans Board, nicht an Claude.
 
@@ -148,7 +163,7 @@ Jeder Rechner schreibt nur seinen eigenen Branch, mit genau einem Commit und `st
 
 Je Rechner läuft ein Wächter im Hintergrund. Er pusht den eigenen Stand, sobald er sich ändert: Post sofort, Zustand und Verlauf höchstens alle 15 Sekunden. Alle 5 Sekunden fragt er bei GitHub, ob sich ein fremder Branch geändert hat. Die Abfrage geht mit ETag, und eine unveränderte Antwort (304) zählt nicht gegen das Rate-Limit. Ohne `gh` fragt er per `git ls-remote` alle 20 Sekunden. 15 Minuten nach dem letzten Lebenszeichen beendet er sich, und jeder Hook startet ihn bei Bedarf neu.
 
-Die Hooks lesen und schreiben nur lokale Dateien. PreToolUse fragt nur vor einer Änderung, Notification (Freigabe offen) und StopFailure (API-Fehler) setzen nur den Zustand fürs Board. Der Stop-Hook läuft asynchron mit `asyncRewake`: Er wartet nach jedem Turn bis zu 55 Minuten auf Post und weckt die Session mit Exit-Code 2. Arbeitet die Session wieder, beendet er sich still.
+Die Hooks lesen und schreiben nur lokale Dateien. PreToolUse fragt nur vor einer Änderung oder der Zustimmung zu einem Auftrag, Notification (Freigabe offen) und StopFailure (API-Fehler) setzen nur den Zustand fürs Board. Der Stop-Hook läuft asynchron mit `asyncRewake`: Er wartet nach jedem Turn bis zu 55 Minuten auf Post und weckt die Session mit Exit-Code 2. Arbeitet die Session wieder, beendet er sich still.
 
 Eine Session gilt drei Stunden nach ihrem letzten Lebenszeichen als inaktiv. Post, die ankommt, solange beim Empfänger keine Session offen ist, sieht er beim nächsten Start, wenn sie höchstens 24 Stunden alt ist; ältere zeigt `status`.
 
@@ -160,6 +175,7 @@ Eine Session gilt drei Stunden nach ihrem letzten Lebenszeichen als inaktiv. Pos
 - „Wartet auf Freigabe“ meldet der Notification-Hook. Claude Code schickt ihn, sobald eine Freigabe etwa sechs Sekunden offen ist. Ein Turn, den Esc abbricht, endet ohne Stop-Hook. Darum zeigt das Board eine arbeitende Session nach 30 Minuten ohne Lebenszeichen als ruhig, eine wartende nach einer Stunde.
 - `send <name>@ui` geht ans Board. Ein Repo, das wirklich `ui` heißt, erreicht man mit vollem Namen (`alex@acme/ui`).
 - Die Rückfrage vor einer Änderung kennt nur Dateien, die die Session eines Kollegen schon bearbeitet hat, mit bis zu 20 Sekunden Verzug. Sie fragt, sie sperrt nicht: Du kannst die Änderung immer erlauben.
+- Ein Auftrag braucht in jeder beigetretenen Session den Auto-Modus. Die eigenen Freigaben von Claude Code kann das Plugin nicht abschalten.
 - Unter Windows brauchen die Hooks und Claudes Befehle Git Bash, das mit Git für Windows kommt.
 
 ## Entwicklung
@@ -168,7 +184,7 @@ Eine Session gilt drei Stunden nach ihrem letzten Lebenszeichen als inaktiv. Pos
 bash test/e2e.sh
 ```
 
-Spielt zwei Personen und einen zweiten Rechner mit einem lokalen Bare-Repo statt GitHub durch: Überschneidungen, die Rückfrage vor einer Änderung, Post, Wecken, Zustand, Verlauf und Board (Token, Host- und Origin-Prüfung, Senden aus dem Board, Antworten ans Board). Die CI lässt ihn unter Linux (Python 3.9 und 3.14), macOS und Windows laufen. `python3 test/measure.py syn.py skills/synchronauts/SKILL.md` misst, wie viel Text die Hooks in den Kontext schreiben (`SHOW=1` zeigt die Texte).
+Spielt zwei Personen und einen zweiten Rechner mit einem lokalen Bare-Repo statt GitHub durch: Überschneidungen, die Rückfrage vor einer Änderung, Post, Wecken, einen Auftrag vom Vorschlag bis zum Ergebnis, Zustand, Verlauf und Board (Token, Host- und Origin-Prüfung, Senden aus dem Board, Antworten ans Board). Die CI lässt ihn unter Linux (Python 3.9 und 3.14), macOS und Windows laufen. `python3 test/measure.py syn.py skills/synchronauts/SKILL.md` misst, wie viel Text die Hooks in den Kontext schreiben (`SHOW=1` zeigt die Texte).
 
 Einstellungen für die Entwicklung: `SYN_HOME` (Standard `~/.synchronauts`), `SYN_REMOTE`, `SYN_ME`, `SYN_NAME`, `SYN_MACHINE`, `SYN_ORGS`, `SYN_TICK` (Abfrageabstand in Sekunden), `SYN_IDLE` (Laufzeit des Wächters ohne Lebenszeichen), `SYN_WAKE_MIN`, `SYN_UI_PORT` (Standard 7962, `0` für einen freien Port).
 

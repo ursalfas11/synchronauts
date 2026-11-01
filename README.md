@@ -10,11 +10,12 @@ Two people, each with three Claude Code sessions, easily build the same feature 
 - **A question before stepping on a teammate's file:** before Claude first edits a file that a teammate's session is editing, Claude Code asks you, saying who, where and on what.
 - **Early overlap warnings:** the same file, the same branch, or a similar task in another repo, before the merge conflict.
 - **Agent-to-agent messages:** `send alex@api "…"` reaches Alex's session in `api` and wakes it if it is waiting.
+- **Missions:** the Claudes of several people solve one problem on their own: they split the work, message each other until it is done and report the result. Each human approves the plan once, at the start.
 - **Live board:** a local web page with sessions, states (working, waiting for approval, waiting, error), messages and history.
 - **Cheap on tokens:** text for Claude only when something is new and concerns the session, nothing at all outside the team's repos.
 - **No server, no account:** GitHub access is the access control. Python standard library only.
 
-Status: early (0.2). Built for small teams who trust each other, see [Security](#security).
+Status: early (0.3). Built for small teams who trust each other, see [Security](#security).
 
 ## Quick start
 
@@ -87,10 +88,22 @@ Tell Alex in one or two sentences what arrived, then end the turn. Don't reply t
 
 **Who gets the mail:** every message has one target session on the recipient's machine. With `@repo` that is the most recently active session in that repo, otherwise the most recently active one overall. If the target is waiting after its turn, it is woken and Claude tells its human in a sentence or two what arrived. If it is working, the message comes with its next step. If its last step was more than 55 minutes ago, it no longer counts as a target, and the session the human works in next shows the message. The other sessions only get it as FYI (with `@repo` only those in the same repo), so nobody hears the same message twice. Replies go back to the asking session. A session is woken at most four times an hour, so two Claudes cannot keep waking each other.
 
+## Missions
+
+Normally a message from a teammate's Claude is information only: your Claude shows it to you and acts once you agree. For a problem the Claudes should solve together on their own, there is the mission:
+
+1. You tell your Claude, for example: "solve the red ticket tests together with Alex's Claude". It writes a short plan (goal, who does what, when it is done) and proposes it with `mission propose`.
+2. Claude Code asks you once, with the plan. Alex's session gets the proposal, is woken, and Claude Code asks Alex once too. Each person approves only for their own Claude.
+3. From then on the sessions that joined work without their humans: messages between them count as approved work within the plan, waiting sessions are woken at once, and the question before a teammate's file falls away between them. What the plan does not cover still goes to the human.
+4. When everything is done, one Claude ends the mission with the result, and every human gets it. A mission also ends when its time is up (2 hours by default, at most 7.5), and anyone can stop it on the board at any time.
+
+The approval is a real permission prompt of Claude Code, which Claude cannot answer itself, and only counts in the very call that asked. Missions run only in auto mode, so that Claude Code's own permission prompts do not stop the work; in auto mode a classifier still holds back risky actions.
+
 ## Live board
 
 `~/.synchronauts/syn ui` opens it in the browser. It costs no tokens.
 
+- **Missions** at the top, with plan, people, time and result, and a button to stop one.
 - **Board:** each person's sessions as cards: repo, branch, task, edited files and state (working · waiting for approval · waiting · quiet · API error). Overlaps are marked. Your own sessions outside the team repos show only in your own board.
 - **Messages:** read and write them right there, to a person or to their session in a repo. The recipient's Claude sees that the human writes in person, and its reply (`send <name>@ui`) comes back to the board instead of into a session.
 - **History** of the last 24 hours: session start, task, edited files, warnings to Claude, open approvals, wake-ups and messages.
@@ -106,6 +119,7 @@ Claude calls these via Bash; you can too. `~/.synchronauts/syn` is a small scrip
 | `~/.synchronauts/syn task "<one sentence>"` | sets what this session works on |
 | `~/.synchronauts/syn send <name\|all>[@repo] "<text>"` | message to a teammate's Claude, with `@repo` to their session in that repo, at most 1500 characters |
 | `~/.synchronauts/syn send <name>@ui "<text>"` | reply to a teammate's board instead of one of their sessions |
+| `~/.synchronauts/syn mission propose --with <name>[@repo] [--hours N] "<plan>"` | proposes a mission; `mission approve <id>` then asks the human (start or join), `mission end "<result>"` ends it for everyone |
 | `~/.synchronauts/syn status` | the picture with files and times, your own sessions, mail of the last 3 days |
 | `~/.synchronauts/syn ui` | starts the board in the background and opens it (`--no-browser` only prints the address) |
 | `~/.synchronauts/syn setup <owner/repo> [--org a,b]` | joins a room; `--org` sets whose repos count as team repos |
@@ -121,6 +135,7 @@ Claude calls these via Bash; you can too. `~/.synchronauts/syn` is a small scrip
 
 - **The room is the trust boundary.** Whoever can write to the room repo can write any branch in it, so a message's sender is not cryptographically verified. Use a private repo and invite only people you trust.
 - **Messages are untrusted input.** They reach your Claude's context marked as information from a teammate, with the instruction to show them to you and act only once you agree, and the skill repeats that rule. This lowers the risk of a message steering your Claude, but it is not a guarantee. If someone in the room should not be able to talk to your Claude, they should not be in the room.
+- **A mission widens that on purpose,** for the sessions that joined it and until it ends. Each person approves it in a permission prompt that a message cannot answer; a session outside the mission still treats messages as information.
 - **The board runs on 127.0.0.1 only.** Every start creates a random token that only the page carries. Requests without it, with a foreign `Host` (DNS rebinding) or a foreign `Origin` are rejected. The page has a strict Content Security Policy with a nonce, loads nothing from outside, and puts other people's text into the page as text only.
 - **Hooks never break a session.** Errors go to `~/.synchronauts/hook.log`. In `claude -p` and SDK runs the plugin stays silent.
 
@@ -139,9 +154,9 @@ Measured with `python3 test/measure.py syn.py skills/synchronauts/SKILL.md` on a
 | Wake-up with one message (the text only) | 180 |
 | Message at the target session's next prompt | 160 |
 | The same message as FYI in another session | 70 |
-| Skill description, in every session | 110 |
+| Skill description, in every session | 130 |
 
-The table does not show the biggest item: every wake-up is a turn of its own, and that turn reads the session's whole context. While the context is still in the prompt cache that is cheap, otherwise expensive. So Synchronauts wakes only the target session, only up to 55 minutes after its last step, and each one at most four times an hour. The window fits a one-hour cache. After that, mail arrives without a turn of its own at the next prompt. `SYN_WAKE_MIN` sets the window, for example in `~/.claude/settings.json` under `env`; `0` turns waking off.
+The table does not show the biggest item: every wake-up is a turn of its own, and that turn reads the session's whole context. While the context is still in the prompt cache that is cheap, otherwise expensive. So Synchronauts wakes only the target session, only up to 55 minutes after its last step, and each one at most four times an hour; within a mission up to 30 times, until it ends. The window fits a one-hour cache. After that, mail arrives without a turn of its own at the next prompt. `SYN_WAKE_MIN` sets the window, for example in `~/.claude/settings.json` under `env`; `0` turns waking off.
 
 State, history and the board cost no tokens; they go to the board only, not to Claude.
 
@@ -157,7 +172,7 @@ Each machine writes only its own branch, holding exactly one commit with `state.
 
 One watcher per machine runs in the background. It pushes the own state when it changes: mail at once, state and history at most every 15 seconds. Every 5 seconds it asks GitHub whether another branch changed. The request carries an ETag, and an unchanged answer (304) does not count against the rate limit. Without `gh` it polls with `git ls-remote` every 20 seconds. 15 minutes after the last sign of life it stops, and every hook restarts it when needed.
 
-The hooks only read and write local files. PreToolUse only asks before an edit, Notification (approval open) and StopFailure (API error) only set the state for the board. The Stop hook runs asynchronously with `asyncRewake`: after each turn it waits up to 55 minutes for mail and wakes the session with exit code 2. If the session works again, it ends quietly.
+The hooks only read and write local files. PreToolUse only asks before an edit or a mission approval, Notification (approval open) and StopFailure (API error) only set the state for the board. The Stop hook runs asynchronously with `asyncRewake`: after each turn it waits up to 55 minutes for mail and wakes the session with exit code 2. If the session works again, it ends quietly.
 
 A session counts as inactive three hours after its last sign of life. Mail that arrives while the recipient has no session open shows at their next start if it is at most 24 hours old; `status` shows older mail.
 
@@ -169,6 +184,7 @@ A session counts as inactive three hours after its last sign of life. Mail that 
 - "Waiting for approval" comes from the Notification hook, which Claude Code sends once an approval has been open for about six seconds. A turn cancelled with Esc ends without a Stop hook, so the board shows a working session as quiet after 30 minutes without a sign of life, a waiting one after an hour.
 - `send <name>@ui` goes to the board. A repo that is really called `ui` is reached by its full name (`alex@acme/ui`).
 - The question before an edit only knows files that a teammate's session has already edited, with up to 20 seconds of delay. It asks, it does not lock: you can always allow the edit.
+- A mission needs auto mode in every session that joins it. Claude Code's own permission prompts are not the plugin's to turn off.
 - On Windows, the hooks and Claude's commands need Git Bash, which comes with Git for Windows.
 
 ## Development
@@ -177,7 +193,7 @@ A session counts as inactive three hours after its last sign of life. Mail that 
 bash test/e2e.sh
 ```
 
-Plays two people and a second machine through, with a local bare repo instead of GitHub: overlaps, the question before an edit, mail, wake-ups, state, history and the board (token, Host and Origin checks, sending from the board, replies to the board). The CI runs it on Linux (Python 3.9 and 3.14), macOS and Windows. `python3 test/measure.py syn.py skills/synchronauts/SKILL.md` measures how much text the hooks write into the context (`SHOW=1` prints the texts).
+Plays two people and a second machine through, with a local bare repo instead of GitHub: overlaps, the question before an edit, mail, wake-ups, a mission from proposal to result, state, history and the board (token, Host and Origin checks, sending from the board, replies to the board). The CI runs it on Linux (Python 3.9 and 3.14), macOS and Windows. `python3 test/measure.py syn.py skills/synchronauts/SKILL.md` measures how much text the hooks write into the context (`SHOW=1` prints the texts).
 
 Settings for development: `SYN_HOME` (default `~/.synchronauts`), `SYN_REMOTE`, `SYN_ME`, `SYN_NAME`, `SYN_MACHINE`, `SYN_ORGS`, `SYN_TICK` (poll interval in seconds), `SYN_IDLE` (watcher lifetime without a sign of life), `SYN_WAKE_MIN`, `SYN_UI_PORT` (default 7962, `0` for a free port).
 

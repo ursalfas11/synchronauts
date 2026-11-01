@@ -128,6 +128,19 @@ code, .code { font-family: var(--mono); font-size: .92em; overflow-wrap: anywher
 .banner.wide { margin: 16px 24px 0; }
 .banner button { margin-left: auto; }
 
+/* Missions */
+.mission {
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line)); border-radius: 14px; padding: 12px 14px;
+  margin: 0 0 16px; background: color-mix(in srgb, var(--accent) 6%, var(--surface)); overflow-wrap: anywhere;
+}
+.mission.over { border-color: var(--line); background: var(--surface); }
+.mission-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; font-size: 13px; }
+.mission-head b { color: var(--accent); }
+.mission.over .mission-head b { color: var(--muted); }
+.mission-head .person-info { flex: 1; }
+.mission p { margin: 6px 0 0; font-size: 13px; }
+.mission .result { color: var(--muted); }
+
 /* People and cards */
 .person { margin-bottom: 28px; }
 .person-head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
@@ -424,6 +437,17 @@ const I18N = {
     'stat.overlaps': { one: 'overlap', other: 'overlaps' },
     'board.title': 'Team',
     'board.loading': 'Loading the board …',
+    'mission.title': 'Mission',
+    'mission.invited': 'invited',
+    'mission.until': 'until {0}',
+    'mission.ended': 'ended {0} by {1}',
+    'mission.over': 'time is up',
+    'mission.result': 'Result: {0}',
+    'mission.stop': 'Stop',
+    'mission.stopConfirm': 'Stop the mission for everyone? The Claudes then ask their humans again.',
+    'ev.mission.start': '{0} started a mission: {1}',
+    'ev.mission.join': '{0} joined a mission: {1}',
+    'ev.mission.end': '{0} ended a mission: {1}',
     'board.degraded': 'Sync problem.',
     'board.degradedBody': ' The board may be out of date: {0}',
     'board.you': 'you',
@@ -455,6 +479,8 @@ const I18N = {
     'card.localOnly.tip': 'Only you can see this session',
     'card.outside': 'outside the team repos',
     'ov.file': 'Same file as {0}: {1}',
+    'ov.mission': 'In the mission with {0}: {1}',
+    'mail.mission.tip': 'Within the mission: approved work, the Claude acts on it without asking',
     'ov.branch': 'Same branch as {0} in {1}',
     'ov.repo': 'Also in {0}: {1}',
     'ov.repoBranch': 'Also in {0}: {1}, branch {2}',
@@ -555,6 +581,17 @@ const I18N = {
     'stat.overlaps': { one: 'Überschneidung', other: 'Überschneidungen' },
     'board.title': 'Team',
     'board.loading': 'Lade die Übersicht …',
+    'mission.title': 'Auftrag',
+    'mission.invited': 'eingeladen',
+    'mission.until': 'bis {0}',
+    'mission.ended': 'beendet {0} von {1}',
+    'mission.over': 'Zeit abgelaufen',
+    'mission.result': 'Ergebnis: {0}',
+    'mission.stop': 'Stoppen',
+    'mission.stopConfirm': 'Den Auftrag für alle stoppen? Die Claudes fragen dann wieder ihre Menschen.',
+    'ev.mission.start': '{0} hat einen Auftrag gestartet: {1}',
+    'ev.mission.join': '{0} ist einem Auftrag beigetreten: {1}',
+    'ev.mission.end': '{0} hat einen Auftrag beendet: {1}',
     'board.degraded': 'Abgleich gestört.',
     'board.degradedBody': ' Die Übersicht kann veraltet sein: {0}',
     'board.you': 'du',
@@ -586,6 +623,8 @@ const I18N = {
     'card.localOnly.tip': 'Diese Session sieht nur du',
     'card.outside': 'außerhalb der Team-Repos',
     'ov.file': 'Dieselbe Datei wie {0}: {1}',
+    'ov.mission': 'Im Auftrag mit {0}: {1}',
+    'mail.mission.tip': 'Im Auftrag: freigegebene Arbeit, der Claude handelt ohne Rückfrage',
     'ov.branch': 'Derselbe Branch wie {0} in {1}',
     'ov.repo': 'Auch in {0}: {1}',
     'ov.repoBranch': 'Auch in {0}: {1}, Branch {2}',
@@ -845,7 +884,7 @@ function notify() {
     }
   }
   for (const o of d.overlaps) {
-    if (o.kind === 'repo') continue;
+    if (o.kind === 'repo' || o.mission) continue;
     const key = [o.a, o.b, o.repo, o.kind, list(o.files).join(',')].join('|');
     if (seen.overlap.has(key)) continue;
     seen.overlap.add(key);
@@ -897,7 +936,7 @@ function headRender() {
   $('#room').title = t('room.tip');
   const active = d.sessions.filter((s) => hasRepos(s) && s.state !== 'quiet').length;
   const approvals = d.sessions.filter((s) => s.state === 'approval').length;
-  const serious = d.overlaps.filter((o) => o.kind !== 'repo').length;
+  const serious = d.overlaps.filter((o) => o.kind !== 'repo' && !o.mission).length;
   fill($('#stats'),
     stat(active, t('stat.active', active)),
     stat(d.people.length, t('stat.people', d.people.length)),
@@ -922,6 +961,7 @@ function liveRender() {
 function boardRender() {
   const d = data, kids = [];
   if (d.error) kids.push(h('div', { class: 'banner yellow' }, h('strong', {}, t('board.degraded')), t('board.degradedBody', d.error)));
+  kids.push(...list(d.missions).map(missionCard));
   const sorted = (arr) => arr.sort((a, b) => (RANK[a.state] ?? 9) - (RANK[b.state] ?? 9)
     || String(b.last).localeCompare(String(a.last)));
   for (const p of d.people) {
@@ -947,6 +987,32 @@ function boardRender() {
   fill($('#board'), kids);
 }
 
+function missionCard(m) {
+  const joined = new Set(list(m.joined).map((k) => k.split('/')[0]));
+  const people = list(m.with).map((l) => name(l) + (joined.has(l) ? '' : ` (${t('mission.invited')})`)).join(', ');
+  const state = m.ended ? t('mission.ended', hhmm(m.ended.time), name(m.ended.by))
+    : m.live ? t('mission.until', hhmm(m.until)) : t('mission.over');
+  return h('section', { class: `mission${m.live ? '' : ' over'}` },
+    h('div', { class: 'mission-head' }, h('b', {}, t('mission.title')), h('span', { class: 'person-info' }, `${people} · ${state}`),
+      m.live ? h('button', { class: 'link', type: 'button', onclick: () => stopMission(m) }, t('mission.stop')) : null),
+    h('p', {}, m.plan),
+    m.ended && m.ended.summary ? h('p', { class: 'result' }, t('mission.result', m.ended.summary)) : null);
+}
+
+async function stopMission(m) {
+  if (!confirm(t('mission.stopConfirm'))) return;
+  try {
+    const r = await fetch('/api/end', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'X-SYN-Token': TOKEN }, body: JSON.stringify({ id: m.id }),
+    });
+    const a = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(a.error || t('form.error', r.status));
+    load();
+  } catch (f) {
+    toast(t('mission.title'), f.message, 'red');
+  }
+}
+
 function statePill(s) {
   const known = STATES.includes(s.state);
   const tip = known ? t(`state.${s.state}.tip`) : '';
@@ -958,8 +1024,8 @@ function statePill(s) {
 function card(s) {
   const d = data;
   const hits = d.overlaps.filter((o) => o.a === s.key || o.b === s.key)
-    .sort((a, b) => (OVERLAP_RANK[a.kind] ?? 9) - (OVERLAP_RANK[b.kind] ?? 9));
-  const hot = new Set(hits.flatMap((o) => list(o.files).map((f) => `${o.repo}|${f}`)));
+    .sort((a, b) => (a.mission - b.mission) || (OVERLAP_RANK[a.kind] ?? 9) - (OVERLAP_RANK[b.kind] ?? 9));
+  const hot = new Set(hits.filter((o) => !o.mission).flatMap((o) => list(o.files).map((f) => `${o.repo}|${f}`)));
   const repos = Object.entries(s.repos).sort((a, b) => String(b[1].last || '').localeCompare(String(a[1].last || '')));
   const files = repos.flatMap(([repo, r]) => list(r.files).slice().reverse().map((f) => [repo, String(f)]));
   const shown = files.slice(0, 6);
@@ -985,6 +1051,10 @@ function card(s) {
 function overlapRow(o, s) {
   const otherKey = o.a === s.key ? o.b : o.a, other = who(otherKey, s.login);
   const mark = (c) => h('span', { class: 'mark', 'aria-hidden': 'true' }, h('span', {}, c));
+  if (o.mission) {
+    const files = list(o.files).length ? list(o.files).join(', ') : short(o.repo);
+    return h('div', { class: 'overlap o-repo' }, mark('i'), h('span', {}, tx('ov.mission', other, h('b', {}, files))));
+  }
   if (o.kind === 'file') {
     return h('div', { class: 'overlap o-file' }, mark('!'), h('span', {}, tx('ov.file', other, h('b', {}, list(o.files).join(', ')))));
   }
@@ -1057,6 +1127,7 @@ function msg(n) {
       target ? h('span', { class: 'target', title: toUi ? t('mail.ui.tip', `${CMD} send <name>@ui "…"`) : t('mail.session.tip') }, target) : null,
       h('span', { class: `origin ${human ? 'human' : 'claude'}`, title: human ? t('mail.human.tip')
         : n.from_repo ? t('mail.claude.from', n.from_repo) : t('mail.claude.tip') }, human ? t('mail.human') : t('mail.claude')),
+      n.mission ? h('span', { class: 'target', title: t('mail.mission.tip') }, t('mission.title')) : null,
       h('time', { datetime: n.time }, stamp(n.time)),
       mine ? h('span', { class: `delivery${n.uploaded ? ' ok' : ''}`, title: n.uploaded ? t('mail.uploaded') : t('mail.uploading') },
         n.uploaded ? '✓' : '…') : null),
@@ -1144,6 +1215,7 @@ function historyText(x) {
     case 'woken': return tx('ev.woken', h('b', {}, poss(name(x.login))),
       list(x.from).length ? t('ev.wokenFrom', list(x.from).map((l) => name(l)).join(', ')) : '');
     case 'end': return tx('ev.end', w, r);
+    case 'mission': return tx(`ev.mission.${['start', 'join', 'end'].includes(x.step) ? x.step : 'start'}`, w, t('q', shorten(x.text, 100)));
     case 'mail': return [w, ' → ', h('b', {}, list(x.n.to).map((l) => name(l)).join(', ')),
       x.n.repo === 'ui' ? ` (${t('mail.ui')})` : x.n.repo ? ` (${x.n.repo})` : '', ': ', t('q', shorten(x.n.text, 100))];
     default: return [w, ` ${x.kind}`];
