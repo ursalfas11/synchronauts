@@ -112,6 +112,16 @@ svg { flex: none; }
 .side-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 10px; font-size: 13px; color: var(--text-2); }
 .side-row svg { width: 16px; height: 16px; color: var(--muted); }
 .side-row .lbl { display: inline-flex; align-items: center; gap: 10px; }
+.side-user {
+  display: flex; align-items: center; gap: 10px; width: 100%; margin-top: 4px; padding: 8px 10px; border: 0; border-radius: 8px;
+  background: none; text-align: left; transition: background-color .15s;
+}
+.side-user:hover { background: var(--hover); }
+.side-user .avatar { width: 30px; height: 30px; font-size: 11.5px; }
+.side-user-text { min-width: 0; display: flex; flex-direction: column; }
+.side-user-name, .side-user-sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.side-user-name { font-weight: 650; font-size: 13.5px; color: var(--text); }
+.side-user-sub { font: 11.5px var(--mono); color: var(--muted); }
 .live { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); white-space: nowrap; min-width: 0; }
 .live .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--working); flex: none; }
 .live.degraded .dot { background: var(--amber); }
@@ -541,6 +551,7 @@ input.color { width: 32px; height: 32px; padding: 0; border: 1px solid var(--lin
       <div class="side-row"><span class="lbl"><span data-icon="MOON"></span><span id="dark-label" data-t="theme.toggle"></span></span>
         <button class="switch" type="button" role="switch" aria-labelledby="dark-label" data-dark><span class="knob"></span></button></div>
       <div class="side-row"><span class="live" data-live><span class="dot"></span><span data-live-text></span></span></div>
+      <button class="side-user" id="me" type="button" hidden></button>
     </div>
   </aside>
 
@@ -1761,10 +1772,27 @@ function render() {
   setTitle();
 }
 
+let meKey = '';
+function meRender() {  // bottom left: who this board belongs to, the GitHub account and this machine
+  const d = data, el = $('#me');
+  if (!d.me) { el.hidden = true; return; }
+  const p = person(d.me), key = JSON.stringify([lang, d.me, p.name, d.machine]);
+  if (key === meKey) return;
+  meKey = key;
+  const label = L(['Your account, this machine', 'Dein Konto, dieser Rechner']);
+  fill(el, h('span', { class: 'avatar', style: { '--hue': hue(d.me) }, 'aria-hidden': 'true' }, initials(p.name || d.me)),
+    h('span', { class: 'side-user-text' }, h('span', { class: 'side-user-name' }, p.name || d.me), h('span', { class: 'side-user-sub' }, `@${d.me} · ${d.machine}`)));
+  el.title = `${label}: @${d.me} · ${d.machine}`;
+  el.setAttribute('aria-label', `${p.name || d.me}, @${d.me} · ${d.machine}`);
+  el.hidden = false;
+}
+$('#me').addEventListener('click', () => go('settings/connection'));
+
 function shellRender() {
   const d = data;
   $('#room').textContent = d.room || t('room.solo');
   $('#room').title = d.room ? t('room.tip') : t('room.solo.tip');
+  meRender();
   const attention = attentionRows().length;
   for (const el of $$('[data-count="overview"]')) el.textContent = attention ? String(attention) : '';
   for (const el of $$('[data-count="messages"]')) el.textContent = unseenMail.size ? String(unseenMail.size) : '';
