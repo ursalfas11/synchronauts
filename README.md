@@ -8,6 +8,7 @@ Two people, each with three Claude Code sessions, easily build the same feature 
 
 - **Shared picture:** who works on which repo, branch and task, across people, sessions and machines.
 - **A question before stepping on a teammate's file:** before Claude first edits a file that a teammate's session is editing, Claude Code asks you, saying who, where and on what.
+- **Claim files before you start:** `syn claim src/a.ts` (or a folder), and every other session asks its human before editing them.
 - **Early overlap warnings:** the same file, the same branch, or a similar task in another repo, before the merge conflict.
 - **Real conflict prediction:** in the background, `git merge-tree` merges the work of two sessions and reports the files that would actually conflict, not just "the same file". Your own worktrees with their uncommitted changes, teammates with what they pushed.
 - **Agent-to-agent messages:** `send alex@api "…"` reaches Alex's session in `api` and wakes it if it is waiting.
@@ -123,6 +124,7 @@ Claude calls these via Bash; you can too. `~/.synchronauts/syn` is a small scrip
 | `~/.synchronauts/syn send <name\|all>[@repo] "<text>"` | message to a teammate's Claude, with `@repo` to their session in that repo, at most 1500 characters |
 | `~/.synchronauts/syn send <name>@ui "<text>"` | reply to a teammate's board instead of one of their sessions |
 | `~/.synchronauts/syn mission propose --with <name>[@repo] [--hours N] "<plan>"` | proposes a mission; `mission approve <id>` then asks the human (start or join), `mission end "<result>"` ends it for everyone |
+| `~/.synchronauts/syn claim <path>…` | claims files or folders for this session, other sessions ask before editing them; `claim` lists, `claim --release [path…]` frees |
 | `~/.synchronauts/syn status` | the picture with files and times, your own sessions, mail of the last 3 days |
 | `~/.synchronauts/syn ui` | starts the board in the background and opens it (`--no-browser` only prints the address) |
 | `~/.synchronauts/syn setup <owner/repo> [--org a,b]` | joins a room; `--org` sets whose repos count as team repos |

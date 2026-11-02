@@ -207,6 +207,7 @@ code, .code { font-family: var(--mono); font-size: .92em; overflow-wrap: anywher
   max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .file.hot { color: var(--red); border-color: color-mix(in srgb, var(--red) 45%, var(--line)); background: color-mix(in srgb, var(--red) 8%, var(--surface)); }
+.file.claim { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
 .file.more { color: var(--muted); }
 .overlap { display: flex; gap: 8px; align-items: flex-start; font-size: 12.5px; line-height: 1.4; padding: 7px 10px; border-radius: 10px; overflow-wrap: anywhere; }
 .overlap b { font-family: var(--mono); font-weight: 600; font-size: 12px; }
@@ -482,6 +483,9 @@ const I18N = {
     'card.outside': 'outside the team repos',
     'ov.file': 'Same file as {0}: {1}',
     'ov.conflict': 'Would conflict with {0}: {1}',
+    'card.claim.tip': 'Claimed: other sessions ask their human before editing {0}',
+    'ev.claim': '{0} claimed in {1}: {2}',
+    'ev.release': '{0} released in {1}: {2}',
     'toast.conflict': 'Merging the work of {0} in {1} would conflict: {2}',
     'ov.mission': 'In the mission with {0}: {1}',
     'mail.mission.tip': 'Within the mission: approved work, the Claude acts on it without asking',
@@ -632,6 +636,9 @@ const I18N = {
     'card.outside': 'außerhalb der Team-Repos',
     'ov.file': 'Dieselbe Datei wie {0}: {1}',
     'ov.conflict': 'Konflikt mit {0}: {1}',
+    'card.claim.tip': 'Beansprucht: andere Sessions fragen ihren Menschen, bevor sie {0} ändern',
+    'ev.claim': '{0} hat in {1} beansprucht: {2}',
+    'ev.release': '{0} hat in {1} freigegeben: {2}',
     'toast.conflict': 'Die Arbeit von {0} in {1} zusammenzuführen gäbe einen Konflikt: {2}',
     'ov.mission': 'Im Auftrag mit {0}: {1}',
     'mail.mission.tip': 'Im Auftrag: freigegebene Arbeit, der Claude handelt ohne Rückfrage',
@@ -1044,6 +1051,7 @@ function card(s) {
   const repos = Object.entries(s.repos).sort((a, b) => String(b[1].last || '').localeCompare(String(a[1].last || '')));
   const files = repos.flatMap(([repo, r]) => list(r.files).slice().reverse().map((f) => [repo, String(f)]));
   const shown = files.slice(0, 6);
+  const claims = repos.flatMap(([repo, r]) => list(r.claims).map((c) => [repo, String(c)]));
   return h('article', { class: `session s-${cls(s.state)}` },
     h('div', { class: 'card-top' }, statePill(s),
       h('span', { class: 'machine', title: s.here ? (s.cwd || t('card.machine', d.machine)) : t('card.machine', s.machine) },
@@ -1056,6 +1064,8 @@ function card(s) {
       shown.map(([repo, f]) => h('span', { class: `file${hot.has(`${repo}|${f}`) ? ' hot' : ''}`, title: `${short(repo)}/${f}` },
         f.length > 34 ? `…/${f.split('/').pop()}` : f)),
       files.length > shown.length ? h('span', { class: 'file more' }, `+${files.length - shown.length}`) : null) : null,
+    claims.length ? h('div', { class: 'files' }, claims.map(([repo, c]) => h('span', { class: 'file claim', title: t('card.claim.tip', `${short(repo)}/${c}`) },
+      `🔒 ${c.length > 34 ? `…/${c.replace(/\/$/, '').split('/').pop()}${c.endsWith('/') ? '/' : ''}` : c}`))) : null,
     hits.map((o) => overlapRow(o, s)),
     h('div', { class: 'card-foot' },
       h('span', {}, t('card.active', ago(s.last)),
@@ -1233,6 +1243,8 @@ function historyText(x) {
     case 'woken': return tx('ev.woken', h('b', {}, poss(name(x.login))),
       list(x.from).length ? t('ev.wokenFrom', list(x.from).map((l) => name(l)).join(', ')) : '');
     case 'end': return tx('ev.end', w, r);
+    case 'claim': return tx('ev.claim', w, r, code(list(x.files).join(', ')));
+    case 'release': return tx('ev.release', w, r, code(list(x.files).join(', ')));
     case 'mission': return tx(`ev.mission.${['start', 'join', 'end'].includes(x.step) ? x.step : 'start'}`, w, t('q', shorten(x.text, 100)));
     case 'mail': return [w, ' → ', h('b', {}, list(x.n.to).map((l) => name(l)).join(', ')),
       x.n.repo === 'ui' ? ` (${t('mail.ui')})` : x.n.repo ? ` (${x.n.repo})` : '', ': ', t('q', shorten(x.n.text, 100))];

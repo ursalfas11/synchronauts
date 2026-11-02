@@ -591,16 +591,17 @@ def line(who, s, full=False):
     for repo, r in sorted(s['repos'].items(), key=lambda x: x[1].get('last', ''), reverse=True):
         f = r.get('files', []) if full else []
         more = f' +{len(f) - 4}' if len(f) > 4 else ''
-        parts.append(f"{short(repo)}@{r.get('branch')}" + (f" [{', '.join(f[-4:])}{more}]" if f else ''))
+        claims = f" (claimed: {', '.join(r['claims'][:6])})" if r.get('claims') else ''
+        parts.append(f"{short(repo)}@{r.get('branch')}" + (f" [{', '.join(f[-4:])}{more}]" if f else '') + claims)
     last = f" (last {clock(s.get('last'))})" if full else ''
     task = f' · "{s["task"]}"' if s.get('task') else ''
     return f"- {who}{last}: {'; '.join(parts)}{task}"
 
 
 def situation_lines(k, sid):
-    """(key, text) per other active session; the key changes with repo, branch or task."""
+    """(key, text) per other active session; the key changes with repo, branch, claims or task."""
     for who, key, s, _ in others(k, sid):
-        repos = ','.join(f"{r}@{x.get('branch')}" for r, x in sorted(s['repos'].items()))
+        repos = ','.join(f"{r}@{x.get('branch')}:{'+'.join(x.get('claims', []))}" for r, x in sorted(s['repos'].items()))
         yield f"line|{key}|{repos}|{s.get('task')}", line(who, s)
 
 
@@ -861,8 +862,8 @@ def for_human(n, nm):
 
 def usage(k):
     talk = '' if k.get('solo') else ', `send <name|all>[@repo] "…"`'
-    return (f'Commands: `{CMD}` with `task "…"` (again when the topic changes){talk} or `status`; more in the '
-            f'synchronauts skill.')
+    return (f'Commands: `{CMD}` with `task "…"` (again when the topic changes){talk}, `claim <path>` or `status`; more '
+            f'in the synchronauts skill.')
 
 
 # --- Missions -----------------------------------------------------------------
@@ -1141,10 +1142,16 @@ def wake(k, sid):
                         *[message_text(n, k, nm, False, ms, m) for n in new], close]), False
 
 
+def covers(claim, f):
+    """A claim is a file or, ending in /, a folder."""
+    return f == claim or claim.endswith('/') and f.startswith(claim)
+
+
 def ask_first(k, sid, e):
-    """PreToolUse before an edit: if a teammate's session is editing the same file and this session has not edited it
-    yet, Claude Code asks the human first. The reason only shows in the permission prompt, Claude gets no text. Once
-    an edit of the file went through, the PostToolUse hook adds it to the session's files and it passes."""
+    """PreToolUse before an edit: if another session claimed the file, or a teammate's session is editing it, and this
+    session has not edited it yet, Claude Code asks the human first. The reason only shows in the permission prompt,
+    Claude gets no text. Once an edit of the file went through, the PostToolUse hook adds it to the session's files and
+    it passes."""
     ti = e.get('tool_input') or {}
     path = ti.get('file_path') or ti.get('notebook_path')
     r = repo_of(path, orgs(k)) if path else None
@@ -1155,17 +1162,26 @@ def ask_first(k, sid, e):
     if f in mine.get('files', []):
         return 0
     team = partners(k, my_mission(k, sid))  # within a mission the Claudes coordinate themselves
-    on_it = sorted(((x.get('last') or s.get('last') or '', who, x.get('branch'), s.get('task'))
-                    for who, key, s, _ in others(k, own=False) if key.split('/')[0] not in team | {k['me']}
-                    for repo, x in s['repos'].items() if repo == r[0] and f in x.get('files', [])), reverse=True)
+    claimed, editing = [], []
+    for who, key, s, _ in others(k, sid):
+        x = s['repos'].get(r[0])
+        if not x or key.split('/')[0] in team:
+            continue
+        hit = (x.get('last') or s.get('last') or '', who, x.get('branch'), s.get('task'))
+        if any(covers(c, f) for c in x.get('claims', [])):
+            claimed.append(hit)  # claims count for every other session, own ones too
+        elif f in x.get('files', []) and not key.startswith(f"{k['me']}/"):
+            editing.append(hit)  # edits only for teammates' sessions
+    on_it = sorted(claimed or editing, reverse=True)
     if not on_it:
         return 0
     people = list(dict.fromkeys(who for _, who, _, _ in on_it))
     who = people[0] if len(people) == 1 else f"{', '.join(people[:-1])} and {people[-1]}"
     last, _, branch, task = on_it[0]
     task = f' · "{task}"' if task else ''
-    reason = (f"{who} {'is' if len(people) == 1 else 'are'} also editing {f} "
-              f"({short(r[0])}@{branch}, last {clock(last)}{task})")
+    verb = ('has' if len(people) == 1 else 'have') + ' claimed' if claimed else \
+        ('is' if len(people) == 1 else 'are') + ' also editing'
+    reason = f"{who} {verb} {f} ({short(r[0])}@{branch}, last {clock(last)}{task})"
     update_session(sid, lambda s: s.update(asked=list(dict.fromkeys(s.get('asked', []) + [f'{r[0]}|{f}']))[-100:]))
     print(json.dumps({'hookSpecificOutput': {'hookEventName': 'PreToolUse', 'permissionDecision': 'ask',
                                              'permissionDecisionReason': reason}}, ensure_ascii=False))
@@ -1471,6 +1487,62 @@ def cmd_task(text):
         return
     save(HOME / 'task.json', {'text': text, 'time': iso()})  # run by hand: the next Bash hook picks it up
     print("Task noted; this session's next Bash hook adds it.")
+
+
+def cmd_claim(k, args):
+    """Claims files or folders for this session: every other session asks its human before editing them, also the own
+    ones. --release frees them again, without paths all of them. A claim ends with the session."""
+    sid, release = current_session(), '--release' in args
+    if not sid:
+        sys.exit('Run it from a Claude Code session: a claim belongs to a session.')
+    owners, wanted = orgs(k), {}
+    for p in (a for a in args if a != '--release'):
+        full = Path(p).resolve()
+        r = repo_of(full, owners)
+        if not r:
+            sys.exit(f"{p}: not in a {'Git' if k.get('solo') else 'team'} repo.")
+        c = in_repo(full, r[1])
+        if c in ('.', '') or c.startswith('../'):
+            sys.exit(f'{p}: claim files or folders, not the whole repo.')
+        wanted.setdefault(r, []).append(c + ('/' if full.is_dir() else ''))
+    if not release and not wanted:
+        mine = load(HOME / 'status.json', {}).get('sessions', {}).get(sid, {}).get('repos', {})
+        print('\n'.join(f"{short(r)}: {', '.join(x['claims'])}" for r, x in mine.items() if x.get('claims'))
+              or 'This session has claimed nothing.')
+        return
+    if not release:
+        for who, key, s, _ in others(k, sid):
+            for (repo, _, _), cs in wanted.items():
+                x = s['repos'].get(repo) or {}
+                taken = [o for o in x.get('claims', []) for c in cs if covers(o, c) or covers(c, o)]
+                if taken:
+                    sys.exit(f"{who} has claimed {taken[0]} already ({short(repo)}@{x.get('branch')}). Talk to them first.")
+
+    def change(s):
+        for (repo, _, branch), cs in wanted.items():
+            x = s['repos'].setdefault(repo, {'files': []})
+            x.update(branch=branch, last=minute())
+            x['claims'] = sorted(set(x.get('claims', [])) - set(cs)) if release else \
+                sorted(set(x.get('claims', [])) | set(cs))[:MAX_FILES]
+        if release and not wanted:
+            for x in s['repos'].values():
+                x.pop('claims', None)
+
+    before = load(HOME / 'status.json', {}).get('sessions', {}).get(sid, {}).get('repos', {})
+    s = update_status(sid, change)
+    for repo, x in s['repos'].items():
+        old, new = set(before.get(repo, {}).get('claims', [])), set(x.get('claims', []))
+        if new - old:
+            log_event(sid, 'claim', repo, files=sorted(new - old))
+        if old - new:
+            log_event(sid, 'release', repo, files=sorted(old - new))
+    alive()
+    ensure_watcher()
+    if release:
+        print('Released.' if wanted else 'Released all claims of this session.')
+    else:
+        print(f"Claimed {'; '.join(f'{short(r[0])}: ' + ', '.join(cs) for r, cs in wanted.items())}. Other sessions ask "
+              f"their human before editing it; the claim ends with this session or `claim --release`.")
 
 
 def cmd_status(k):
@@ -1860,12 +1932,15 @@ def main(argv):
         cmd_task(' '.join(rest))
     elif cmd == 'mission':
         cmd_mission(k, rest)
+    elif cmd == 'claim':
+        cmd_claim(k, rest)
     elif cmd == 'status':
         cmd_status(k)
     elif cmd == 'ui':
         cmd_ui(browser='--no-browser' not in rest)
     else:
-        sys.exit('Commands: status · send <name|all>[@repo] "<text>" · task "<one sentence>" · mission … · ui · '
+        sys.exit('Commands: status · send <name|all>[@repo] "<text>" · task "<one sentence>" · claim <path>… · '
+                 'mission … · ui · '
                  'setup <owner/repo of the room> [--org owner,...]')
     return 0
 

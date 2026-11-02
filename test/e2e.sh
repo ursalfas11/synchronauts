@@ -262,6 +262,28 @@ until_ok 10 'Sam sees the second machine' grep -q 'src/b.ts' "$T/home-sam/others
 check "$(git -C "$T/remote.git" show syn/sam-gh/one:state.json)" 'src/a.ts' 'the first machine stays untouched'
 out=$(hook sam PreToolUse "$(edit sam33333 "$T/sam-demo" "$T/sam-demo/src/b.ts")")
 [ -z "$out" ] && ok 'a file of an own session on another machine needs no question' || fail 'question about the own other machine' "$out"
+
+# Claims: Alex claims a file and a folder before starting. Every other session asks its human before editing them,
+# also Sam's for a claim of Sam's own other session
+mkdir -p "$T/alex-demo/src/lib"
+out=$(from_session ale11111 as_user alex "$PY" "$SYN" claim "$T/alex-demo/src/claimed.ts" "$T/alex-demo/src/lib")
+check "$out" 'Claimed demo: src/claimed.ts, src/lib/' 'Alex claims a file and a folder'
+check "$(from_session ale11111 as_user alex "$PY" "$SYN" claim)" 'demo: src/claimed.ts, src/lib/' 'claim without paths lists the claims'
+until_ok 10 "the claims reach Sam" grep -q 'src/claimed.ts' "$T/home-sam/others.json"
+out=$(hook sam PreToolUse "$(edit sam33333 "$T/sam-demo" "$T/sam-demo/src/claimed.ts")")
+check "$out" 'Alex has claimed src/claimed.ts (demo@main' 'a claimed file is asked about before the first edit'
+check "$(hook sam PreToolUse "$(edit sam33333 "$T/sam-demo" "$T/sam-demo/src/lib/util.ts")")" 'Alex has claimed src/lib/util.ts' 'a claimed folder covers its files'
+out=$(from_session sam33333 as_user sam "$PY" "$SYN" claim "$T/sam-demo/src/lib/util.ts" 2>&1) && fail 'claimed twice' "$out" \
+  || check "$out" 'Alex has claimed src/lib/ already' 'what another session claimed cannot be claimed again'
+check "$(hook sam UserPromptSubmit "$(session sam33333 "$T/sam-demo")")" '(claimed: src/claimed.ts, src/lib/)' 'the picture shows the claims'
+from_session sam55555 as_user sam "$PY" "$SYN" claim "$T/sam-demo/src/own.ts" >/dev/null
+check "$(hook sam PreToolUse "$(edit sam33333 "$T/sam-demo" "$T/sam-demo/src/own.ts")")" 'Your other session has claimed src/own.ts' 'a claim of an own other session is asked about too'
+check "$(from_session ale11111 as_user alex "$PY" "$SYN" claim --release)" 'Released all claims' 'Alex releases the claims'
+from_session sam55555 as_user sam "$PY" "$SYN" claim --release "$T/sam-demo/src/own.ts" >/dev/null
+released() { [ -z "$(hook sam PreToolUse "$(edit sam33333 "$T/sam-demo" "$T/sam-demo/src/claimed.ts")")" ]; }
+until_ok 10 'after the release, the file needs no question' released
+[ -z "$(hook sam PreToolUse "$(edit sam33333 "$T/sam-demo" "$T/sam-demo/src/own.ts")")" ] && ok 'an own release takes effect at once' || fail 'own release'
+check "$(cat "$T/home-alex/events.json")" '"kind": "claim"' 'claims are in the history'
 check "$(as_user alex "$PY" "$SYN" status)" 'Sam → Alex' 'status lists the mail'
 
 # State and history for the UI. An open permission prompt reports via Notification without ending the waiting Stop hook
