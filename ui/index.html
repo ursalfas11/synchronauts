@@ -278,6 +278,9 @@ textarea { resize: vertical; min-height: 74px; line-height: 1.45; }
 .msg-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
 .msg-head b { color: var(--text); font-weight: 650; }
 .msg-head time { margin-left: auto; font-variant-numeric: tabular-nums; }
+.seal { font-size: 11px; }
+.msg.forged { border-color: color-mix(in srgb, var(--red) 45%, var(--line)); }
+.forged-note { color: var(--red); font-size: 11px; font-weight: 600; }
 .mini-avatar {
   width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; flex: none;
   font-size: 8.5px; font-weight: 800; color: #fff;
@@ -506,6 +509,9 @@ const I18N = {
     'mail.ui.tip': "To the recipient's UI, not to one of their sessions. Claude replies to a UI with {0}",
     'mail.session.tip': 'To the session in this repo',
     'mail.human': 'Human',
+    'mail.signed': 'Signed with {0}\u2019s SSH key from GitHub',
+    'mail.forged': 'Signature does not match',
+    'mail.forged.tip': 'This message is not signed with a key GitHub lists for {0}. Someone else may have written it.',
     'mail.human.tip': 'Written in the UI',
     'mail.claude': 'Claude',
     'mail.claude.tip': 'Written by Claude',
@@ -659,6 +665,9 @@ const I18N = {
     'mail.ui.tip': 'An die UI des Empfängers, nicht an eine seiner Sessions. Claude antwortet einer UI mit {0}',
     'mail.session.tip': 'An die Session in diesem Repo',
     'mail.human': 'Mensch',
+    'mail.signed': 'Signiert mit {0}s SSH-Schlüssel von GitHub',
+    'mail.forged': 'Signatur passt nicht',
+    'mail.forged.tip': 'Diese Nachricht ist nicht mit einem Schlüssel signiert, den GitHub für {0} führt. Jemand anderes könnte sie geschrieben haben.',
     'mail.human.tip': 'In der UI geschrieben',
     'mail.claude': 'Claude',
     'mail.claude.tip': 'Von Claude geschrieben',
@@ -1148,7 +1157,8 @@ function mailRender() {
 function msg(n) {
   const mine = n.from === data.me, human = n.source === 'ui', toUi = n.repo === 'ui';
   const target = toUi ? t('mail.ui') : n.repo || '';
-  return h('article', { class: `msg${mine ? ' mine' : ''}${freshMail.has(n.id) ? ' new' : ''}` },
+  const forged = !mine && n.trust === 'bad';
+  return h('article', { class: `msg${mine ? ' mine' : ''}${forged ? ' forged' : ''}${freshMail.has(n.id) ? ' new' : ''}` },
     h('div', { class: 'msg-head' },
       h('span', { class: 'mini-avatar', style: { '--hue': hue(n.from) }, 'aria-hidden': 'true' }, initials(name(n.from))),
       h('b', {}, mine ? t('mail.you') : name(n.from)), '→', h('b', {}, list(n.to).map((l) => name(l)).join(', ')),
@@ -1156,6 +1166,8 @@ function msg(n) {
       h('span', { class: `origin ${human ? 'human' : 'claude'}`, title: human ? t('mail.human.tip')
         : n.from_repo ? t('mail.claude.from', n.from_repo) : t('mail.claude.tip') }, human ? t('mail.human') : t('mail.claude')),
       n.mission ? h('span', { class: 'target', title: t('mail.mission.tip') }, t('mission.title')) : null,
+      forged ? h('span', { class: 'forged-note', title: t('mail.forged.tip', n.from) }, `⚠ ${t('mail.forged')}`)
+        : n.trust === 'ok' ? h('span', { class: 'seal', title: t('mail.signed', name(n.from)), 'aria-label': t('mail.signed', name(n.from)) }, '🔏') : null,
       h('time', { datetime: n.time }, stamp(n.time)),
       mine ? h('span', { class: `delivery${n.uploaded ? ' ok' : ''}`, title: n.uploaded ? t('mail.uploaded') : t('mail.uploading') },
         n.uploaded ? '✓' : '…') : null),

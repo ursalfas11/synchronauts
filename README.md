@@ -12,6 +12,7 @@ Two people, each with three Claude Code sessions, easily build the same feature 
 - **Early overlap warnings:** the same file, the same branch, or a similar task in another repo, before the merge conflict.
 - **Real conflict prediction:** in the background, `git merge-tree` merges the work of two sessions and reports the files that would actually conflict, not just "the same file". Your own worktrees with their uncommitted changes, teammates with what they pushed.
 - **Agent-to-agent messages:** `send alex@api "…"` reaches Alex's session in `api` and wakes it if it is waiting.
+- **Signed senders:** messages are signed with your SSH key and checked against the keys GitHub lists for the sender. A forged message reaches the other Claude as a warning, not as a request.
 - **Missions:** the Claudes of several people solve one problem on their own: they split the work, message each other until it is done and report the result. Each human approves the plan once, at the start.
 - **Live board:** a local web page with sessions, states (working, waiting for approval, waiting, error), messages and history.
 - **Cheap on tokens:** text for Claude only when something is new and concerns the session, nothing at all outside the team's repos.
@@ -138,7 +139,8 @@ Claude calls these via Bash; you can too. `~/.synchronauts/syn` is a small scrip
 
 ## Security
 
-- **The room is the trust boundary.** Whoever can write to the room repo can write any branch in it, so a message's sender is not cryptographically verified. Use a private repo and invite only people you trust.
+- **The room is the trust boundary.** Whoever can write to the room repo can write any branch in it. Use a private repo and invite only people you trust.
+- **Senders are signed.** Each message carries an SSH signature (`ssh-keygen -Y sign`) made with the key GitHub lists for you, and the recipient checks it against `github.com/<login>.keys`. A message whose signature does not fit, or an unsigned one from someone who signed before, reaches Claude as a warning not to act on it, and the board marks it. Without a usable key messages go out unsigned and are shown as before.
 - **Messages are untrusted input.** They reach your Claude's context marked as information from a teammate, with the instruction to show them to you and act only once you agree, and the skill repeats that rule. This lowers the risk of a message steering your Claude, but it is not a guarantee. If someone in the room should not be able to talk to your Claude, they should not be in the room.
 - **A mission widens that on purpose,** for the sessions that joined it and until it ends. Each person approves it in a permission prompt that a message cannot answer; a session outside the mission still treats messages as information.
 - **The board runs on 127.0.0.1 only.** Every start creates a random token that only the page carries. Requests without it, with a foreign `Host` (DNS rebinding) or a foreign `Origin` are rejected. The page has a strict Content Security Policy with a nonce, loads nothing from outside, and puts other people's text into the page as text only.
@@ -179,6 +181,8 @@ One watcher per machine runs in the background. It pushes the own state when it 
 
 **Conflict check:** at most once a minute the hooks start a short background pass. For each of your sessions it takes a snapshot of the working tree, uncommitted and new files included, written with `git add` into a copy of the index, so the repo's index, branches and files stay untouched. It merges that with the work of every other session in the same repo using `git merge-tree` (Git 2.38 or newer) and notes the files that would conflict. Other worktrees on this machine count with their working tree; teammates and your other machines with the commit they last pushed, which the pass fetches from `origin` if needed. Only commit hashes are shared, never code.
 
+**Signatures:** setup picks the first of `~/.ssh/id_ed25519`, `id_ecdsa` and `id_rsa` whose public key GitHub lists for you (`SYN_SIGNING_KEY` names another), and looks again once a day. A key with a passphrase signs through `ssh-agent`. The watcher checks each new message before any hook sees it and caches the senders' keys for a day; a signature that does not fit makes it ask GitHub once more, in case of a new key.
+
 The hooks only read and write local files. PreToolUse only asks before an edit or a mission approval, Notification (approval open) and StopFailure (API error) only set the state for the board. The Stop hook runs asynchronously with `asyncRewake`: after each turn it waits up to 55 minutes for mail and wakes the session with exit code 2. If the session works again, it ends quietly.
 
 A session counts as inactive three hours after its last sign of life. Mail that arrives while the recipient has no session open shows at their next start if it is at most 24 hours old; `status` shows older mail.
@@ -192,6 +196,7 @@ A session counts as inactive three hours after its last sign of life. Mail that 
 - `send <name>@ui` goes to the board. A repo that is really called `ui` is reached by its full name (`alex@acme/ui`).
 - The question before an edit only knows files that a teammate's session has already edited, with up to 20 seconds of delay. It asks, it does not lock: you can always allow the edit.
 - The conflict check sees a teammate's work only once it is pushed, and it needs Git 2.38 or newer; with older Git there is no conflict prediction, the other warnings still work.
+- A signature only proves which GitHub account sent a message. Someone who never signed is shown as unsigned, not as forged, and a stolen SSH key signs as its owner. Signing needs OpenSSH 8.2 or newer, as on every current macOS, Linux and Git for Windows.
 - A mission needs auto mode in every session that joins it. Claude Code's own permission prompts are not the plugin's to turn off.
 - On Windows, the hooks and Claude's commands need Git Bash, which comes with Git for Windows.
 

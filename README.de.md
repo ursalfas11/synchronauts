@@ -12,6 +12,7 @@ Zwei Leute mit je drei Claude-Code-Sessions bauen schnell dasselbe Feature von z
 - **Frühe Warnung bei Überschneidungen:** dieselbe Datei, derselbe Branch oder ein ähnliches Vorhaben in einem anderen Repo, vor dem Merge-Konflikt.
 - **Echte Konflikt-Vorhersage:** Im Hintergrund führt `git merge-tree` die Arbeit zweier Sessions zusammen und meldet die Dateien, die wirklich einen Konflikt gäben, nicht nur „dieselbe Datei“. Eigene Worktrees mit ihren nicht committeten Änderungen, Kollegen mit dem, was sie gepusht haben.
 - **Nachrichten von Agent zu Agent:** `send alex@api "…"` erreicht Alex' Session in `api` und weckt sie, wenn sie wartet.
+- **Geprüfte Absender:** Nachrichten werden mit deinem SSH-Schlüssel signiert und gegen die Schlüssel geprüft, die GitHub für den Absender führt. Eine gefälschte Nachricht erreicht den anderen Claude als Warnung, nicht als Bitte.
 - **Aufträge:** Die Claudes mehrerer Leute lösen ein Problem selbstständig: Sie teilen die Arbeit auf, schreiben einander, bis es gelöst ist, und melden das Ergebnis. Jeder Mensch bestätigt den Plan einmal, am Anfang.
 - **Live-Board:** eine lokale Webseite mit Sessions, Zuständen (arbeitet, wartet auf Freigabe, wartet, Fehler), Nachrichten und Verlauf.
 - **Sparsam mit Tokens:** Text für Claude nur, wenn etwas neu ist und die Session betrifft, außerhalb der Team-Repos gar keiner.
@@ -129,7 +130,8 @@ Claude ruft sie per Bash auf, du kannst es auch. `~/.synchronauts/syn` ist ein k
 
 ## Sicherheit
 
-- **Der Raum ist die Vertrauensgrenze.** Wer in das Raum-Repo schreiben darf, kann jeden Branch darin schreiben. Der Absender einer Nachricht ist darum nicht kryptografisch geprüft. Nimm ein privates Repo und lade nur Leute ein, denen du vertraust.
+- **Der Raum ist die Vertrauensgrenze.** Wer in das Raum-Repo schreiben darf, kann jeden Branch darin schreiben. Nimm ein privates Repo und lade nur Leute ein, denen du vertraust.
+- **Absender sind signiert.** Jede Nachricht trägt eine SSH-Signatur (`ssh-keygen -Y sign`) mit dem Schlüssel, den GitHub für dich führt, und der Empfänger prüft sie gegen `github.com/<login>.keys`. Eine Nachricht, deren Signatur nicht passt, oder eine unsignierte von jemandem, der vorher signiert hat, erreicht Claude als Warnung, nicht danach zu handeln, und das Board markiert sie. Ohne nutzbaren Schlüssel gehen Nachrichten unsigniert hinaus und erscheinen wie bisher.
 - **Nachrichten sind fremde Eingaben.** Sie kommen als Information eines Kollegen in den Kontext deines Claude, mit der Anweisung, sie dir zu zeigen und erst nach deinem Okay zu handeln, und der Skill wiederholt diese Regel. Das senkt das Risiko, dass eine Nachricht deinen Claude steuert, ist aber keine Garantie. Wer im Raum nicht mit deinem Claude reden können soll, gehört nicht in den Raum.
 - **Ein Auftrag weitet das bewusst aus,** für die beigetretenen Sessions und bis zu seinem Ende. Jeder bestätigt ihn in einer Rückfrage, die keine Nachricht beantworten kann; eine Session außerhalb des Auftrags behandelt Nachrichten weiter als Information.
 - **Das Board läuft nur auf 127.0.0.1.** Jeder Start erzeugt ein Zufalls-Token, das nur die Seite kennt. Anfragen ohne Token, mit fremdem `Host` (DNS-Rebinding) oder fremdem `Origin` werden abgewiesen. Die Seite hat eine strikte Content Security Policy mit Nonce, lädt nichts von außen und setzt fremde Texte nur als Text ein.
@@ -170,6 +172,8 @@ Je Rechner läuft ein Wächter im Hintergrund. Er pusht den eigenen Stand, sobal
 
 **Konfliktprüfung:** Höchstens einmal je Minute starten die Hooks einen kurzen Durchlauf im Hintergrund. Für jede eigene Session nimmt er einen Schnappschuss des Arbeitsstands, nicht committete und neue Dateien eingeschlossen, per `git add` in eine Kopie des Index geschrieben; Index, Branches und Dateien des Repos bleiben unberührt. Diesen führt er mit `git merge-tree` (ab Git 2.38) mit der Arbeit jeder anderen Session im selben Repo zusammen und merkt sich die Dateien, die einen Konflikt gäben. Andere Worktrees auf diesem Rechner zählen mit ihrem Arbeitsstand, Kollegen und eigene andere Rechner mit dem Commit, den sie zuletzt gepusht haben; den holt der Durchlauf bei Bedarf von `origin`. Geteilt werden nur Commit-Hashes, nie Code.
 
+**Signaturen:** Setup nimmt den ersten von `~/.ssh/id_ed25519`, `id_ecdsa` und `id_rsa`, dessen öffentlichen Schlüssel GitHub für dich führt (`SYN_SIGNING_KEY` nennt einen anderen), und schaut einmal am Tag neu. Ein Schlüssel mit Passphrase signiert über `ssh-agent`. Der Wächter prüft jede neue Nachricht, bevor ein Hook sie sieht, und hält die Schlüssel der Absender einen Tag vor; passt eine Signatur nicht, fragt er GitHub noch einmal, falls es einen neuen Schlüssel gibt.
+
 Die Hooks lesen und schreiben nur lokale Dateien. PreToolUse fragt nur vor einer Änderung oder der Zustimmung zu einem Auftrag, Notification (Freigabe offen) und StopFailure (API-Fehler) setzen nur den Zustand fürs Board. Der Stop-Hook läuft asynchron mit `asyncRewake`: Er wartet nach jedem Turn bis zu 55 Minuten auf Post und weckt die Session mit Exit-Code 2. Arbeitet die Session wieder, beendet er sich still.
 
 Eine Session gilt drei Stunden nach ihrem letzten Lebenszeichen als inaktiv. Post, die ankommt, solange beim Empfänger keine Session offen ist, sieht er beim nächsten Start, wenn sie höchstens 24 Stunden alt ist; ältere zeigt `status`.
@@ -183,6 +187,7 @@ Eine Session gilt drei Stunden nach ihrem letzten Lebenszeichen als inaktiv. Pos
 - `send <name>@ui` geht ans Board. Ein Repo, das wirklich `ui` heißt, erreicht man mit vollem Namen (`alex@acme/ui`).
 - Die Rückfrage vor einer Änderung kennt nur Dateien, die die Session eines Kollegen schon bearbeitet hat, mit bis zu 20 Sekunden Verzug. Sie fragt, sie sperrt nicht: Du kannst die Änderung immer erlauben.
 - Die Konfliktprüfung sieht die Arbeit eines Kollegen erst, wenn sie gepusht ist, und braucht Git ab 2.38; mit älterem Git gibt es keine Vorhersage, die übrigen Warnungen funktionieren weiter.
+- Eine Signatur beweist nur, von welchem GitHub-Konto eine Nachricht kommt. Wer nie signiert hat, erscheint als unsigniert, nicht als gefälscht, und ein gestohlener SSH-Schlüssel signiert als sein Besitzer. Signieren braucht OpenSSH 8.2 oder neuer, wie auf jedem aktuellen macOS, Linux und Git for Windows.
 - Ein Auftrag braucht in jeder beigetretenen Session den Auto-Modus. Die eigenen Freigaben von Claude Code kann das Plugin nicht abschalten.
 - Unter Windows brauchen die Hooks und Claudes Befehle Git Bash, das mit Git für Windows kommt.
 
