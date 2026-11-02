@@ -1064,7 +1064,7 @@ function card(s) {
   return h('article', { class: `session s-${cls(s.state)}` },
     h('div', { class: 'card-top' }, statePill(s),
       h('span', { class: 'machine', title: s.here ? (s.cwd || t('card.machine', d.machine)) : t('card.machine', s.machine) },
-        s.here ? t('card.thisMachine') : s.machine)),
+        (s.agent === 'codex' ? 'Codex · ' : '') + (s.here ? t('card.thisMachine') : s.machine))),
     h('div', { class: 'repos' }, repos.map(([repo, r]) => h('div', { class: 'repo', title: repo },
       icon(FOLDER), h('span', { class: 'name' }, short(repo)), h('span', { class: 'branch', title: r.branch || '' }, r.branch || '–')))),
     s.task ? h('p', { class: 'task' }, t('q', s.task))

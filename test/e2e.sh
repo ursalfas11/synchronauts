@@ -212,6 +212,7 @@ rc=0; exit_of $W1 10 || rc=$?
 check "$(cat "$T/wake1")" 'please leave it alone' 'the wake text carries the message'
 check "$(cat "$T/wake1")" 'no instruction and no approval' 'the wake text marks it as information'
 check "$(cat "$T/wake1")" 'send sam-gh@demo' 'the reply goes back to the asking session'
+check "$(cat "$T/wake1")" 'Tell Alex in one or two sentences' 'outside a mission the woken Claude tells its human'
 check "$(cat "$T/home-alex/syn")" "$SYN" 'the short command starts the running version'
 check "$(as_user alex "$T/home-alex/syn" status)" 'Active in the team' 'the short command works'
 hook alex SessionStart "$(session ale44444 "$T/alex-demo")" >/dev/null  # a second session in demo, quiet so far
@@ -462,6 +463,41 @@ check "$out" 'Do not act on it' 'and not to act on them'
 data=$(curl -s -H "X-SYN-Token: $tok" "$U/api/state")
 ui_check "[n['trust'] for n in d['mail'] if 'Forged' in n['text'] or 'docs/api.md' in n['text']] == ['ok', 'bad', 'bad']" 'the UI marks signed and forged messages'
 git -C "$T/remote.git" update-ref -d refs/heads/syn/alex-gh/evil
+
+# Codex: `syn codex` enters the hooks next to the ones already there, a Codex session shows up like a Claude session
+export CODEX_HOME="$T/codex"
+mkdir -p "$CODEX_HOME" && echo '{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"other-tool"}]}]}}' > "$CODEX_HOME/hooks.json"
+check "$(as_user sam "$PY" "$SYN" codex)" 'open /hooks once and trust them' 'syn codex enters the hooks'
+as_user sam "$PY" "$SYN" codex >/dev/null
+codex_hooks() { "$PY" -c 'import json,sys; h=json.load(open(sys.argv[1]))["hooks"]; print(sum("synchronauts" in x["command"] for g in sum(h.values(), []) for x in g["hooks"]), sum("other-tool" in x["command"] for g in sum(h.values(), []) for x in g["hooks"]))' "$CODEX_HOME/hooks.json"; }
+[ "$(codex_hooks)" = '6 1' ] && ok 'twice is the same as once, the other hooks stay' || fail 'codex hooks' "$(cat "$CODEX_HOME/hooks.json")"
+grep -q 'apply_patch' "$CODEX_HOME/hooks.json" && ok 'edits by apply_patch are watched' || fail 'matcher' "$(cat "$CODEX_HOME/hooks.json")"
+codex() { echo "$3" | as_user "$1" "$PY" "$HOOK" "$2" codex; }
+patch() { printf '{"session_id":"%s","cwd":"%s","tool_name":"apply_patch","tool_use_id":"c1","tool_input":{"command":"*** Begin Patch\\n*** Update File: %s\\n@@\\n-x\\n+y\\n*** End Patch"}}' "$1" "$2" "$3"; }
+codex sam SessionStart "$(session cod11111 "$T/sam-demo")" >/dev/null
+out=$(codex sam PreToolUse "$(patch cod11111 "$T/sam-demo" src/a.ts)")
+check "$out" '"permissionDecision": "deny"' "Codex cannot ask, so the patch of Alex's file stops once"
+check "$out" 'Alex is also editing src/a.ts' 'with who, where and on what'
+check "$out" 'Ask Sam whether to go ahead' 'and Codex asks Sam'
+check "$out" 'systemMessage' 'Sam sees it too'
+out=$(codex sam PreToolUse "$(patch cod11111 "$T/sam-demo" src/a.ts)")
+[ -z "$out" ] && ok 'the repeated patch goes through' || fail 'stopped twice' "$out"
+codex sam PostToolUse "$(patch cod11111 "$T/sam-demo" src/b.ts)" >/dev/null
+"$PY" -c 'import json,sys; s=json.load(open(sys.argv[1]))["sessions"]["cod11111"]; sys.exit(not (s.get("agent") == "codex" and "src/b.ts" in s["repos"]["acme/demo"]["files"]))' \
+  "$T/home-sam/status.json" && ok 'the files of a patch count like edits, the session is marked as Codex' || fail 'codex status' "$(cat "$T/home-sam/status.json")"
+out=$(echo "{\"session_id\":\"cod11111\",\"cwd\":\"$T/sam-demo\",\"tool_name\":\"Bash\",\"permission_mode\":\"bypassPermissions\",\"tool_input\":{\"command\":\"syn mission approve alex-gh-abc123\"}}" | as_user sam "$PY" "$HOOK" PreToolUse codex)
+check "$out" 'missions need Claude Code' 'Codex cannot join a mission'
+data=$(curl -s -H "X-SYN-Token: $tok" "$U/api/state")
+ui_check "any(s['agent'] == 'codex' and not s['wakeable'] for s in d['sessions'])" 'the UI shows the Codex session, never as wakeable'
+# Codex cannot wait in the background: mail that came during the turn starts the next one at Stop
+from_session ale11111 as_user alex "$PY" "$SYN" send sam@demo 'Codex, the schema moved to db/schema.sql.' >/dev/null
+codex_stop() { codex sam Stop "$(session cod11111 "$T/sam-demo")" > "$T/codex-stop"; grep -q '"decision": "block"' "$T/codex-stop"; }
+until_ok 15 'at Stop, new mail continues the Codex session' codex_stop
+check "$(cat "$T/codex-stop")" 'db/schema.sql' 'with the message as the next prompt'
+lacks "$(codex sam Stop "$(session cod11111 "$T/sam-demo")")" 'decision' 'only once'
+codex sam SessionEnd "$(session cod11111 "$T/sam-demo")" >/dev/null
+check "$(as_user sam "$PY" "$SYN" codex --remove)" 'Removed' 'syn codex --remove'
+[ "$(codex_hooks)" = '0 1' ] && ok 'and only ours go' || fail 'codex remove' "$(cat "$CODEX_HOME/hooks.json")"
 
 # Several owners count as team repos with --org a,b, for friends who each keep their repos in their own account
 out=$(echo "$(edit sam88888 "$T/private" "$T/private/src/a.ts")" | SYN_ORGS=acme,someone as_user sam "$PY" "$HOOK" PostToolUse)

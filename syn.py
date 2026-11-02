@@ -1059,7 +1059,7 @@ def approval_text(k, m):
             f"approved. Plan: {clean(m['plan'])}")
 
 
-def approval(k, sid, e):
+def approval(k, sid, e, agent):
     """PreToolUse before Bash: `mission approve <id>` makes Claude Code ask the human, whatever the permission rules
     say, and only in auto mode, so the mission can run without further prompts. Only a yes there lets the PostToolUse
     hook of the same call start or join the mission."""
@@ -1067,6 +1067,8 @@ def approval(k, sid, e):
     if not found:
         return 0
     m, problem = approvable(k, sid, found.group(1))
+    if agent == 'codex':  # it could not ask its human, and a mission rests on that one question
+        m, problem = None, 'missions need Claude Code; Codex cannot ask its human from a hook yet.'
     if not problem and e.get('permission_mode') != 'auto':
         problem = (f'missions only run in auto mode, so the Claudes can work without permission prompts. Ask '
                    f'{k.get("name")} to switch this session to auto mode (Shift+Tab), then run it again.')
@@ -1236,7 +1238,7 @@ def wake(k, sid):
         mail, waiting = new_mail(k, sid, s, ms)
         new = [n for n, first in mail if first]
         # work within the mission has its own, wider brake
-        work = bool(new) and all(n.get('mission') == (m or {}).get('id') and n.get('kind') != 'end'
+        work = bool(m) and bool(new) and all(n.get('mission') == m['id'] and n.get('kind') != 'end'
                                   and n.get('trust') != 'bad' for n in new)
         brake, limit = ('mission_wakes', MISSION_WAKES_PER_HOUR) if work else ('wakes', WAKES_PER_HOUR)
         earlier = [t for t in s.get(brake, []) if t > time.time() - 3600]
@@ -1262,20 +1264,28 @@ def covers(claim, f):
     return f == claim or claim.endswith('/') and f.startswith(claim)
 
 
-def ask_first(k, sid, e):
-    """PreToolUse before an edit: if another session claimed the file, or a teammate's session is editing it, and this
-    session has not edited it yet, Claude Code asks the human first. The reason only shows in the permission prompt,
-    Claude gets no text. Once an edit of the file went through, the PostToolUse hook adds it to the session's files and
-    it passes."""
+def edited_paths(e):
+    """Absolute paths an edit changes: Claude Code's file_path, every file of a Codex patch."""
     ti = e.get('tool_input') or {}
-    path = ti.get('file_path') or ti.get('notebook_path')
-    r = repo_of(path, orgs(k)) if path else None
+    if e.get('tool_name') in EDIT_TOOLS:
+        return [p for p in (ti.get('file_path') or ti.get('notebook_path'),) if p]
+    if e.get('tool_name') == 'apply_patch':
+        files = re.findall(r'^\*\*\* (?:(?:Add|Update|Delete) File|Move to): (.+?)\s*$', str(ti.get('command') or ''), re.M)
+        return [os.path.join(str(e.get('cwd') or '.'), f) for f in dict.fromkeys(files)]
+    return []
+
+
+def edit_question(k, sid, path, agent):
+    """Why the human should be asked before this session edits path, or None: another session claimed the file, or a
+    teammate's session is editing it, and this session has not edited it yet."""
+    r = repo_of(path, orgs(k))
     if not r:
-        return 0
+        return None
     f = in_repo(path, r[1])
+    sess = load(SESSIONS / f'{sid}.json', {})
     mine = load(HOME / 'status.json', {}).get('sessions', {}).get(sid, {}).get('repos', {}).get(r[0], {})
-    if f in mine.get('files', []):
-        return 0
+    if f in mine.get('files', []) or agent == 'codex' and f'{r[0]}|{f}' in sess.get('asked', []):
+        return None  # Codex: stopped once already, this is the edit its human agreed to
     team = partners(k, my_mission(k, sid))  # within a mission the Claudes coordinate themselves
     claimed, editing = [], []
     for who, key, s, _ in others(k, sid):
@@ -1289,17 +1299,33 @@ def ask_first(k, sid, e):
             editing.append(hit)  # edits only for teammates' sessions
     on_it = sorted(claimed or editing, reverse=True)
     if not on_it:
-        return 0
+        return None
     people = list(dict.fromkeys(who for _, who, _, _ in on_it))
     who = people[0] if len(people) == 1 else f"{', '.join(people[:-1])} and {people[-1]}"
     last, _, branch, task = on_it[0]
     task = f' · "{task}"' if task else ''
     verb = ('has' if len(people) == 1 else 'have') + ' claimed' if claimed else \
         ('is' if len(people) == 1 else 'are') + ' also editing'
-    reason = f"{who} {verb} {f} ({short(r[0])}@{branch}, last {clock(last)}{task})"
     update_session(sid, lambda s: s.update(asked=list(dict.fromkeys(s.get('asked', []) + [f'{r[0]}|{f}']))[-100:]))
-    print(json.dumps({'hookSpecificOutput': {'hookEventName': 'PreToolUse', 'permissionDecision': 'ask',
-                                             'permissionDecisionReason': reason}}, ensure_ascii=False))
+    return f"{who} {verb} {f} ({short(r[0])}@{branch}, last {clock(last)}{task})"
+
+
+def ask_first(k, sid, e, agent):
+    """PreToolUse before an edit: Claude Code asks the human first, the reason only shows in the permission prompt.
+    Codex cannot ask from a hook yet, so its edit is stopped once with the reason, Codex asks its human and repeats
+    it. Once an edit of the file went through, the PostToolUse hook adds it to the session's files and it passes."""
+    reason = next((x for x in (edit_question(k, sid, p, agent) for p in edited_paths(e)) if x), None)
+    if not reason:
+        return 0
+    if agent == 'codex':
+        out = {'hookSpecificOutput': {'hookEventName': 'PreToolUse', 'permissionDecision': 'deny',
+                                      'permissionDecisionReason': f"Synchronauts: {reason}. Ask {k.get('name')} "
+                                      f"whether to go ahead; if they agree, apply the same patch again."},
+               'systemMessage': f'Synchronauts: {reason}'}
+    else:
+        out = {'hookSpecificOutput': {'hookEventName': 'PreToolUse', 'permissionDecision': 'ask',
+                                      'permissionDecisionReason': reason}}
+    print(json.dumps(out, ensure_ascii=False))
     return 0
 
 
@@ -1354,7 +1380,7 @@ def report_state(sid, event, e):
     return 0
 
 
-def hook(event):
+def hook(event, agent='claude'):
     if os.environ.get('CLAUDE_CODE_ENTRYPOINT', '').startswith('sdk'):
         return 0  # `claude -p` and SDK runs: no human present, and -p waited up to 30 s for the Stop hook
     try:
@@ -1379,10 +1405,17 @@ def hook(event):
         k = solo(k)
     sid = (e.get('session_id') or 'none')[:8]
     if event == 'PreToolUse':
-        return (approval if e.get('tool_name') == 'Bash' else ask_first)(k, sid, e)
+        return (approval if e.get('tool_name') == 'Bash' else ask_first)(k, sid, e, agent)
     if event == 'Stop':
         update_status(sid, lambda s: set_state(s, 'waiting'))
-        return 0 if k.get('solo') else wait_for_mail(k, sid)  # alone, no mail can come
+        if k.get('solo'):  # alone, no mail can come
+            return 0
+        if agent == 'codex':  # no waiting in the background: mail that came during the turn starts the next one
+            text, _ = wake(k, sid)
+            if text:
+                print(json.dumps({'decision': 'block', 'reason': text}, ensure_ascii=False))
+            return 0
+        return wait_for_mail(k, sid)
     if event in ('Notification', 'StopFailure'):
         return report_state(sid, event, e)
     link(always=event == 'SessionStart')
@@ -1394,9 +1427,7 @@ def hook(event):
         where['cwd'] = '~' + c[len(h):] if c == h or c.startswith(h + os.sep) else c
     owners = orgs(k)
     hits = [(repo_of(e['cwd'], owners), None)] if e.get('cwd') else []
-    ti = e.get('tool_input') or {}
-    path = ti.get('file_path') or ti.get('notebook_path')
-    if path and e.get('tool_name') in EDIT_TOOLS:
+    for path in edited_paths(e):
         r = repo_of(path, owners)
         if r:
             hits.append((r, in_repo(path, r[1])))
@@ -1408,6 +1439,8 @@ def hook(event):
     history = []  # (kind, repo, fields) for the UI's history
 
     def change(s):
+        if agent != 'claude':
+            s['agent'] = agent
         for r, f in hits:
             if not r:
                 continue
@@ -1465,7 +1498,7 @@ def hook(event):
         over = ms.get(sess.get('mission')) if sess.get('mission') and not m else None
         if over and any(n.get('kind') == 'end' and n.get('mission') == over['id'] for n, _ in mail):
             over = None  # the end message says it already
-        remind = e.get('tool_name') in EDIT_TOOLS and in_team and not mine.get('task') and not sess.get('reminded')
+        remind = bool(edited_paths(e)) and in_team and not mine.get('task') and not sess.get('reminded')
 
         def remember(s):
             s['reported'] = (s['reported'] + [x for x, _ in notes])[-500:]
@@ -1511,9 +1544,45 @@ def hook(event):
 
 # --- Commands -----------------------------------------------------------------
 
+CODEX_HOOKS = {'SessionStart': 15, 'UserPromptSubmit': 10, 'PreToolUse': 10, 'PostToolUse': 10, 'Stop': 10,
+               'SessionEnd': 3}  # event → timeout in seconds; Codex has no Notification and no StopFailure
+CODEX_MARK = '# synchronauts'
+
+
+def cmd_codex(args):
+    """Enters the hooks into Codex's hooks.json, next to whatever else is there; --remove takes them out again."""
+    path = Path(os.environ.get('CODEX_HOME') or Path.home() / '.codex') / 'hooks.json'
+    try:
+        conf = json.loads(path.read_text(encoding='utf-8')) if path.exists() else {}
+    except ValueError as error:
+        sys.exit(f'{path} is not valid JSON ({error}); fix it first.')
+    hooks = conf.setdefault('hooks', {})
+    for event in list(hooks):  # ours out, the others' untouched
+        groups = [g for g in hooks[event] if not any(CODEX_MARK in str(h.get('command')) for h in g.get('hooks', []))]
+        if groups:
+            hooks[event] = groups
+        else:
+            del hooks[event]
+    if '--remove' not in args:
+        link(always=True)
+        for event, timeout in CODEX_HOOKS.items():
+            group = {'hooks': [{'type': 'command', 'timeout': timeout,
+                                'command': f'sh {sh_quote(LINK.as_posix())} hook {event} codex {CODEX_MARK}'}]}
+            if event in ('PreToolUse', 'PostToolUse'):
+                group['matcher'] = '^(apply_patch|Bash)$'
+            hooks.setdefault(event, []).append(group)
+    save(path, conf)
+    if '--remove' in args:
+        print(f'Removed the Synchronauts hooks from {path}.')
+    else:
+        print(f'Synchronauts hooks are in {path}. In Codex, open /hooks once and trust them; from the next Codex '
+              f'session on, it shows up for the others like a Claude session.')
+
+
 def current_session():
-    """sid of the session a command comes from (Claude Code sets CLAUDE_CODE_SESSION_ID), otherwise ''."""
-    return (os.environ.get('CLAUDE_CODE_SESSION_ID') or '')[:8]
+    """sid of the session a command comes from (Claude Code sets CLAUDE_CODE_SESSION_ID, Codex CODEX_THREAD_ID),
+    otherwise ''."""
+    return (os.environ.get('CLAUDE_CODE_SESSION_ID') or os.environ.get('CODEX_THREAD_ID') or '')[:8]
 
 
 def check_text(text):
@@ -1772,7 +1841,9 @@ def ui_session(login, machine, sid, s, local=None):
     if local and local.get('active'):
         last = max(last, datetime.fromtimestamp(local['active'], timezone.utc))
     state, since = s.get('state') or 'waiting', parse(s.get('state_since') or s.get('start'))
-    if local is None:
+    if s.get('agent') == 'codex':
+        wakeable = False  # its mail waits for the next prompt
+    elif local is None:
         wakeable = state == 'waiting' and (t - since).total_seconds() < WAKE_WINDOW
     else:
         wakeable = (state == 'waiting' and local.get('waiting_since', 0) >= local.get('active', 0)
@@ -1782,7 +1853,8 @@ def ui_session(login, machine, sid, s, local=None):
         state = 'quiet'  # no Stop hook (Esc) or long after the turn
     return {'key': f'{login}/{machine}/{sid}', 'login': login, 'machine': machine, 'here': local is not None,
             'repos': repos, 'task': s.get('task') or '', 'start': s.get('start'), 'last': iso(last),
-            'state': state, 'since': iso(since), 'wakeable': wakeable, 'cwd': (local or {}).get('cwd') or ''}
+            'state': state, 'since': iso(since), 'wakeable': wakeable, 'cwd': (local or {}).get('cwd') or '',
+            'agent': s.get('agent') or 'claude'}
 
 
 def pairs(team, crews=()):
@@ -2012,7 +2084,7 @@ def main(argv):
     cmd, rest = (argv[0], argv[1:]) if argv else ('status', [])
     if cmd == 'hook':
         try:
-            return hook(rest[0])
+            return hook(*rest[:2])
         except Exception as error:  # an error here must never disturb the Claude session
             HOME.mkdir(parents=True, exist_ok=True)
             with open(HOME / 'hook.log', 'a', encoding='utf-8') as f:
@@ -2058,9 +2130,11 @@ def main(argv):
         cmd_status(k)
     elif cmd == 'ui':
         cmd_ui(browser='--no-browser' not in rest)
+    elif cmd == 'codex':
+        cmd_codex(rest)
     else:
         sys.exit('Commands: status · send <name|all>[@repo] "<text>" · task "<one sentence>" · claim <path>… · '
-                 'mission … · ui · '
+                 'mission … · ui · codex [--remove] · '
                  'setup <owner/repo of the room> [--org owner,...]')
     return 0
 

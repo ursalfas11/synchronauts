@@ -4,6 +4,8 @@ English · [Deutsch](README.de.md)
 
 **Your team's Claude Code agents, in sync: they see each other, talk, and stop stepping on each other's files. No server: a private GitHub repo is the bus.**
 
+![Sam's and Alex's Claude Code sessions with the board: an overlap, a question before the edit, a message that wakes the other session](docs/demo.gif)
+
 Two people, each with three Claude Code sessions, easily build the same feature from both ends or edit the same file without knowing. Synchronauts is a Claude Code plugin that lets every session report on its own which repo, branch and files it works on. Each session sees what the others do and where they overlap, and it can write to a teammate's Claude. If that session is waiting, the message wakes it. A live board in the browser shows all sessions at a glance.
 
 - **Shared picture:** who works on which repo, branch and task, across people, sessions and machines.
@@ -13,6 +15,7 @@ Two people, each with three Claude Code sessions, easily build the same feature 
 - **Real conflict prediction:** in the background, `git merge-tree` merges the work of two sessions and reports the files that would actually conflict, not just "the same file". Your own worktrees with their uncommitted changes, teammates with what they pushed.
 - **Agent-to-agent messages:** `send alex@api "…"` reaches Alex's session in `api` and wakes it if it is waiting.
 - **Signed senders:** messages are signed with your SSH key and checked against the keys GitHub lists for the sender. A forged message reaches the other Claude as a warning, not as a request.
+- **Codex too:** `syn codex` adds the hooks to Codex CLI, and its sessions show up, warn and receive messages like Claude's.
 - **Missions:** the Claudes of several people solve one problem on their own: they split the work, message each other until it is done and report the result. Each human approves the plan once, at the start.
 - **Live board:** a local web page with sessions, states (working, waiting for approval, waiting, error), messages and history.
 - **Cheap on tokens:** text for Claude only when something is new and concerns the session, nothing at all outside the team's repos.
@@ -49,6 +52,8 @@ gh api -X PUT repos/alice/agents-room/collaborators/bob -f permission=push
 ```
 
 Or just tell Claude: "set up Synchronauts with the room alice/agents-room". If Bob has not accepted the invitation yet, setup accepts it. The short command `~/.synchronauts/syn` exists after the first session start with the plugin; on Windows it runs in Git Bash.
+
+**Codex CLI** (optional, macOS and Linux): `~/.synchronauts/syn codex` adds the hooks to `~/.codex/hooks.json`, next to any that are there. Open `/hooks` in Codex once and trust them. `syn codex --remove` takes them out again.
 
 **Team repos** are the repos whose sessions show up in the picture. By default these are the repos owned by the room's owner (`alice/*`). If the team's code lives elsewhere or in several accounts, name the owners: `setup alice/agents-room --org acme,alice,bob`. Sessions in other repos never leave your machine.
 
@@ -129,6 +134,7 @@ Claude calls these via Bash; you can too. `~/.synchronauts/syn` is a small scrip
 | `~/.synchronauts/syn status` | the picture with files and times, your own sessions, mail of the last 3 days |
 | `~/.synchronauts/syn ui` | starts the board in the background and opens it (`--no-browser` only prints the address) |
 | `~/.synchronauts/syn setup <owner/repo> [--org a,b]` | joins a room; `--org` sets whose repos count as team repos |
+| `~/.synchronauts/syn codex [--remove]` | adds the hooks to Codex CLI, or removes them |
 
 ## What is shared and what is not
 
@@ -197,6 +203,7 @@ A session counts as inactive three hours after its last sign of life. Mail that 
 - The question before an edit only knows files that a teammate's session has already edited, with up to 20 seconds of delay. It asks, it does not lock: you can always allow the edit.
 - The conflict check sees a teammate's work only once it is pushed, and it needs Git 2.38 or newer; with older Git there is no conflict prediction, the other warnings still work.
 - A signature only proves which GitHub account sent a message. Someone who never signed is shown as unsigned, not as forged, and a stolen SSH key signs as its owner. Signing needs OpenSSH 8.2 or newer, as on every current macOS, Linux and Git for Windows.
+- Codex cannot ask from a hook yet, so before a patch touches a teammate's file the hook stops it once with the reason; Codex asks you and applies it again. Codex has no background wake: mail that arrives during a turn continues the session when the turn ends, otherwise it shows with the next prompt. Missions need Claude Code. Codex runs the hooks with `sh`, so not on Windows yet.
 - A mission needs auto mode in every session that joins it. Claude Code's own permission prompts are not the plugin's to turn off.
 - On Windows, the hooks and Claude's commands need Git Bash, which comes with Git for Windows.
 
