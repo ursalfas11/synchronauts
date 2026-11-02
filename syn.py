@@ -11,7 +11,8 @@ seconds whether other branches changed (on GitHub via REST with ETag, otherwise 
 and write local files. After every turn an async Stop hook waits for new mail and wakes the session with exit code 2
 (asyncRewake) while its context is still in the prompt cache. Claude only gets text when something is new and
 concerns the session. Before the first edit of a file that a teammate's session is editing, Claude Code asks the
-human (PreToolUse).
+human (PreToolUse). In the background `git merge-tree` checks whether the work of two sessions in the same repo would
+really conflict.
 
 A mission lets the Claudes of several people solve one problem together without their humans. Every person approves
 it once, in a permission prompt that Claude cannot answer itself; until it ends, messages between the sessions that
@@ -59,6 +60,7 @@ MISSION_HOURS, MISSION_MAX_HOURS = 2, 7.5  # length of a mission; the Stop hook 
 MAX_FILES = 30
 MAX_TEXT = 1500                     # characters per message; `send` rejects longer ones instead of cutting silently
 EDIT_TOOLS = ('Edit', 'Write', 'MultiEdit', 'NotebookEdit')
+CONFLICT_TICK = float(os.environ.get('SYN_CONFLICT_TICK') or 60)  # seconds between two conflict checks
 EVENTS_KEEP = timedelta(hours=24)   # an event stays in the UI's history this long
 MAX_EVENTS = 100
 PUSH_GAP = TICK or 15               # seconds between two pushes when only state or history changed; mail goes at once
@@ -332,10 +334,12 @@ def own_state(k):
     """Content of the own branch: active sessions in team repos and the mail of the last days."""
     limit = now() - ACTIVE
     sessions = {}
+    tips = load(HOME / 'conflicts.json', {}).get('tips', {})  # what each session pushed, so the others can merge it
     for sid, s in load(HOME / 'status.json', {}).get('sessions', {}).items():
         if s.get('repos') and parse(s.get('last')) > limit:
             t = parse(s.get('last'))  # rounded to five minutes, otherwise there would be a push every minute
-            sessions[sid] = dict(s, last=iso(t.replace(minute=t.minute - t.minute % 5)))
+            repos = {r: dict(x, **({'tip': tips[sid][r]} if r in tips.get(sid, {}) else {})) for r, x in s['repos'].items()}
+            sessions[sid] = dict(s, repos=repos, last=iso(t.replace(minute=t.minute - t.minute % 5)))
     mail = [n for n in load(HOME / 'mail.json', []) if parse(n.get('time')) > now() - MAIL_KEEP]
     # only events in team repos leave the machine, the others only show up in the own UI
     events = [x for x in load(HOME / 'events.json', [])
@@ -636,6 +640,123 @@ def overlaps(k, mine, sid, asked=(), team=()):
                        f"⚠️ {who} is on the same branch {m.get('branch')} in {short(repo)}{there}")
             elif not own:
                 yield f"repo|{key}|{repo}", f"{who} is also in {short(repo)}, branch {r.get('branch')}{there}"
+
+
+# --- Conflicts ----------------------------------------------------------------
+
+def snapshot(root):
+    """A commit of the working tree as it is, uncommitted and new files included, written without touching the
+    repo's index, refs or files: `git add` goes into a copy of the index. The HEAD itself if nothing changed."""
+    head = git('rev-parse', 'HEAD', cwd=root, timeout=10)
+    index = Path(root, git('rev-parse', '--git-path', 'index', cwd=root, timeout=10))
+    tmp = HOME / f'.index.{os.getpid()}'
+    try:
+        if index.exists():
+            tmp.write_bytes(index.read_bytes())
+        env = {'GIT_INDEX_FILE': str(tmp)}
+        git('add', '-A', cwd=root, timeout=60, env=env)
+        tree = git('write-tree', cwd=root, timeout=20, env=env)
+    finally:
+        tmp.unlink(missing_ok=True)
+    if tree == git('rev-parse', 'HEAD^{tree}', cwd=root, timeout=10):
+        return head
+    who = {f'GIT_{x}_{y}': v for x in ('AUTHOR', 'COMMITTER') for y, v in (('NAME', 'synchronauts'),
+                                                                           ('EMAIL', 'synchronauts@localhost'))}
+    return git('commit-tree', tree, '-p', head, '-m', 'synchronauts: working tree', cwd=root, timeout=20, env=who)
+
+
+def conflicted(root, a, b):
+    """Files that would conflict if a and b were merged, [] if none, None if git cannot tell (older than 2.38,
+    unrelated histories)."""
+    r = subprocess.run(['git', 'merge-tree', '--write-tree', '--name-only', '--no-messages', a, b], cwd=root,
+                       capture_output=True, stdin=subprocess.DEVNULL, timeout=60)
+    if r.returncode not in (0, 1):
+        return None
+    return sorted({x for x in r.stdout.decode('utf-8', 'replace').splitlines()[1:] if x.strip()})
+
+
+def conflict_check():
+    """Background pass, started by the hooks at most every CONFLICT_TICK seconds: merges the work of each own session
+    with that of every other session in the same repo, with `git merge-tree`, and notes the files that would conflict.
+    Own sessions in other checkouts (worktrees) with their uncommitted work, sessions on other machines with what they
+    pushed. Also notes what each own session pushed, so the others can do the same."""
+    k = config()
+    k = k if is_setup(k) else solo(k)
+    try:
+        lock = Lock('conflicts', wait=False).__enter__()
+    except BlockingIOError:
+        return
+    try:
+        before, limit = load(HOME / 'conflicts.json', {}), now() - ACTIVE
+        tried = {x: t for x, t in before.get('fetched', {}).items() if time.time() - t < 3600}
+        mine = {}  # sid → {repo: (root, branch)}
+        for sid, s in load(HOME / 'status.json', {}).get('sessions', {}).items():
+            local = load(SESSIONS / f'{sid}.json', {})
+            if parse(s.get('last')) > limit and not local.get('ended'):
+                mine[sid] = {r: (local['roots'][r], x.get('branch')) for r, x in s.get('repos', {}).items()
+                             if r in local.get('roots', {}) and Path(local['roots'][r]).is_dir()}
+        snaps, tips, out = {}, {}, {}
+
+        def snap(root):
+            if root not in snaps:
+                try:
+                    snaps[root] = snapshot(root)
+                except (RuntimeError, OSError, subprocess.TimeoutExpired):
+                    snaps[root] = None
+            return snaps[root]
+
+        def pushed(root, repo, branch, sha):
+            """sha, if this repo has it or can fetch it from origin (once an hour per commit)."""
+            if not sha or not re.fullmatch(r'[0-9a-f]{40,64}', sha) or not branch:
+                return None
+            for attempt in (0, 1):
+                try:
+                    git('cat-file', '-e', f'{sha}^{{commit}}', cwd=root, timeout=10)
+                    return sha
+                except (RuntimeError, subprocess.TimeoutExpired):
+                    if attempt or f'{repo}|{sha}' in tried:
+                        return None
+                    tried[f'{repo}|{sha}'] = time.time()
+                    try:
+                        git('fetch', '-q', '--no-write-fetch-head', 'origin', f'refs/heads/{branch}', cwd=root, timeout=60)
+                    except (RuntimeError, subprocess.TimeoutExpired):
+                        return None
+
+        for sid, repos in mine.items():
+            for repo, (root, branch) in repos.items():
+                try:
+                    tips.setdefault(sid, {})[repo] = git('rev-parse', '--verify', '-q', f'refs/remotes/origin/{branch}',
+                                                         cwd=root, timeout=10)
+                except (RuntimeError, subprocess.TimeoutExpired):
+                    pass
+        for sid, repos in mine.items():
+            for repo, (root, branch) in repos.items():
+                theirs = [(f"{k['me']}/{k['machine']}/{o}", x[repo][1], lambda r=x[repo][0]: snap(r))
+                          for o, x in mine.items() if o != sid and repo in x and x[repo][0] != root]
+                theirs += [(key, s['repos'][repo].get('branch'),
+                            lambda r=s['repos'][repo]: pushed(root, repo, r.get('branch'), r.get('tip')))
+                           for _, key, s, _ in others(k, own=False) if repo in s['repos']]
+                for key, other_branch, get in theirs:
+                    a = snap(root)
+                    b = get() if a else None
+                    files = conflicted(root, a, b) if b and b != a else None
+                    if files:
+                        out.setdefault(sid, []).append({'with': key, 'repo': repo, 'branch': other_branch,
+                                                        'files': files[:MAX_FILES]})
+        save(HOME / 'conflicts.json', {'time': iso(), 'sessions': out, 'tips': tips, 'fetched': tried})
+    finally:
+        lock.__exit__()
+
+
+def conflict_lines(k, sid):
+    """(key, text) per session whose work would conflict with this session's, from the last conflict check."""
+    who = {key: name for name, key, _, _ in others(k, sid)}
+    for c in load(HOME / 'conflicts.json', {}).get('sessions', {}).get(sid, []):
+        name = who.get(c['with'], c['with'].split('/')[0])
+        whose = 'your other session' if name == 'Your other session' else f"{name}'s session"
+        yield (f"conflict|{c['with']}|{c['repo']}|{','.join(c['files'])}",
+               f"⚠️ Merging {whose} ({short(c['repo'])}@{c.get('branch')}) with this session's work would conflict in: "
+               f"{', '.join(c['files'][:6])}")
 
 
 def sessions_here():
@@ -1140,8 +1261,6 @@ def hook(event):
     if e.get('cwd'):  # only for the UI on this machine, never goes into the branch
         c, h = str(e['cwd']), str(Path.home())
         where['cwd'] = '~' + c[len(h):] if c == h or c.startswith(h + os.sep) else c
-    update_session(sid, lambda s: s.update(active=time.time(), ended=event == 'SessionEnd', **where))
-
     owners = orgs(k)
     hits = [(repo_of(e['cwd'], owners), None)] if e.get('cwd') else []
     ti = e.get('tool_input') or {}
@@ -1150,6 +1269,9 @@ def hook(event):
         r = repo_of(path, owners)
         if r:
             hits.append((r, in_repo(path, r[1])))
+    roots = {r[0]: r[1] for r, _ in hits if r}  # where the session works, for the conflict check; stays on this machine
+    update_session(sid, lambda s: s.update(active=time.time(), ended=event == 'SessionEnd', **where,
+                                           roots={**s.get('roots', {}), **roots}))
     task = clean(take_task(sid) or '')[:200] if e.get('tool_name') == 'Bash' else ''
     joined = approved(k, sid, e) if event == 'PostToolUse' and e.get('tool_name') == 'Bash' else ''
     history = []  # (kind, repo, fields) for the UI's history
@@ -1179,6 +1301,9 @@ def hook(event):
     mine = update_status(sid, change, end=event == 'SessionEnd')
     for kind, repo, fields in history:
         log_event(sid, kind, repo or main_repo(mine), **fields)
+    if mine.get('repos') and min(age(HOME / 'conflicts.json'), age(HOME / 'conflicts-start')) > CONFLICT_TICK:
+        touch('conflicts-start')
+        spawn('conflicts', log=HOME / 'conflicts.log')
     if event == 'SessionEnd':
         if mine.get('repos'):
             log_event(sid, 'end', main_repo(mine))
@@ -1200,7 +1325,8 @@ def hook(event):
         mail, _ = new_mail(k, sid, sess, ms)
         mark_delivered([n for n, first in mail if first])
         asked = set(sess.get('asked', []))
-        notes = [(key, x) for key, x in [*situation_lines(k, sid), *overlaps(k, mine, sid, asked, partners(k, m))]
+        notes = [(key, x) for key, x in [*situation_lines(k, sid), *overlaps(k, mine, sid, asked, partners(k, m)),
+                                         *conflict_lines(k, sid)]
                  if key not in sess['reported']] if in_team else []
         if error and in_team and f'error|{error}' not in sess['reported']:
             notes.append((f'error|{error}', f'Synchronauts: sync is failing ({error}); the picture may be stale.'))
@@ -1245,7 +1371,8 @@ def hook(event):
         lines.append(usage(k))
 
     # the human sees warnings, unless the permission prompt before the edit already told them
-    for_user = [x for key, x in notes if key.startswith(('file|', 'branch|', 'error|')) and not allowed(key, asked)]
+    for_user = [x for key, x in notes
+                if key.startswith(('file|', 'branch|', 'error|', 'conflict|')) and not allowed(key, asked)]
     for_user += [for_human(n, nm) for n, first in mail if first]
     emit(event, '\n'.join(lines), ' · '.join(for_user) or None)
     return 0
@@ -1482,6 +1609,18 @@ def pairs(team, crews=()):
                     yield {'a': a['key'], 'b': b['key'], 'repo': repo, 'kind': kind, 'files': same, 'mission': together}
 
 
+def conflict_pairs(k, shown):
+    """The conflicts of the last check as pairs for the UI, each pair once."""
+    out = {}
+    for sid, cs in load(HOME / 'conflicts.json', {}).get('sessions', {}).items():
+        mine = f"{k['me']}/{k['machine']}/{sid}"
+        for c in cs:
+            if mine in shown and c['with'] in shown:
+                out.setdefault((frozenset((mine, c['with'])), c['repo']),
+                               {'a': mine, 'b': c['with'], 'repo': c['repo'], 'kind': 'conflict', 'files': c['files']})
+    return list(out.values())
+
+
 def ui_data(k):
     """Everything the UI shows: people, sessions with their state, overlaps, mail and history."""
     me, limit = k['me'], now() - ACTIVE
@@ -1508,7 +1647,8 @@ def ui_data(k):
             'room': '' if k.get('solo') else '/'.join(github_path(k['remote']) or ()) or k['remote'],
             'people': sorted(people.values(), key=lambda p: (p['login'] != me, str(p['name']).lower())),
             'sessions': sessions,
-            'overlaps': list(pairs([s for s in sessions if s['repos']], [set(m['joined']) for m in ms if m['live']])),
+            'overlaps': list(pairs([s for s in sessions if s['repos']], [set(m['joined']) for m in ms if m['live']]))
+            + conflict_pairs(k, {s['key'] for s in sessions}),
             # proposals, joins and ends show on the mission itself
             'mail': sorted((n for n in mail.values() if not n.get('kind')), key=lambda n: (str(n.get('time')), n['id']))[-200:],
             'events': sorted(events, key=lambda x: parse(x.get('time')), reverse=True)[:300],
@@ -1686,9 +1826,9 @@ def main(argv):
             with open(HOME / 'hook.log', 'a', encoding='utf-8') as f:
                 f.write(f'{iso()} {rest[:1]} {type(error).__name__}: {error}\n')
             return 0
-    if cmd in ('watcher', 'ui-server'):
+    if cmd in ('watcher', 'ui-server', 'conflicts'):
         try:
-            (watcher if cmd == 'watcher' else ui_server)()
+            {'watcher': watcher, 'ui-server': ui_server, 'conflicts': conflict_check}[cmd]()
         except Exception as error:
             print(f'{iso()} {cmd} stopped: {type(error).__name__}: {error}', flush=True)
         return 0

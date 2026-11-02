@@ -9,6 +9,7 @@ Two people, each with three Claude Code sessions, easily build the same feature 
 - **Shared picture:** who works on which repo, branch and task, across people, sessions and machines.
 - **A question before stepping on a teammate's file:** before Claude first edits a file that a teammate's session is editing, Claude Code asks you, saying who, where and on what.
 - **Early overlap warnings:** the same file, the same branch, or a similar task in another repo, before the merge conflict.
+- **Real conflict prediction:** in the background, `git merge-tree` merges the work of two sessions and reports the files that would actually conflict, not just "the same file". Your own worktrees with their uncommitted changes, teammates with what they pushed.
 - **Agent-to-agent messages:** `send alex@api "…"` reaches Alex's session in `api` and wakes it if it is waiting.
 - **Missions:** the Claudes of several people solve one problem on their own: they split the work, message each other until it is done and report the result. Each human approves the plan once, at the start.
 - **Live board:** a local web page with sessions, states (working, waiting for approval, waiting, error), messages and history.
@@ -128,7 +129,7 @@ Claude calls these via Bash; you can too. `~/.synchronauts/syn` is a small scrip
 
 ## What is shared and what is not
 
-- **Shared with the room:** GitHub login, first name and machine name. Per session: repo, branch, paths of edited files (at most 30), the task in one sentence, times and the state (working, waiting, approval open, API error). A history of the last 24 hours in team repos: session start and end, task, first edit of a file, warnings to Claude, open approvals, wake-ups. Your own mail of the last 7 days.
+- **Shared with the room:** GitHub login, first name and machine name. Per session: repo, branch, paths of edited files (at most 30), the task in one sentence, the hash of the last pushed commit, times and the state (working, waiting, approval open, API error). A history of the last 24 hours in team repos: session start and end, task, first edit of a file, warnings to Claude, open approvals, wake-ups. Your own mail of the last 7 days.
 - **Never shared:** prompts, code, file contents, commands, the text of approval prompts, local paths. Sessions in repos outside the team repos do not appear at all.
 - Messages are stored as text in the room. Don't put secrets or customer data in them.
 - Nothing goes anywhere but your room on GitHub. No telemetry.
@@ -174,6 +175,8 @@ Each machine writes only its own branch, holding exactly one commit with `state.
 
 One watcher per machine runs in the background. It pushes the own state when it changes: mail at once, state and history at most every 15 seconds. Every 5 seconds it asks GitHub whether another branch changed. The request carries an ETag, and an unchanged answer (304) does not count against the rate limit. Without `gh` it polls with `git ls-remote` every 20 seconds. 15 minutes after the last sign of life it stops, and every hook restarts it when needed.
 
+**Conflict check:** at most once a minute the hooks start a short background pass. For each of your sessions it takes a snapshot of the working tree, uncommitted and new files included, written with `git add` into a copy of the index, so the repo's index, branches and files stay untouched. It merges that with the work of every other session in the same repo using `git merge-tree` (Git 2.38 or newer) and notes the files that would conflict. Other worktrees on this machine count with their working tree; teammates and your other machines with the commit they last pushed, which the pass fetches from `origin` if needed. Only commit hashes are shared, never code.
+
 The hooks only read and write local files. PreToolUse only asks before an edit or a mission approval, Notification (approval open) and StopFailure (API error) only set the state for the board. The Stop hook runs asynchronously with `asyncRewake`: after each turn it waits up to 55 minutes for mail and wakes the session with exit code 2. If the session works again, it ends quietly.
 
 A session counts as inactive three hours after its last sign of life. Mail that arrives while the recipient has no session open shows at their next start if it is at most 24 hours old; `status` shows older mail.
@@ -186,6 +189,7 @@ A session counts as inactive three hours after its last sign of life. Mail that 
 - "Waiting for approval" comes from the Notification hook, which Claude Code sends once an approval has been open for about six seconds. A turn cancelled with Esc ends without a Stop hook, so the board shows a working session as quiet after 30 minutes without a sign of life, a waiting one after an hour.
 - `send <name>@ui` goes to the board. A repo that is really called `ui` is reached by its full name (`alex@acme/ui`).
 - The question before an edit only knows files that a teammate's session has already edited, with up to 20 seconds of delay. It asks, it does not lock: you can always allow the edit.
+- The conflict check sees a teammate's work only once it is pushed, and it needs Git 2.38 or newer; with older Git there is no conflict prediction, the other warnings still work.
 - A mission needs auto mode in every session that joins it. Claude Code's own permission prompts are not the plugin's to turn off.
 - On Windows, the hooks and Claude's commands need Git Bash, which comes with Git for Windows.
 
@@ -195,7 +199,7 @@ A session counts as inactive three hours after its last sign of life. Mail that 
 bash test/e2e.sh
 ```
 
-Plays two people and a second machine through, with a local bare repo instead of GitHub: overlaps, the question before an edit, mail, wake-ups, a mission from proposal to result, state, history and the board (token, Host and Origin checks, sending from the board, replies to the board). The CI runs it on Linux (Python 3.9 and 3.14), macOS and Windows. `python3 test/measure.py syn.py skills/synchronauts/SKILL.md` measures how much text the hooks write into the context (`SHOW=1` prints the texts).
+Plays two people and a second machine through, with a local bare repo instead of GitHub: overlaps, the question before an edit, mail, wake-ups, a mission from proposal to result, conflict prediction between worktrees and against a teammate's pushed work, state, history and the board (token, Host and Origin checks, sending from the board, replies to the board). The CI runs it on Linux (Python 3.9 and 3.14), macOS and Windows. `python3 test/measure.py syn.py skills/synchronauts/SKILL.md` measures how much text the hooks write into the context (`SHOW=1` prints the texts).
 
 Settings for development: `SYN_HOME` (default `~/.synchronauts`), `SYN_REMOTE`, `SYN_ME`, `SYN_NAME`, `SYN_MACHINE`, `SYN_ORGS`, `SYN_TICK` (poll interval in seconds), `SYN_IDLE` (watcher lifetime without a sign of life), `SYN_WAKE_MIN`, `SYN_UI_PORT` (default 7962, `0` for a free port).
 

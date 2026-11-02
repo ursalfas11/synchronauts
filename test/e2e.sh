@@ -23,7 +23,9 @@ cleanup() {
 }
 trap cleanup EXIT
 unset CLAUDE_PID CLAUDE_CODE_ENTRYPOINT CLAUDE_CODE_SESSION_ID
-export SYN_REMOTE="$T/remote.git" SYN_ORGS=acme SYN_TICK=0.3 SYN_IDLE=120
+export SYN_REMOTE="$T/remote.git" SYN_ORGS=acme SYN_TICK=0.3 SYN_IDLE=120 SYN_CONFLICT_TICK=1
+# acme/conf on "GitHub" is a local bare repo, for the conflict check against a teammate's pushed work
+export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="url.$T/conf.git.insteadOf" GIT_CONFIG_VALUE_0=https://github.com/acme/conf.git
 export SYN_UI_PORT=0  # a free port, a real UI that is running stays untouched
 git init -q --bare "$T/remote.git"
 
@@ -95,6 +97,16 @@ check "$(cat "$T/home-solo/status.json")" '"local/plain"' 'a repo without a GitH
 SECONDS_BEFORE=$SECONDS; solo Stop "$(session solo1111 "$T/sam-demo")" >/dev/null 2>&1
 [ $((SECONDS - SECONDS_BEFORE)) -lt 5 ] && ok 'without a room the Stop hook does not wait for mail' || fail 'solo Stop waits'
 check "$(SYN_REMOTE= SYN_ME= SYN_NAME= SYN_MACHINE= SYN_HOME="$T/home-solo" "$PY" "$SYN" status)" 'My sessions on this machine' 'status works without a room'
+
+# Two worktrees change the same line: the check merges both working trees and reports a real conflict
+printf 'main\n' > "$T/sam-demo/src/a.ts"; printf 'feature\n' > "$T/sam-demo-wt/src/a.ts"
+solo_conflict() { out=$(solo PostToolUse "$(edit solo2222 "$T/sam-demo-wt" "$T/sam-demo-wt/src/a.ts")"); grep -q 'would conflict' <<<"$out"; }
+until_ok 20 'two worktrees that would conflict are reported' solo_conflict
+check "$out" "Merging your other session (demo@main) with this session's work would conflict in: src/a.ts" 'the note names the session, branch and file'
+check "$out" 'systemMessage' 'and the human sees it too'
+[ -z "$(git -C "$T/sam-demo" diff --cached --name-only)" ] && [ -z "$(git -C "$T/sam-demo" stash list)" ] \
+  && ok 'the check leaves index and stash alone' || fail 'the check touched the repo' "$(git -C "$T/sam-demo" status)"
+git -C "$T/sam-demo" checkout -q -- src/a.ts; git -C "$T/sam-demo-wt" checkout -q -- src/a.ts
 out=$(SYN_REMOTE= SYN_HOME="$T/home-solo" "$PY" "$SYN" send alex hello 2>&1) && fail 'send without a room' "$out" \
   || check "$out" 'needs a room' 'send without a room explains itself'
 
@@ -308,6 +320,25 @@ from_session ale11111 as_user alex "$PY" "$SYN" send sam@ui "Sure, I'll leave sr
 until_ok 10 "the reply shows in Sam's UI" sh -c "curl -s -H 'X-SYN-Token: $tok' '$U/api/state' | grep -q 'leave src/a.ts alone'"
 out=$(hook sam UserPromptSubmit "$(session sam33333 "$T/sam-demo")")
 lacks "$out" 'leave src/a.ts alone' 'mail to the UI shows in no session'
+
+# A real conflict with a teammate: Alex pushed a change to src/x.ts, Sam changes the same line without committing.
+# Sam's check fetches Alex's pushed commit and merges it with Sam's working tree
+g() { git -c user.name=test -c user.email=test@example.com "$@"; }
+git init -q --bare -b main "$T/conf.git"
+g clone -q https://github.com/acme/conf.git "$T/c-alex" 2>/dev/null && mkdir "$T/c-alex/src" && echo base > "$T/c-alex/src/x.ts"
+g -C "$T/c-alex" checkout -q -b main 2>/dev/null; g -C "$T/c-alex" add -A && g -C "$T/c-alex" commit -q -m base && g -C "$T/c-alex" push -q origin main
+g clone -q https://github.com/acme/conf.git "$T/c-sam"
+echo alex > "$T/c-alex/src/x.ts" && g -C "$T/c-alex" commit -q -am 'alex' && g -C "$T/c-alex" push -q origin main
+echo sam > "$T/c-sam/src/x.ts"
+hook alex PostToolUse "$(edit ale55555 "$T/c-alex" "$T/c-alex/src/x.ts")" >/dev/null
+alex_tip() { hook alex PostToolUse "$(bash_call ale55555 "$T/c-alex")" >/dev/null; grep -q '"tip"' "$T/home-sam/others.json"; }
+until_ok 20 "what Alex pushed reaches Sam" alex_tip
+sam_conflict() { out=$(hook sam PostToolUse "$(edit sam99999 "$T/c-sam" "$T/c-sam/src/x.ts")"); grep -q 'would conflict' <<<"$out"; }
+until_ok 20 "a conflict with Alex's pushed work is reported" sam_conflict
+check "$out" "Merging Alex's session (conf@main) with this session's work would conflict in: src/x.ts" 'with the teammate, branch and file'
+data=$(curl -s -H "X-SYN-Token: $tok" "$U/api/state")
+ui_check 'any(o["kind"] == "conflict" and o["files"] == ["src/x.ts"] for o in d["overlaps"])' 'the UI shows the conflict'
+hook sam SessionEnd "$(session sam99999 "$T/c-sam")" >/dev/null; hook alex SessionEnd "$(session ale55555 "$T/c-alex")" >/dev/null
 
 # Missions: Sam's and Alex's Claudes solve one problem together without their humans. Each human approves once, in
 # Claude Code's prompt and only in auto mode; until the end, messages between the two sessions count as approved work

@@ -9,6 +9,7 @@ Zwei Leute mit je drei Claude-Code-Sessions bauen schnell dasselbe Feature von z
 - **Gemeinsames Bild:** wer an welchem Repo, Branch und Vorhaben arbeitet, über Personen, Sessions und Rechner hinweg.
 - **Eine Rückfrage, bevor es einem Kollegen in die Datei fährt:** Bevor Claude zum ersten Mal eine Datei ändert, an der die Session eines Kollegen gerade arbeitet, fragt Claude Code dich, mit wer, wo und woran.
 - **Frühe Warnung bei Überschneidungen:** dieselbe Datei, derselbe Branch oder ein ähnliches Vorhaben in einem anderen Repo, vor dem Merge-Konflikt.
+- **Echte Konflikt-Vorhersage:** Im Hintergrund führt `git merge-tree` die Arbeit zweier Sessions zusammen und meldet die Dateien, die wirklich einen Konflikt gäben, nicht nur „dieselbe Datei“. Eigene Worktrees mit ihren nicht committeten Änderungen, Kollegen mit dem, was sie gepusht haben.
 - **Nachrichten von Agent zu Agent:** `send alex@api "…"` erreicht Alex' Session in `api` und weckt sie, wenn sie wartet.
 - **Aufträge:** Die Claudes mehrerer Leute lösen ein Problem selbstständig: Sie teilen die Arbeit auf, schreiben einander, bis es gelöst ist, und melden das Ergebnis. Jeder Mensch bestätigt den Plan einmal, am Anfang.
 - **Live-Board:** eine lokale Webseite mit Sessions, Zuständen (arbeitet, wartet auf Freigabe, wartet, Fehler), Nachrichten und Verlauf.
@@ -119,7 +120,7 @@ Claude ruft sie per Bash auf, du kannst es auch. `~/.synchronauts/syn` ist ein k
 
 ## Was geteilt wird und was nicht
 
-- **Mit dem Raum geteilt:** GitHub-Login, Vorname und Rechnername. Je Session Repo, Branch, Pfade der bearbeiteten Dateien (höchstens 30), das Vorhaben in einem Satz, Uhrzeiten und der Zustand (arbeitet, wartet, Freigabe offen, API-Fehler). Ein Verlauf der letzten 24 Stunden in Team-Repos: Sessionstart und -ende, Vorhaben, erste Bearbeitung einer Datei, Warnungen an Claude, offene Freigaben, Wecken. Die eigene Post der letzten 7 Tage.
+- **Mit dem Raum geteilt:** GitHub-Login, Vorname und Rechnername. Je Session Repo, Branch, Pfade der bearbeiteten Dateien (höchstens 30), das Vorhaben in einem Satz, der Hash des zuletzt gepushten Commits, Uhrzeiten und der Zustand (arbeitet, wartet, Freigabe offen, API-Fehler). Ein Verlauf der letzten 24 Stunden in Team-Repos: Sessionstart und -ende, Vorhaben, erste Bearbeitung einer Datei, Warnungen an Claude, offene Freigaben, Wecken. Die eigene Post der letzten 7 Tage.
 - **Nie geteilt:** Prompts, Code, Dateiinhalte, Befehle, der Text von Freigabe-Meldungen, lokale Pfade. Sessions in Repos außerhalb der Team-Repos tauchen gar nicht auf.
 - Nachrichten liegen als Text im Raum. Keine Secrets und keine Kundendaten hineinschreiben.
 - Nichts geht irgendwohin außer in deinen Raum auf GitHub. Keine Telemetrie.
@@ -165,6 +166,8 @@ Jeder Rechner schreibt nur seinen eigenen Branch, mit genau einem Commit und `st
 
 Je Rechner läuft ein Wächter im Hintergrund. Er pusht den eigenen Stand, sobald er sich ändert: Post sofort, Zustand und Verlauf höchstens alle 15 Sekunden. Alle 5 Sekunden fragt er bei GitHub, ob sich ein fremder Branch geändert hat. Die Abfrage geht mit ETag, und eine unveränderte Antwort (304) zählt nicht gegen das Rate-Limit. Ohne `gh` fragt er per `git ls-remote` alle 20 Sekunden. 15 Minuten nach dem letzten Lebenszeichen beendet er sich, und jeder Hook startet ihn bei Bedarf neu.
 
+**Konfliktprüfung:** Höchstens einmal je Minute starten die Hooks einen kurzen Durchlauf im Hintergrund. Für jede eigene Session nimmt er einen Schnappschuss des Arbeitsstands, nicht committete und neue Dateien eingeschlossen, per `git add` in eine Kopie des Index geschrieben; Index, Branches und Dateien des Repos bleiben unberührt. Diesen führt er mit `git merge-tree` (ab Git 2.38) mit der Arbeit jeder anderen Session im selben Repo zusammen und merkt sich die Dateien, die einen Konflikt gäben. Andere Worktrees auf diesem Rechner zählen mit ihrem Arbeitsstand, Kollegen und eigene andere Rechner mit dem Commit, den sie zuletzt gepusht haben; den holt der Durchlauf bei Bedarf von `origin`. Geteilt werden nur Commit-Hashes, nie Code.
+
 Die Hooks lesen und schreiben nur lokale Dateien. PreToolUse fragt nur vor einer Änderung oder der Zustimmung zu einem Auftrag, Notification (Freigabe offen) und StopFailure (API-Fehler) setzen nur den Zustand fürs Board. Der Stop-Hook läuft asynchron mit `asyncRewake`: Er wartet nach jedem Turn bis zu 55 Minuten auf Post und weckt die Session mit Exit-Code 2. Arbeitet die Session wieder, beendet er sich still.
 
 Eine Session gilt drei Stunden nach ihrem letzten Lebenszeichen als inaktiv. Post, die ankommt, solange beim Empfänger keine Session offen ist, sieht er beim nächsten Start, wenn sie höchstens 24 Stunden alt ist; ältere zeigt `status`.
@@ -177,6 +180,7 @@ Eine Session gilt drei Stunden nach ihrem letzten Lebenszeichen als inaktiv. Pos
 - „Wartet auf Freigabe“ meldet der Notification-Hook. Claude Code schickt ihn, sobald eine Freigabe etwa sechs Sekunden offen ist. Ein Turn, den Esc abbricht, endet ohne Stop-Hook. Darum zeigt das Board eine arbeitende Session nach 30 Minuten ohne Lebenszeichen als ruhig, eine wartende nach einer Stunde.
 - `send <name>@ui` geht ans Board. Ein Repo, das wirklich `ui` heißt, erreicht man mit vollem Namen (`alex@acme/ui`).
 - Die Rückfrage vor einer Änderung kennt nur Dateien, die die Session eines Kollegen schon bearbeitet hat, mit bis zu 20 Sekunden Verzug. Sie fragt, sie sperrt nicht: Du kannst die Änderung immer erlauben.
+- Die Konfliktprüfung sieht die Arbeit eines Kollegen erst, wenn sie gepusht ist, und braucht Git ab 2.38; mit älterem Git gibt es keine Vorhersage, die übrigen Warnungen funktionieren weiter.
 - Ein Auftrag braucht in jeder beigetretenen Session den Auto-Modus. Die eigenen Freigaben von Claude Code kann das Plugin nicht abschalten.
 - Unter Windows brauchen die Hooks und Claudes Befehle Git Bash, das mit Git für Windows kommt.
 
@@ -186,7 +190,7 @@ Eine Session gilt drei Stunden nach ihrem letzten Lebenszeichen als inaktiv. Pos
 bash test/e2e.sh
 ```
 
-Spielt zwei Personen und einen zweiten Rechner mit einem lokalen Bare-Repo statt GitHub durch: Überschneidungen, die Rückfrage vor einer Änderung, Post, Wecken, einen Auftrag vom Vorschlag bis zum Ergebnis, Zustand, Verlauf und Board (Token, Host- und Origin-Prüfung, Senden aus dem Board, Antworten ans Board). Die CI lässt ihn unter Linux (Python 3.9 und 3.14), macOS und Windows laufen. `python3 test/measure.py syn.py skills/synchronauts/SKILL.md` misst, wie viel Text die Hooks in den Kontext schreiben (`SHOW=1` zeigt die Texte).
+Spielt zwei Personen und einen zweiten Rechner mit einem lokalen Bare-Repo statt GitHub durch: Überschneidungen, die Rückfrage vor einer Änderung, Post, Wecken, einen Auftrag vom Vorschlag bis zum Ergebnis, die Konflikt-Vorhersage zwischen Worktrees und gegen die gepushte Arbeit eines Kollegen, Zustand, Verlauf und Board (Token, Host- und Origin-Prüfung, Senden aus dem Board, Antworten ans Board). Die CI lässt ihn unter Linux (Python 3.9 und 3.14), macOS und Windows laufen. `python3 test/measure.py syn.py skills/synchronauts/SKILL.md` misst, wie viel Text die Hooks in den Kontext schreiben (`SHOW=1` zeigt die Texte).
 
 Einstellungen für die Entwicklung: `SYN_HOME` (Standard `~/.synchronauts`), `SYN_REMOTE`, `SYN_ME`, `SYN_NAME`, `SYN_MACHINE`, `SYN_ORGS`, `SYN_TICK` (Abfrageabstand in Sekunden), `SYN_IDLE` (Laufzeit des Wächters ohne Lebenszeichen), `SYN_WAKE_MIN`, `SYN_UI_PORT` (Standard 7962, `0` für einen freien Port).
 

@@ -481,6 +481,8 @@ const I18N = {
     'card.localOnly.tip': 'Only you can see this session',
     'card.outside': 'outside the team repos',
     'ov.file': 'Same file as {0}: {1}',
+    'ov.conflict': 'Would conflict with {0}: {1}',
+    'toast.conflict': 'Merging the work of {0} in {1} would conflict: {2}',
     'ov.mission': 'In the mission with {0}: {1}',
     'mail.mission.tip': 'Within the mission: approved work, the Claude acts on it without asking',
     'ov.branch': 'Same branch as {0} in {1}',
@@ -629,6 +631,8 @@ const I18N = {
     'card.localOnly.tip': 'Diese Session sieht nur du',
     'card.outside': 'außerhalb der Team-Repos',
     'ov.file': 'Dieselbe Datei wie {0}: {1}',
+    'ov.conflict': 'Konflikt mit {0}: {1}',
+    'toast.conflict': 'Die Arbeit von {0} in {1} zusammenzuführen gäbe einen Konflikt: {2}',
     'ov.mission': 'Im Auftrag mit {0}: {1}',
     'mail.mission.tip': 'Im Auftrag: freigegebene Arbeit, der Claude handelt ohne Rückfrage',
     'ov.branch': 'Derselbe Branch wie {0} in {1}',
@@ -709,7 +713,7 @@ const I18N = {
 const LANGS = ['en', 'de'];
 const STATES = ['working', 'approval', 'waiting', 'quiet', 'error'];
 const RANK = { approval: 0, error: 1, working: 2, waiting: 3, quiet: 4 };
-const OVERLAP_RANK = { file: 0, branch: 1, repo: 2 };
+const OVERLAP_RANK = { conflict: 0, file: 1, branch: 2, repo: 3 };
 const FOLDER = 'M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z';
 
 function store(key, value) {  // every access in try/catch: private windows and blocked site data throw
@@ -899,7 +903,8 @@ function notify() {
     const mine = [o.a, o.b].find((x) => loginOf(x) === me);
     if (first || !mine) continue;
     const other = cap(who(mine === o.a ? o.b : o.a, me));
-    toast(t('toast.overlap'), o.kind === 'file'
+    toast(t('toast.overlap'), o.kind === 'conflict' ? t('toast.conflict', other, short(o.repo), list(o.files).join(', '))
+      : o.kind === 'file'
       ? t('toast.overlapFile', other, short(o.repo), list(o.files).join(', '))
       : t('toast.overlapBranch', other, short(o.repo)), 'warning');
   }
@@ -1064,6 +1069,9 @@ function overlapRow(o, s) {
   if (o.mission) {
     const files = list(o.files).length ? list(o.files).join(', ') : short(o.repo);
     return h('div', { class: 'overlap o-repo' }, mark('i'), h('span', {}, tx('ov.mission', other, h('b', {}, files))));
+  }
+  if (o.kind === 'conflict') {
+    return h('div', { class: 'overlap o-file' }, mark('!'), h('span', {}, tx('ov.conflict', other, h('b', {}, list(o.files).join(', ')))));
   }
   if (o.kind === 'file') {
     return h('div', { class: 'overlap o-file' }, mark('!'), h('span', {}, tx('ov.file', other, h('b', {}, list(o.files).join(', ')))));
