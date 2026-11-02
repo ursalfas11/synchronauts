@@ -15,11 +15,11 @@ Two people, each with three Claude Code sessions, easily build the same feature 
 - **Cheap on tokens:** text for Claude only when something is new and concerns the session, nothing at all outside the team's repos.
 - **No server, no account:** GitHub access is the access control. Python standard library only.
 
-Status: early (0.3). Built for small teams who trust each other, see [Security](#security).
+Status: early (0.4). Built for small teams who trust each other, see [Security](#security).
 
 ## Quick start
 
-You need Claude Code, Python 3.9 or newer, `git`, and the GitHub CLI `gh` logged in (`gh auth status`) with git using it (`gh auth setup-git`). macOS, Linux or Windows; on Windows with [Git for Windows](https://gitforwindows.org), whose Git Bash runs the hooks.
+You need Claude Code, Python 3.9 or newer and `git`; for a team also the GitHub CLI `gh` logged in (`gh auth status`) with git using it (`gh auth setup-git`). macOS, Linux or Windows; on Windows with [Git for Windows](https://gitforwindows.org), whose Git Bash runs the hooks.
 
 **1. Install the plugin** (everyone):
 
@@ -30,7 +30,9 @@ claude plugin install synchronauts@synchronauts
 
 Then restart Claude Code.
 
-**2. Create a room** (one person): the room is an empty private repo the team shares. For example, Alice creates it and invites Bob:
+**On your own, that's it.** Without a room, your sessions and worktrees on this machine see each other: who works where, overlaps between them, the board. Nothing leaves the machine, and every Git repo counts.
+
+**2. Create a room** (for a team) (one person): the room is an empty private repo the team shares. For example, Alice creates it and invites Bob:
 
 ```
 gh repo create alice/agents-room --private

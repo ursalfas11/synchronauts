@@ -68,13 +68,35 @@ sys.exit(len(versions) != 1)
 EOF
 ) && ok "one version in script, plugin and marketplace ($out)" || fail 'the versions differ' "$out"
 
-# Without a room there is nothing to set up, and the session start says so once a day, not in every session
 out=$(SYN_REMOTE= SYN_HOME="$T/home-new" SYN_ME=new-gh SYN_MACHINE=one "$PY" "$SYN" setup 2>&1) && fail 'setup without a room' "$out" \
   || check "$out" 'Setup failed: no room yet' 'setup without a room explains itself'
-out=$(echo '{"session_id":"new11111","cwd":"/"}' | SYN_REMOTE= SYN_HOME="$T/home-new" "$PY" "$HOOK" SessionStart)
-check "$out" 'Synchronauts is not set up' 'a session start without a room shows the setup hint'
-out=$(echo '{"session_id":"new22222","cwd":"/"}' | SYN_REMOTE= SYN_HOME="$T/home-new" "$PY" "$HOOK" SessionStart)
+# A room that cannot be joined: the session start says so once a day, not in every session
+out=$(echo '{"session_id":"new11111","cwd":"/"}' | SYN_REMOTE="$T/missing.git" SYN_HOME="$T/home-new" "$PY" "$HOOK" SessionStart)
+check "$out" 'Synchronauts cannot join the room' 'a room that cannot be joined shows a hint'
+out=$(echo '{"session_id":"new22222","cwd":"/"}' | SYN_REMOTE="$T/missing.git" SYN_HOME="$T/home-new" "$PY" "$HOOK" SessionStart)
 [ -z "$out" ] && ok 'the hint comes once a day, not in every session' || fail 'setup hint repeated' "$out"
+
+# Without a room: the own sessions and worktrees see each other on this machine, without GitHub, without a watcher
+solo() { echo "$2" | SYN_REMOTE= SYN_ME= SYN_NAME= SYN_MACHINE= SYN_HOME="$T/home-solo" "$PY" "$HOOK" "$1"; }
+git -C "$T/sam-demo" worktree add -q -b feature "$T/sam-demo-wt"
+git init -q -b main "$T/plain" && git -C "$T/plain" -c user.name=test -c user.email=test@example.com commit -q --allow-empty -m init
+out=$(solo SessionStart '{"session_id":"solo0000","cwd":"/"}')
+[ -z "$out" ] && ok 'without a room, a session start outside Git repos stays silent' || fail 'solo start' "$out"
+solo PostToolUse "$(edit solo1111 "$T/sam-demo" "$T/sam-demo/src/a.ts")" >/dev/null
+out=$(solo SessionStart "$(session solo2222 "$T/sam-demo-wt")")
+check "$out" 'what your other sessions on this machine are working on' 'without a room, the other own sessions are in the picture'
+check "$out" '- Your other session: demo@main' 'a session in another worktree sees the first one'
+lacks "$out" 'send <name' 'without a room there is no send in the usage'
+out=$(solo PostToolUse "$(edit solo2222 "$T/sam-demo-wt" "$T/sam-demo-wt/src/a.ts")")
+check "$out" '⚠️ Your other session is editing the same files in demo' 'the same file in two worktrees is reported'
+solo PostToolUse "$(edit solo3333 "$T/plain" "$T/plain/notes.md")" >/dev/null
+check "$(cat "$T/home-solo/status.json")" '"local/plain"' 'a repo without a GitHub remote counts too'
+[ ! -e "$T/home-solo/watcher.json" ] && [ ! -e "$T/home-solo/git" ] && ok 'without a room no watcher starts and nothing syncs' || fail 'solo watcher'
+SECONDS_BEFORE=$SECONDS; solo Stop "$(session solo1111 "$T/sam-demo")" >/dev/null 2>&1
+[ $((SECONDS - SECONDS_BEFORE)) -lt 5 ] && ok 'without a room the Stop hook does not wait for mail' || fail 'solo Stop waits'
+check "$(SYN_REMOTE= SYN_ME= SYN_NAME= SYN_MACHINE= SYN_HOME="$T/home-solo" "$PY" "$SYN" status)" 'My sessions on this machine' 'status works without a room'
+out=$(SYN_REMOTE= SYN_HOME="$T/home-solo" "$PY" "$SYN" send alex hello 2>&1) && fail 'send without a room' "$out" \
+  || check "$out" 'needs a room' 'send without a room explains itself'
 
 # Joining with an open invitation: setup accepts it, nobody has to click it on GitHub first. gh and GitHub are
 # faked; Windows starts no shell script as gh, so this runs on macOS and Linux only

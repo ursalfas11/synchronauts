@@ -418,6 +418,8 @@ const I18N = {
     'live.synced': 'synced {0}',
     'live.tip': 'Last time the room was checked for changes',
     'room.tip': 'The room: the shared Git repo of this team',
+    'room.solo': 'this machine',
+    'room.solo.tip': 'Without a room: your sessions and worktrees on this machine see each other, nothing leaves it',
     'bell.on': 'Browser notifications on (for messages, approvals and overlaps)',
     'bell.off': 'Turn on browser notifications',
     'bell.title': 'Notifications',
@@ -552,6 +554,8 @@ const I18N = {
     'where': 'in {0}',
     'q': '“{0}”',
     'foot': 'Synchronauts {0} · room {1} · team repos are those owned by {2} · this view runs on your machine only',
+    'foot.solo': 'Synchronauts {0} · without a room, nothing leaves this machine',
+    'board.solo': 'Without a room, your sessions and worktrees on this machine see each other. To work with others, create a private GitHub repo as the room and join it: {0}',
   },
   de: {
     'live.connecting': 'verbinde …',
@@ -562,6 +566,8 @@ const I18N = {
     'live.synced': 'Abgleich {0}',
     'live.tip': 'Letzte Prüfung des Raums auf Änderungen',
     'room.tip': 'Der Raum: das gemeinsame Git-Repo dieses Teams',
+    'room.solo': 'dieser Rechner',
+    'room.solo.tip': 'Ohne Raum: deine Sessions und Worktrees auf diesem Rechner sehen einander, nichts verlässt ihn',
     'bell.on': 'Browser-Benachrichtigungen an (bei Nachrichten, Freigaben und Überschneidungen)',
     'bell.off': 'Browser-Benachrichtigungen einschalten',
     'bell.title': 'Benachrichtigungen',
@@ -696,6 +702,8 @@ const I18N = {
     'where': 'in {0}',
     'q': '„{0}“',
     'foot': 'Synchronauts {0} · Raum {1} · Team-Repos sind die von {2} · diese Ansicht läuft nur auf deinem Rechner',
+    'foot.solo': 'Synchronauts {0} · ohne Raum, nichts verlässt diesen Rechner',
+    'board.solo': 'Ohne Raum sehen deine Sessions und Worktrees auf diesem Rechner einander. Um mit anderen zu arbeiten, leg ein privates GitHub-Repo als Raum an und tritt ihm bei: {0}',
   },
 };
 const LANGS = ['en', 'de'];
@@ -924,7 +932,7 @@ function render() {
   mailRender();
   historyRender();
   count();
-  $('#foot').textContent = t('foot', data.version, data.room, list(data.orgs).join(', '));
+  $('#foot').textContent = data.room ? t('foot', data.version, data.room, list(data.orgs).join(', ')) : t('foot.solo', data.version);
   setTitle();
 }
 
@@ -932,8 +940,8 @@ const stat = (n, label, kind = '') => h('span', { class: `stat ${kind}` }, h('b'
 
 function headRender() {
   const d = data;
-  $('#room').textContent = d.room;
-  $('#room').title = t('room.tip');
+  $('#room').textContent = d.room || t('room.solo');
+  $('#room').title = d.room ? t('room.tip') : t('room.solo.tip');
   const active = d.sessions.filter((s) => hasRepos(s) && s.state !== 'quiet').length;
   const approvals = d.sessions.filter((s) => s.state === 'approval').length;
   const serious = d.overlaps.filter((o) => o.kind !== 'repo' && !o.mission).length;
@@ -980,7 +988,9 @@ function boardRender() {
         ? h('div', { class: 'cards' }, team.map(card), local.map(localCard))
         : h('div', { class: 'empty-state small' }, me ? t('board.emptyMine') : t('board.emptyOther', p.name))));
   }
-  if (d.people.length === 1) {
+  if (!d.room) {
+    kids.push(h('div', { class: 'empty-state' }, tx('board.solo', h('code', {}, `${CMD} setup <owner/repo>`))));
+  } else if (d.people.length === 1) {
     kids.push(h('div', { class: 'empty-state' },
       tx('board.alone', h('code', {}, d.room), h('code', {}, `${CMD} setup ${d.room}`))));
   }

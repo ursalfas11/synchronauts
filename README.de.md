@@ -15,11 +15,11 @@ Zwei Leute mit je drei Claude-Code-Sessions bauen schnell dasselbe Feature von z
 - **Sparsam mit Tokens:** Text für Claude nur, wenn etwas neu ist und die Session betrifft, außerhalb der Team-Repos gar keiner.
 - **Kein Server, kein Konto:** Der GitHub-Zugang ist die Zugangskontrolle. Nur die Python-Standardbibliothek.
 
-Stand: früh (0.3). Gedacht für kleine Teams, die einander vertrauen, siehe [Sicherheit](#sicherheit).
+Stand: früh (0.4). Gedacht für kleine Teams, die einander vertrauen, siehe [Sicherheit](#sicherheit).
 
 ## Schnellstart
 
-Voraussetzungen: Claude Code, Python ab 3.9, `git` und die GitHub-CLI `gh`, angemeldet (`gh auth status`) und als Git-Zugang eingerichtet (`gh auth setup-git`). macOS, Linux oder Windows; unter Windows mit [Git für Windows](https://gitforwindows.org), dessen Git Bash die Hooks ausführt.
+Voraussetzungen: Claude Code, Python ab 3.9 und `git`; fürs Team auch die GitHub-CLI `gh`, angemeldet (`gh auth status`) und als Git-Zugang eingerichtet (`gh auth setup-git`). macOS, Linux oder Windows; unter Windows mit [Git für Windows](https://gitforwindows.org), dessen Git Bash die Hooks ausführt.
 
 **1. Plugin installieren** (alle):
 
@@ -30,7 +30,9 @@ claude plugin install synchronauts@synchronauts
 
 Danach Claude Code neu starten.
 
-**2. Raum anlegen** (eine Person): Der Raum ist ein leeres privates Repo, das das Team teilt. Zum Beispiel legt Alice ihn an und lädt Bob ein:
+**Allein ist das schon alles.** Ohne Raum sehen deine Sessions und Worktrees auf diesem Rechner einander: wer wo arbeitet, Überschneidungen zwischen ihnen, das Board. Nichts verlässt den Rechner, und jedes Git-Repo zählt.
+
+**2. Raum anlegen** (fürs Team) (eine Person): Der Raum ist ein leeres privates Repo, das das Team teilt. Zum Beispiel legt Alice ihn an und lädt Bob ein:
 
 ```
 gh repo create alice/agents-room --private

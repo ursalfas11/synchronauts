@@ -37,7 +37,7 @@ if WINDOWS:
 else:
     import fcntl
 
-VERSION = '0.3.0'
+VERSION = '0.4.0'
 SCRIPT = Path(__file__).resolve()
 HOME = Path(os.environ.get('SYN_HOME') or Path.home() / '.synchronauts')
 GIT = HOME / 'git'                  # bare repo with the syn/* branches
@@ -232,13 +232,25 @@ def config():
 
 
 def orgs(k):
-    """Owners whose repos count as team repos; by default the owner of the room."""
+    """Owners whose repos count as team repos; by default the owner of the room. None without a room: every repo."""
+    if k.get('solo'):
+        return None
     s = k.get('orgs') or (github_path(k.get('remote')) or ('',))[0]
     return [o.strip().lower() for o in str(s).split(',') if o.strip()]
 
 
 def is_setup(k):
     return bool(k.get('me') and k.get('machine') and k.get('remote')) and (GIT / 'HEAD').exists()
+
+
+def solo(k):
+    """Without a room Synchronauts works on this machine alone: the own sessions and worktrees see each other, nothing
+    leaves the machine, every Git repo counts. Who and where come from the system, without GitHub."""
+    import getpass  # only here, so the hooks start fast
+    me = k.get('me') or re.sub(r'[^A-Za-z0-9_.-]', '', getpass.getuser()) or 'me'
+    return dict(k, solo=True, me=me, name=k.get('name') or re.split(r'[^A-Za-z]', me)[0].capitalize() or me,
+                machine=k.get('machine') or re.sub(r'[^A-Za-z0-9-]', '', socket.gethostname().split('.')[0])[:30]
+                or 'here')
 
 
 def own_branch(k):
@@ -474,7 +486,9 @@ def watcher():
 
 def ensure_watcher():
     """Starts the watcher if none is running. If an older version runs, asks it to stop; the next hook then starts the
-    new one."""
+    new one. Without a room there is nothing to sync."""
+    if not (GIT / 'HEAD').exists():
+        return
     try:
         with Lock('watcher', wait=False):
             pass
@@ -510,21 +524,28 @@ def error_text():
 # --- Situation ----------------------------------------------------------------
 
 def repo_of(path, owners):
-    """(name, root, branch) of the Git repo that contains path; only for team repos, otherwise None."""
+    """(name, root, branch) of the Git repo that contains path; only for team repos, otherwise None. owners None
+    (without a room): every repo, one without a GitHub remote as local/<folder>, the same for all its worktrees."""
     d = Path(path)
     while not d.is_dir():
         if d == d.parent:
             return None
         d = d.parent
     try:
-        root, branch = git('rev-parse', '--show-toplevel', '--abbrev-ref', 'HEAD', cwd=d, timeout=3).splitlines()
-        url = git('config', '--get', 'remote.origin.url', cwd=d, timeout=3)
+        root, branch, common = git('rev-parse', '--show-toplevel', '--abbrev-ref', 'HEAD', '--git-common-dir', cwd=d,
+                                   timeout=3).splitlines()
     except (RuntimeError, ValueError, OSError, subprocess.TimeoutExpired):
         return None
-    gp = github_path(url)
-    if not gp or gp[0].lower() not in owners:
-        return None
-    return f'{gp[0]}/{gp[1]}', root, branch
+    try:
+        gp = github_path(git('config', '--get', 'remote.origin.url', cwd=d, timeout=3))
+    except (RuntimeError, OSError, subprocess.TimeoutExpired):
+        gp = None
+    if gp and (owners is None or gp[0].lower() in owners):
+        return f'{gp[0]}/{gp[1]}', root, branch
+    if owners is None:
+        main = (d / common).resolve()
+        return f"local/{(main.parent if main.name == '.git' else main).name}", root, branch
+    return None
 
 
 def in_repo(path, root):
@@ -717,9 +738,10 @@ def for_human(n, nm):
     return f"📨 {nm.get(n['from'], n['from'])}{to}: {clean(n.get('text', ''))[:120]}"
 
 
-def usage():
-    return (f'Commands: `{CMD}` with `task "…"` (again when the topic changes), `send <name|all>[@repo] "…"` or '
-            f'`status`; more in the synchronauts skill.')
+def usage(k):
+    talk = '' if k.get('solo') else ', `send <name|all>[@repo] "…"`'
+    return (f'Commands: `{CMD}` with `task "…"` (again when the topic changes){talk} or `status`; more in the '
+            f'synchronauts skill.')
 
 
 # --- Missions -----------------------------------------------------------------
@@ -1088,7 +1110,7 @@ def hook(event):
     except ValueError:
         e = {}
     k = config()
-    if not is_setup(k):
+    if not is_setup(k) and k.get('remote'):  # a room is named, but this machine has not joined it yet
         if event != 'SessionStart':
             return 0
         link(always=True)  # so the skill's short path works for `setup`
@@ -1097,16 +1119,18 @@ def hook(event):
         except Exception as error:
             if age(HOME / 'setup-hint') > 86400:  # once a day, not in every session
                 touch('setup-hint')
-                emit(event, f'Synchronauts is not set up ({error}). Setup: `{CMD} setup <owner/repo of the room>`, '
-                            f'a private GitHub repo the team shares.',
-                     f'Synchronauts is not set up yet ({error}). Ask Claude to set it up.')
+                emit(event, f'Synchronauts cannot join the room ({error}). Setup: `{CMD} setup <owner/repo of the '
+                            f'room>`, a private GitHub repo the team shares.',
+                     f'Synchronauts cannot join the room ({error}). Ask Claude to set it up.')
             return 0
+    if not is_setup(k):
+        k = solo(k)
     sid = (e.get('session_id') or 'none')[:8]
     if event == 'PreToolUse':
         return (approval if e.get('tool_name') == 'Bash' else ask_first)(k, sid, e)
     if event == 'Stop':
         update_status(sid, lambda s: set_state(s, 'waiting'))
-        return wait_for_mail(k, sid)
+        return 0 if k.get('solo') else wait_for_mail(k, sid)  # alone, no mail can come
     if event in ('Notification', 'StopFailure'):
         return report_state(sid, event, e)
     link(always=event == 'SessionStart')
@@ -1202,8 +1226,9 @@ def hook(event):
 
     lines = [joined] if joined else []
     if intro:
-        lines.append(f"Synchronauts: what the team's sessions are working on. Same topic (also in another repo) or "
-                     f"the same files: tell {k.get('name')} before you build on.")
+        whose = 'your other sessions on this machine' if k.get('solo') else "the team's sessions"
+        lines.append(f"Synchronauts: what {whose} are working on. Same topic (also in another repo) or the same files: "
+                     f"tell {k.get('name')} before you build on.")
     elif notes or mail:
         lines.append('Synchronauts:')
     lines += [x for _, x in notes]
@@ -1217,7 +1242,7 @@ def hook(event):
         lines.append(f'Synchronauts: no task set yet. One sentence on what this session works on, again when the '
                      f'topic changes: `{CMD} task "…"`')
     if intro:
-        lines.append(usage())
+        lines.append(usage(k))
 
     # the human sees warnings, unless the permission prompt before the edit already told them
     for_user = [x for key, x in notes if key.startswith(('file|', 'branch|', 'error|')) and not allowed(key, asked)]
@@ -1327,9 +1352,10 @@ def cmd_status(k):
     await_fetch(8)
     if error_text():
         print(f'(Sync is failing: {error_text()}; showing the last known state)')
-    print('Active in the team:')
-    print('\n'.join(line(who, s, full=True) for who, _, s, _ in others(k, own=False))
-          or '- nobody else in a team repo')
+    if not k.get('solo'):
+        print('Active in the team:')
+        print('\n'.join(line(who, s, full=True) for who, _, s, _ in others(k, own=False))
+              or '- nobody else in a team repo')
     own = [s for s in load(HOME / 'status.json', {}).get('sessions', {}).values()
            if s.get('repos') and parse(s.get('last')) > now() - ACTIVE]
     print('\nMy sessions on this machine:')
@@ -1479,7 +1505,7 @@ def ui_data(k):
     pushed = set(load(HOME / 'pushed.json', []))
     mail.update({n['id']: {**n, 'from': me, 'uploaded': n['id'] in pushed} for n in load(HOME / 'mail.json', [])})
     return {'version': VERSION, 'me': me, 'machine': k['machine'], 'orgs': orgs(k),
-            'room': '/'.join(github_path(k['remote']) or ()) or k['remote'],
+            'room': '' if k.get('solo') else '/'.join(github_path(k['remote']) or ()) or k['remote'],
             'people': sorted(people.values(), key=lambda p: (p['login'] != me, str(p['name']).lower())),
             'sessions': sessions,
             'overlaps': list(pairs([s for s in sessions if s['repos']], [set(m['joined']) for m in ms if m['live']])),
@@ -1498,8 +1524,7 @@ def ui_server():
     import threading
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
     k = config()
-    if not is_setup(k):
-        return
+    k = k if is_setup(k) else solo(k)
     try:
         lock = Lock('ui', wait=False).__enter__()
     except BlockingIOError:
@@ -1686,7 +1711,9 @@ def main(argv):
               f"Team repos are those owned by {', '.join(orgs(k))}.")
         return 0
     if not is_setup(k):
-        sys.exit(f'Not set up yet: {CMD} setup <owner/repo of the room>')
+        if cmd in ('send', 'mission'):
+            sys.exit(f'Talking to teammates needs a room: {CMD} setup <owner/repo of the room>')
+        k = solo(k)
     if cmd == 'send' and len(rest) >= 2:
         cmd_send(k, rest[0], ' '.join(rest[1:]))
     elif cmd == 'task' and rest:
