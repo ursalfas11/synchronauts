@@ -2,403 +2,629 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
 <meta name="syn-token" content="__TOKEN__">
 <title>Synchronauts</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='15' fill='%2310131a'/%3E%3Ccircle cx='16' cy='16' r='9' fill='none' stroke='%238ea2ff' stroke-width='2.5'/%3E%3Ccircle cx='16' cy='16' r='3.5' fill='%2334d399'/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='15' fill='%23000'/%3E%3Ccircle cx='16' cy='16' r='9' fill='none' stroke='%23fff' stroke-width='2.5'/%3E%3Ccircle cx='16' cy='16' r='3.5' fill='%234ade80'/%3E%3C/svg%3E">
 <script nonce="__NONCE__">
-  try { const saved = localStorage.getItem('syn-theme'); if (saved === 'light' || saved === 'dark') document.documentElement.dataset.theme = saved; } catch (_) {}
+  // before the first paint, so the page never flashes in the wrong scheme
+  try {
+    const s = JSON.parse(localStorage.getItem('syn-settings') || '{}') || {};
+    const theme = s.theme || localStorage.getItem('syn-theme'), root = document.documentElement;
+    if (theme === 'light' || theme === 'dark') root.dataset.theme = theme;
+    if (typeof s.accent === 'string') root.dataset.accent = s.accent;
+    if (s.density === 'compact') root.dataset.density = 'compact';
+    if (['rounded', 'serif', 'mono'].includes(s.font)) root.dataset.font = s.font;
+    if (typeof s.zoom === 'number') root.style.setProperty('--zoom', String(Math.min(1.3, Math.max(0.8, s.zoom / 100))));
+  } catch (_) {}
 </script>
 <style nonce="__NONCE__">
 :root {
   color-scheme: light dark;
-  --bg: light-dark(#f4f5f9, #090b10);
-  --glow: light-dark(rgb(61 90 254 / .08), rgb(142 162 255 / .10));
-  --surface: light-dark(#ffffff, #10131a);
-  --surface-2: light-dark(#f1f3f8, #161a23);
-  --line: light-dark(#e3e6ee, #222735);
-  --line-strong: light-dark(#cdd2de, #323a4c);
-  --text: light-dark(#121722, #e8ebf1);
-  --text-2: light-dark(#454d5e, #b3bbca);
-  --muted: light-dark(#697184, #7f899c);
-  --accent: light-dark(#3d5afe, #8ea2ff);
-  --on-accent: light-dark(#ffffff, #0b0e16);
-  --working: light-dark(#059669, #34d399);
+  --bg: light-dark(#ffffff, #000000);
+  --surface: light-dark(#ffffff, #0a0a0a);
+  --surface-2: light-dark(#f5f5f5, #141414);
+  --hover: light-dark(#f0f0f0, #1a1a1a);
+  --line: light-dark(#e7e7e7, #1f1f1f);
+  --line-strong: light-dark(#d0d0d0, #343434);
+  --text: light-dark(#0a0a0a, #f5f5f5);
+  --text-2: light-dark(#3d3d3d, #c4c4c4);
+  --muted: light-dark(#6b6b6b, #8e8e8e);
+  --accent: light-dark(#0a0a0a, #f5f5f5);
+  --on-accent: light-dark(#ffffff, #000000);
+  --working: light-dark(#15803d, #4ade80);
   --approval: light-dark(#c2410c, #fb923c);
-  --waiting: light-dark(#2563eb, #60a5fa);
-  --quiet: light-dark(#8a92a3, #646c7c);
+  --waiting: light-dark(#1d4ed8, #60a5fa);
+  --quiet: light-dark(#a3a3a3, #5c5c5c);
   --error: light-dark(#dc2626, #f87171);
-  --red: light-dark(#d92d20, #f97066);
-  --yellow: light-dark(#b54708, #fdb022);
-  --shadow-color: light-dark(rgb(16 24 40 / .07), rgb(0 0 0 / .55));
-  --shadow: 0 1px 2px var(--shadow-color), 0 1px 3px var(--shadow-color);
-  --shadow-high: 0 10px 30px var(--shadow-color), 0 2px 6px var(--shadow-color);
-  --radius: 14px;
-  --sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Inter, Roboto, "Helvetica Neue", sans-serif;
+  --amber: light-dark(#b45309, #fbbf24);
+  --radius: 10px;
+  --radius-s: 6px;
+  --pad: 16px;
+  --gap: 12px;
+  --side: 248px;
+  --pop: 0 10px 30px light-dark(rgb(0 0 0 / .10), rgb(0 0 0 / .7)), 0 0 0 1px var(--line-strong);
+  --sans-base: ui-sans-serif, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Inter, Roboto, "Helvetica Neue", sans-serif;
   --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  --sans: var(--sans-base);
+  --zoom: 1;
+  --tint: #6d28d9;
+  --tint-o: 0%;
+  --vh: calc(100dvh / var(--zoom));  /* the zoom of the whole page scales viewport units too */
 }
+:root[data-font="rounded"] { --sans: ui-rounded, "SF Pro Rounded", "Nunito", "Varela Round", var(--sans-base); }
+:root[data-font="serif"] { --sans: ui-serif, "New York", Charter, "Iowan Old Style", Georgia, serif; }
+:root[data-font="mono"] { --sans: var(--mono); }
+:root[data-contrast="high"] { --muted: light-dark(#404040, #c2c2c2); --text-2: light-dark(#1a1a1a, #e5e5e5); --line: light-dark(#bdbdbd, #4a4a4a); --line-strong: light-dark(#8a8a8a, #707070); }
+:root { zoom: var(--zoom); }
 :root[data-theme="light"] { color-scheme: light; }
 :root[data-theme="dark"] { color-scheme: dark; }
+:root[data-accent="blue"] { --accent: light-dark(#1d4ed8, #60a5fa); }
+:root[data-accent="green"] { --accent: light-dark(#15803d, #4ade80); }
+:root[data-accent="violet"] { --accent: light-dark(#6d28d9, #a78bfa); }
+:root[data-accent="orange"] { --accent: light-dark(#c2410c, #fb923c); }
+:root[data-accent="blue"], :root[data-accent="violet"], :root[data-accent="green"], :root[data-accent="orange"] { --on-accent: light-dark(#ffffff, #000000); }
+:root[data-density="compact"] { --pad: 11px; --gap: 8px; }
 
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 html, body { margin: 0; }
-body {
-  min-height: 100vh;
-  background: radial-gradient(1200px 500px at 15% -10%, var(--glow), transparent 70%), var(--bg);
-  background-attachment: fixed;
-  color: var(--text);
-  font: 14px/1.5 var(--sans);
-  -webkit-font-smoothing: antialiased;
-}
-button, select, textarea { font: inherit; color: inherit; }
-:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+body { min-height: var(--vh); background: var(--bg); color: var(--text); font: 14px/1.5 var(--sans); -webkit-font-smoothing: antialiased; }
+button, select, textarea, input { font: inherit; color: inherit; }
+button { cursor: pointer; }
+a { color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
 code, .code { font-family: var(--mono); font-size: .92em; overflow-wrap: anywhere; }
+svg { flex: none; }
 
-/* Header */
-.top {
-  position: sticky; top: 0; z-index: 10;
-  display: flex; align-items: center; gap: 12px 20px; flex-wrap: wrap;
-  padding: 12px 24px;
-  background: color-mix(in srgb, var(--bg) 80%, transparent);
-  backdrop-filter: blur(14px) saturate(1.4); -webkit-backdrop-filter: blur(14px) saturate(1.4);
-  border-bottom: 1px solid var(--line);
+/* App shell */
+.app { display: grid; grid-template-columns: var(--side) minmax(0, 1fr); min-height: var(--vh); }
+.sidebar {
+  position: sticky; top: 0; height: var(--vh); display: flex; flex-direction: column; gap: 6px;
+  padding: 18px 14px 14px; border-right: 1px solid var(--line); background: var(--bg);
 }
-.brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.logo { width: 28px; height: 28px; flex: none; }
-.logo .arc { transform-origin: 16px 16px; animation: spin 6s linear infinite; }
-@keyframes spin { to { transform: rotate(360deg); } }
-.wordmark { font-weight: 700; font-size: 16px; letter-spacing: -.02em; white-space: nowrap; }
+.brand { display: flex; align-items: center; gap: 10px; padding: 2px 8px 12px; }
+.logo { width: 26px; height: 26px; color: var(--text); }
+.logo .core { fill: var(--working); }
+.wordmark { font-weight: 700; font-size: 15.5px; letter-spacing: -.02em; }
 .room {
-  font: 12px var(--mono); color: var(--muted);
-  padding: 2px 8px; border: 1px solid var(--line); border-radius: 999px;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 260px;
+  margin: 0 8px 14px; font: 12px var(--mono); color: var(--muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.stats { display: flex; gap: 6px; flex-wrap: wrap; margin-left: auto; }
-.stat {
-  display: inline-flex; align-items: baseline; gap: 6px;
-  padding: 4px 11px; border-radius: 999px;
-  background: var(--surface); border: 1px solid var(--line);
-  font-size: 12.5px; color: var(--text-2); white-space: nowrap;
+.nav { display: flex; flex-direction: column; gap: 2px; }
+.nav a {
+  display: flex; align-items: center; gap: 11px; padding: 8px 10px; border-radius: 8px;
+  color: var(--text-2); text-decoration: none; font-weight: 500; transition: background-color .15s, color .15s;
 }
-.stat b { color: var(--text); font-weight: 700; font-variant-numeric: tabular-nums; }
-.stat.warn { color: var(--approval); border-color: color-mix(in srgb, var(--approval) 45%, var(--line)); background: color-mix(in srgb, var(--approval) 8%, var(--surface)); }
-.stat.warn b, .stat.red b { color: inherit; }
-.stat.red { color: var(--red); border-color: color-mix(in srgb, var(--red) 45%, var(--line)); background: color-mix(in srgb, var(--red) 8%, var(--surface)); }
-.tools { display: flex; align-items: center; gap: 6px; }
-.live { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--text-2); padding: 0 6px; white-space: nowrap; }
-.live .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--working); box-shadow: 0 0 0 3px color-mix(in srgb, var(--working) 22%, transparent); }
-.live.degraded .dot { background: var(--yellow); box-shadow: 0 0 0 3px color-mix(in srgb, var(--yellow) 22%, transparent); }
-.live.off .dot { background: var(--red); box-shadow: 0 0 0 3px color-mix(in srgb, var(--red) 22%, transparent); }
+.nav a svg { width: 18px; height: 18px; color: var(--muted); transition: color .15s; }
+.nav a:hover { background: var(--hover); color: var(--text); }
+.nav a[aria-current="page"] { background: var(--surface-2); color: var(--text); font-weight: 650; }
+.nav a[aria-current="page"] svg { color: var(--accent); }
+.count {
+  margin-left: auto; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px;
+  display: inline-grid; place-items: center; font-size: 11.5px; font-weight: 700; font-variant-numeric: tabular-nums;
+  background: var(--accent); color: var(--on-accent);
+}
+.count:empty { display: none; }
+.count.warn { background: var(--approval); color: #fff; }
+.side-foot { margin-top: auto; display: flex; flex-direction: column; gap: 4px; padding-top: 12px; border-top: 1px solid var(--line); }
+.side-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 10px; font-size: 13px; color: var(--text-2); }
+.side-row svg { width: 16px; height: 16px; color: var(--muted); }
+.side-row .lbl { display: inline-flex; align-items: center; gap: 10px; }
+.live { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); white-space: nowrap; min-width: 0; }
+.live .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--working); flex: none; }
+.live.degraded .dot { background: var(--amber); }
+.live.off .dot { background: var(--error); }
+.live span:last-child { overflow: hidden; text-overflow: ellipsis; }
+
+.topbar { display: none; }
+.tabbar { display: none; }
+
+.main { min-width: 0; padding: 28px 40px 40px; }
+.view { max-width: 1180px; margin: 0 auto; }
+.page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px 20px; flex-wrap: wrap; margin-bottom: 22px; }
+.page-head h1 { margin: 0; font-size: 24px; line-height: 1.2; font-weight: 700; letter-spacing: -.025em; }
+.page-head p { margin: 4px 0 0; color: var(--muted); font-size: 13.5px; }
+.block { margin-bottom: 28px; }
+.block-title {
+  display: flex; align-items: center; gap: 8px; margin: 0 0 10px;
+  font-size: 12px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; color: var(--muted);
+}
+
+/* Controls */
+.seg { display: inline-flex; gap: 2px; padding: 3px; border-radius: 9px; background: var(--surface-2); border: 1px solid var(--line); }
+.seg button {
+  border: 0; background: none; color: var(--muted); font-size: 12.5px; font-weight: 550; padding: 4px 11px; border-radius: 6px;
+  transition: background-color .15s, color .15s; white-space: nowrap;
+}
+.seg button:hover { color: var(--text); }
+.seg button[aria-pressed="true"], .seg button[aria-checked="true"] { background: var(--surface); color: var(--text); box-shadow: 0 0 0 1px var(--line-strong); }
+.switch {
+  position: relative; width: 38px; height: 22px; border-radius: 999px; border: 0; padding: 0; flex: none;
+  background: var(--line-strong); transition: background-color .2s;
+}
+.switch .knob {
+  position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%;
+  background: #fff; box-shadow: 0 1px 2px rgb(0 0 0 / .3); transition: transform .2s;
+}
+.switch[aria-checked="true"] { background: var(--accent); }
+.switch[aria-checked="true"] .knob { transform: translateX(16px); background: var(--on-accent); }
+select, textarea, input[type="text"] {
+  background: var(--surface); border: 1px solid var(--line-strong); border-radius: 8px; color: var(--text);
+  padding: 7px 10px; font-size: 13.5px; transition: border-color .15s;
+}
+select { padding-right: 28px; }
+select:hover, textarea:hover { border-color: var(--muted); }
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 34px; padding: 0 14px;
+  border-radius: 8px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--text);
+  font-size: 13px; font-weight: 600; transition: background-color .15s, border-color .15s, opacity .15s; white-space: nowrap;
+}
+.btn:hover { background: var(--hover); }
+.btn svg { width: 15px; height: 15px; }
+.btn.primary { background: var(--accent); color: var(--on-accent); border-color: transparent; }
+.btn.primary:hover:not(:disabled) { opacity: .88; background: var(--accent); }
+.btn.danger:hover { color: var(--error); border-color: color-mix(in srgb, var(--error) 50%, var(--line)); background: color-mix(in srgb, var(--error) 6%, var(--surface)); }
+.btn.small { height: 28px; padding: 0 10px; font-size: 12.5px; }
+.link { background: none; border: 0; padding: 4px 8px; border-radius: 6px; color: var(--accent); font-size: 12.5px; font-weight: 600; transition: background-color .15s; }
+.link:hover { background: var(--hover); }
 .icon-btn {
-  display: inline-grid; place-items: center; width: 32px; height: 32px;
-  border-radius: 10px; border: 1px solid var(--line); background: var(--surface); color: var(--text-2); cursor: pointer;
+  display: inline-grid; place-items: center; width: 34px; height: 34px; border-radius: 8px;
+  border: 1px solid var(--line); background: var(--surface); color: var(--text-2); transition: background-color .15s;
 }
-.icon-btn:hover { color: var(--text); border-color: var(--line-strong); }
-.icon-btn svg { width: 16px; height: 16px; }
-.icon-btn[aria-pressed="true"] { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); background: color-mix(in srgb, var(--accent) 10%, var(--surface)); }
+.icon-btn:hover { background: var(--hover); color: var(--text); }
+.icon-btn svg { width: 17px; height: 17px; }
+:disabled { opacity: .5; cursor: not-allowed; }
 
-/* Layout */
-.layout {
-  display: grid; grid-template-columns: minmax(0, 1fr) 400px; gap: 24px; align-items: start;
-  max-width: 1640px; margin: 0 auto; padding: 24px;
-}
-.side { display: flex; flex-direction: column; gap: 16px; position: sticky; top: 80px; height: calc(100vh - 100px); min-height: 540px; }
-@media (max-width: 1100px) {
-  .layout { grid-template-columns: minmax(0, 1fr); padding: 16px; }
-  .side { position: static; height: auto; min-height: 0; }
-  .mail-list { max-height: 420px; }
-  .history { max-height: 520px; }
-}
-.heading {
-  display: flex; align-items: baseline; gap: 8px; margin: 0 0 12px;
-  font-size: 11.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
-}
-.heading-note { font-weight: 500; letter-spacing: 0; text-transform: none; font-size: 12px; }
-
-/* Banner */
+/* Banners */
 .banner {
-  display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
-  padding: 10px 14px; border-radius: 12px; margin: 0 0 16px; font-size: 13px; border: 1px solid;
-  overflow-wrap: anywhere;
+  display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 10px 14px; border-radius: var(--radius);
+  margin: 0 auto 18px; max-width: 1180px; font-size: 13px; border: 1px solid; overflow-wrap: anywhere;
 }
-.banner.red { color: var(--red); background: color-mix(in srgb, var(--red) 8%, var(--surface)); border-color: color-mix(in srgb, var(--red) 35%, var(--line)); }
-.banner.yellow { color: var(--yellow); background: color-mix(in srgb, var(--yellow) 9%, var(--surface)); border-color: color-mix(in srgb, var(--yellow) 35%, var(--line)); }
-.banner.wide { margin: 16px 24px 0; }
+.banner.red { color: var(--error); border-color: color-mix(in srgb, var(--error) 40%, var(--line)); background: color-mix(in srgb, var(--error) 6%, var(--surface)); }
+.banner.yellow { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 40%, var(--line)); background: color-mix(in srgb, var(--amber) 7%, var(--surface)); }
 .banner button { margin-left: auto; }
 
+/* Overview: figures */
+.kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--gap); margin-bottom: 28px; }
+.kpi {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 14px 16px; text-align: left;
+  border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); color: var(--text);
+}
+button.kpi { transition: border-color .15s, background-color .15s; }
+button.kpi:hover { border-color: var(--line-strong); background: var(--hover); }
+.kpi-label { font-size: 12.5px; color: var(--muted); display: flex; align-items: center; gap: 7px; }
+.kpi-value { font-size: 28px; line-height: 1.1; font-weight: 700; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+.kpi.warn .kpi-value { color: var(--approval); }
+.kpi.red .kpi-value { color: var(--error); }
+.kpi .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.kpi.warn .kpi-label { color: var(--approval); }
+.kpi.red .kpi-label { color: var(--error); }
+
+/* Overview: attention */
+.attn { border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+.attn-row { display: flex; align-items: center; gap: 12px; padding: 10px 14px; font-size: 13.5px; border-top: 1px solid var(--line); background: var(--surface); }
+.attn-row:first-child { border-top: 0; }
+.attn-row > svg { width: 17px; height: 17px; }
+.attn-row.k-warn > svg { color: var(--approval); }
+.attn-row.k-red > svg { color: var(--error); }
+.attn-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.attn-text b { font-weight: 650; }
+.attn-text code { font-size: 12.5px; }
+
 /* Missions */
-.mission {
-  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line)); border-radius: 14px; padding: 12px 14px;
-  margin: 0 0 16px; background: color-mix(in srgb, var(--accent) 6%, var(--surface)); overflow-wrap: anywhere;
-}
-.mission.over { border-color: var(--line); background: var(--surface); }
-.mission-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; font-size: 13px; }
-.mission-head b { color: var(--accent); }
-.mission.over .mission-head b { color: var(--muted); }
-.mission-head .person-info { flex: 1; }
-.mission p { margin: 6px 0 0; font-size: 13px; }
-.mission .result { color: var(--muted); }
+.mission { border: 1px solid var(--line-strong); border-radius: var(--radius); padding: 14px 16px 0; margin-bottom: var(--gap); overflow: hidden; overflow-wrap: anywhere; background: var(--surface); }
+.mission.over { border-color: var(--line); padding-bottom: 12px; }
+.mission-head { display: flex; align-items: center; gap: 10px 14px; flex-wrap: wrap; }
+.mission-tag { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--accent); }
+.mission-tag svg { width: 16px; height: 16px; }
+.mission.over .mission-tag { color: var(--muted); }
+.crew { display: flex; gap: 6px; flex-wrap: wrap; }
+.crew-member { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-2); padding: 2px 9px 2px 3px; border-radius: 999px; border: 1px solid var(--line); }
+.crew-member.invited { border-style: dashed; color: var(--muted); }
+.crew-member.invited .mini-avatar { filter: grayscale(1); opacity: .6; }
+.mission-time { margin-left: auto; font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.mission-time b { color: var(--text); font-weight: 650; }
+.mission .plan { margin: 10px 0 12px; font-size: 14px; line-height: 1.55; }
+.mission .result { margin: 0; font-size: 13px; color: var(--text-2); }
+.mission-bar { height: 3px; margin: 0 -16px; background: var(--surface-2); }
+.mission-bar span { display: block; height: 100%; background: var(--accent); }
 
-/* People and cards */
-.person { margin-bottom: 28px; }
-.person-head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+/* Overview: people and sessions */
+.person { margin-bottom: 24px; }
+.person-head { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
 .avatar {
-  width: 36px; height: 36px; flex: none; border-radius: 50%;
-  display: grid; place-items: center; font-weight: 700; font-size: 13px; color: #fff; letter-spacing: .02em;
-  background: linear-gradient(135deg, hsl(var(--hue) 72% 60%), hsl(calc(var(--hue) + 45) 62% 44%));
-  box-shadow: 0 0 0 2px var(--bg), 0 0 0 3.5px hsl(var(--hue) 60% 55% / .45);
+  width: 34px; height: 34px; flex: none; border-radius: 50%; display: grid; place-items: center;
+  font-weight: 700; font-size: 12.5px; color: #fff; background: hsl(var(--hue) 42% 46%);
 }
-.person-name { font-weight: 650; font-size: 15px; display: flex; align-items: center; gap: 6px; }
-.you { font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--line)); border-radius: 6px; padding: 0 5px; }
+.person-name { font-weight: 650; font-size: 15px; display: flex; align-items: center; gap: 7px; }
+.you { font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); border: 1px solid var(--line-strong); border-radius: 5px; padding: 0 5px; }
 .person-info { color: var(--muted); font-size: 12.5px; }
-.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr)); gap: 12px; }
-
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr)); gap: var(--gap); align-items: start; }
 .session {
   --state: var(--quiet);
-  position: relative; overflow: hidden;
-  display: flex; flex-direction: column; gap: 10px;
-  padding: 15px 16px 12px;
+  display: flex; flex-direction: column; gap: 10px; padding: var(--pad);
   background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
-  box-shadow: var(--shadow);
-  transition: box-shadow .2s, transform .2s, border-color .2s;
+  transition: border-color .15s;
 }
-.session::before { content: ""; position: absolute; inset: 0 0 auto; height: 3px; background: var(--state); }
-.session:hover { box-shadow: var(--shadow-high); transform: translateY(-1px); }
+.session:hover { border-color: var(--line-strong); }
 .s-working { --state: var(--working); }
 .s-approval { --state: var(--approval); }
 .s-waiting { --state: var(--waiting); }
 .s-error { --state: var(--error); }
-.session.s-approval, .session.s-error {
-  border-color: color-mix(in srgb, var(--state) 55%, var(--line));
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--state) 14%, transparent), var(--shadow);
-}
-.session.s-quiet { opacity: .7; }
+.session.s-approval, .session.s-error { border-color: color-mix(in srgb, var(--state) 65%, var(--line)); }
+.session.s-quiet { opacity: .62; }
 .session.s-quiet:hover { opacity: 1; }
-.session.local { background: var(--surface-2); border-style: dashed; box-shadow: none; }
-.card-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.session.local { border-style: dashed; background: transparent; }
+.session.flash { animation: flash 1.8s ease-out; }
+@keyframes flash { 0%, 35% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 40%, transparent); } }
+.card-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; min-height: 22px; }
 .state { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 650; color: var(--state); white-space: nowrap; }
-.state .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--state); flex: none; }
+.state .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--state); }
 .s-working .state .dot { animation: pulse 1.8s ease-out infinite; }
-.s-approval .state .dot { animation: blink 1.2s ease-in-out infinite; }
-@keyframes pulse { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--state) 55%, transparent); } 100% { box-shadow: 0 0 0 9px transparent; } }
-@keyframes blink { 50% { opacity: .25; } }
+@keyframes pulse { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--state) 55%, transparent); } 100% { box-shadow: 0 0 0 7px transparent; } }
 .since { color: var(--muted); font-weight: 450; }
-.machine {
-  font-size: 11.5px; color: var(--muted); border: 1px solid var(--line); border-radius: 6px; padding: 0 6px;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 50%;
-}
-.repos { display: flex; flex-direction: column; gap: 4px; }
-.repo { display: flex; align-items: center; gap: 6px; font: 13px var(--mono); min-width: 0; }
-.repo svg { width: 14px; height: 14px; flex: none; color: var(--muted); }
-.repo .name { font-weight: 650; color: var(--text); }
-.repo .branch {
-  color: var(--accent); background: color-mix(in srgb, var(--accent) 11%, transparent);
-  border-radius: 6px; padding: 0 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
-}
-.task { margin: 0; font-size: 14.5px; line-height: 1.45; color: var(--text); overflow-wrap: anywhere; }
+.tag { font-size: 11px; font-weight: 650; border-radius: 5px; padding: 1px 7px; white-space: nowrap; color: var(--muted); border: 1px solid var(--line-strong); }
+.tag.codex { color: light-dark(#0f766e, #5eead4); border-color: color-mix(in srgb, currentColor 40%, var(--line)); }
+.repo { display: flex; align-items: center; gap: 7px; font: 13px var(--mono); min-width: 0; }
+.repo svg { width: 14px; height: 14px; color: var(--muted); }
+.repo .name { font-weight: 650; }
+.branch { color: var(--text-2); background: var(--surface-2); border-radius: 5px; padding: 0 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.task { margin: 0; font-size: 14px; line-height: 1.45; overflow-wrap: anywhere; }
 .task.empty { color: var(--muted); font-style: italic; font-size: 13px; }
 .cwd { font: 12.5px var(--mono); color: var(--text-2); overflow-wrap: anywhere; }
 .files { display: flex; flex-wrap: wrap; gap: 4px; }
 .file {
-  font: 11.5px var(--mono); color: var(--text-2);
-  background: var(--surface-2); border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px;
-  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  display: inline-flex; align-items: center; gap: 4px; max-width: 100%;
+  font: 11.5px var(--mono); color: var(--text-2); border: 1px solid var(--line); border-radius: 5px; padding: 1px 6px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.file.hot { color: var(--red); border-color: color-mix(in srgb, var(--red) 45%, var(--line)); background: color-mix(in srgb, var(--red) 8%, var(--surface)); }
-.file.claim { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+.file.hot { color: var(--error); border-color: color-mix(in srgb, var(--error) 50%, var(--line)); }
+.file.claim { color: var(--text); border-color: var(--line-strong); background: var(--surface-2); }
+.file.claim svg { width: 11px; height: 11px; }
 .file.more { color: var(--muted); }
-.overlap { display: flex; gap: 8px; align-items: flex-start; font-size: 12.5px; line-height: 1.4; padding: 7px 10px; border-radius: 10px; overflow-wrap: anywhere; }
-.overlap b { font-family: var(--mono); font-weight: 600; font-size: 12px; }
-.overlap .mark {
-  flex: none; width: 16px; height: 16px; border-radius: 50%; display: grid; place-items: center;
-  font-size: 11px; font-weight: 800; background: currentColor; margin-top: 1px;
-}
-.overlap .mark span { color: var(--surface); line-height: 1; }
-.o-file { color: var(--red); background: color-mix(in srgb, var(--red) 9%, transparent); }
-.o-branch { color: var(--yellow); background: color-mix(in srgb, var(--yellow) 11%, transparent); }
-.o-repo { color: var(--text-2); background: var(--surface-2); }
-.card-foot {
-  display: flex; justify-content: space-between; align-items: center; gap: 8px;
-  font-size: 12px; color: var(--muted); border-top: 1px dashed var(--line); padding-top: 9px; margin-top: auto;
-}
+.ovs { display: flex; flex-direction: column; gap: 6px; }
+.ov { display: flex; gap: 8px; align-items: flex-start; font-size: 12.5px; line-height: 1.4; color: var(--text-2); overflow-wrap: anywhere; }
+.ov svg { width: 15px; height: 15px; margin-top: 1px; }
+.ov b { font: 600 12px var(--mono); color: var(--text); }
+.ov-file svg, .ov-conflict svg { color: var(--error); }
+.ov-file, .ov-conflict { color: var(--text); }
+.ov-branch svg { color: var(--amber); }
+.ov-repo svg { color: var(--muted); }
+.card-foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); padding-top: 10px; border-top: 1px solid var(--line); }
+.foot-meta { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 0 6px; min-width: 0; }
+.foot-meta svg { width: 13px; height: 13px; }
 .wakeable { color: var(--waiting); }
-.link { background: none; border: 0; color: var(--accent); font-size: 12.5px; font-weight: 600; cursor: pointer; padding: 3px 8px; border-radius: 8px; }
-.link:hover { background: color-mix(in srgb, var(--accent) 11%, transparent); }
-.empty-state {
-  color: var(--muted); font-size: 13px; text-align: center;
-  padding: 22px 16px; border: 1px dashed var(--line-strong); border-radius: var(--radius);
-  overflow-wrap: anywhere;
-}
+.empty-state { color: var(--muted); font-size: 13px; text-align: center; padding: 22px 16px; border: 1px dashed var(--line-strong); border-radius: var(--radius); overflow-wrap: anywhere; }
 .empty-state.small { padding: 14px; font-size: 12.5px; }
 
-/* Side panels */
-.panel {
-  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
-  box-shadow: var(--shadow); padding: 16px; display: flex; flex-direction: column; min-height: 0;
+/* Messages */
+.view.fill { display: flex; flex-direction: column; height: calc(var(--vh) - 68px); }
+.toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.stream {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 10px;
+  padding: 16px 2px; border-top: 1px solid var(--line);
 }
-.panel.mail-panel { flex: 1 1 56%; }
-.panel.history-panel { flex: 1 1 44%; }
-@media (max-width: 1100px) { .panel.mail-panel, .panel.history-panel { flex: none; } }
-.panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
-.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 9px; padding: 2px; gap: 2px; }
-.seg button { border: 0; background: none; color: var(--muted); font-size: 12px; padding: 2px 9px; border-radius: 7px; cursor: pointer; }
-.seg button:hover { color: var(--text); }
-.seg button[aria-pressed="true"] { background: var(--surface-2); color: var(--text); font-weight: 600; }
-.seg.lang { height: 32px; border-radius: 10px; background: var(--surface); }
-.seg.lang button { font-size: 11.5px; font-weight: 650; letter-spacing: .03em; padding: 0 8px; border-radius: 8px; }
-.compose { display: grid; gap: 8px; flex: none; }
-.fields { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.field { display: grid; gap: 3px; font-size: 11.5px; color: var(--muted); font-weight: 600; min-width: 0; }
-select, textarea {
-  width: 100%; background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px;
-  padding: 7px 10px; color: var(--text); font-size: 13.5px; font-weight: 400;
-}
-select:hover, textarea:hover { border-color: var(--line-strong); }
-textarea { resize: vertical; min-height: 74px; line-height: 1.45; }
-:disabled { opacity: .55; cursor: not-allowed; }
-.send-row { display: flex; align-items: center; gap: 10px; }
-.counter { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
-.counter.full { color: var(--red); }
-.keys { font-size: 11.5px; color: var(--muted); margin-left: auto; }
-.primary {
-  border: 0; border-radius: 10px; padding: 8px 16px; font-weight: 650; cursor: pointer;
-  background: var(--accent); color: var(--on-accent);
-  box-shadow: 0 1px 2px var(--shadow-color), inset 0 1px 0 rgb(255 255 255 / .15);
-}
-.primary:hover:not(:disabled) { filter: brightness(1.08); }
-.form-note { margin: 0; font-size: 12.5px; min-height: 0; overflow-wrap: anywhere; }
-.form-note.ok { color: var(--working); }
-.form-note.red { color: var(--red); }
-.mail-list { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 10px; overflow-y: auto; margin-top: 14px; padding-right: 2px; }
-.msg { border: 1px solid var(--line); border-radius: 12px; padding: 9px 12px; background: var(--surface-2); }
-.msg.mine { background: color-mix(in srgb, var(--accent) 8%, var(--surface)); border-color: color-mix(in srgb, var(--accent) 28%, var(--line)); }
-.msg.new { box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 40%, transparent); }
+.day-sep { align-self: center; font-size: 11.5px; font-weight: 650; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); padding: 6px 0 2px; }
+.msg { max-width: min(640px, 88%); align-self: flex-start; border: 1px solid var(--line); border-radius: 12px; padding: 9px 13px; background: var(--surface); }
+.msg.mine { align-self: flex-end; background: var(--surface-2); }
+.msg.new { box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent); }
 .msg-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
 .msg-head b { color: var(--text); font-weight: 650; }
-.msg-head time { margin-left: auto; font-variant-numeric: tabular-nums; }
-.seal { font-size: 11px; }
-.msg.forged { border-color: color-mix(in srgb, var(--red) 45%, var(--line)); }
-.forged-note { color: var(--red); font-size: 11px; font-weight: 600; }
-.mini-avatar {
-  width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; flex: none;
-  font-size: 8.5px; font-weight: 800; color: #fff;
-  background: linear-gradient(135deg, hsl(var(--hue) 72% 60%), hsl(calc(var(--hue) + 45) 62% 44%));
-}
-.target { font: 11px var(--mono); color: var(--text-2); background: var(--surface); border: 1px solid var(--line); border-radius: 5px; padding: 0 5px; }
-.origin { font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; border-radius: 5px; padding: 0 5px; }
-.origin.claude { color: var(--muted); border: 1px solid var(--line); }
-.origin.human { color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--line)); }
-.delivery { font-weight: 700; color: var(--muted); }
+.msg-head time { margin-left: auto; padding-left: 8px; font-variant-numeric: tabular-nums; }
+.mini-avatar { width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; flex: none; font-size: 8.5px; font-weight: 800; color: #fff; background: hsl(var(--hue) 42% 46%); }
+.chip { font: 11px var(--mono); color: var(--text-2); border: 1px solid var(--line); border-radius: 5px; padding: 0 5px; }
+.chip.human { font-family: var(--sans); font-weight: 650; color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); }
+.seal { display: inline-grid; place-items: center; color: var(--working); }
+.seal svg { width: 14px; height: 14px; }
+.delivery { font-weight: 700; }
 .delivery.ok { color: var(--working); }
-.msg-text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13.5px; line-height: 1.45; }
-.history { flex: 1 1 auto; min-height: 0; list-style: none; margin: 0; padding: 0 2px 0 0; overflow-y: auto; }
-.history .day { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 12px 0 4px; }
-.history .day:first-child { margin-top: 0; }
-.entry { position: relative; display: grid; grid-template-columns: 42px 12px minmax(0, 1fr); gap: 8px; padding: 5px 0; font-size: 13px; line-height: 1.4; }
-.entry::before { content: ""; position: absolute; left: 55px; top: 0; bottom: 0; width: 1px; background: var(--line); }
-.entry time { font: 11.5px var(--mono); color: var(--muted); padding-top: 1px; font-variant-numeric: tabular-nums; }
-.bullet { position: relative; z-index: 1; width: 9px; height: 9px; margin-top: 5px; border-radius: 50%; background: hsl(var(--hue) 65% 55%); box-shadow: 0 0 3px 3px var(--surface); }
+.msg.forged { border-color: color-mix(in srgb, var(--error) 55%, var(--line)); }
+.msg.forged .msg-text { color: var(--text-2); }
+.forged-note { display: flex; gap: 7px; align-items: flex-start; margin: 2px 0 7px; padding: 6px 9px; border-radius: 7px; color: var(--error); background: color-mix(in srgb, var(--error) 9%, transparent); font-size: 12.5px; font-weight: 600; line-height: 1.35; }
+.forged-note svg { width: 15px; height: 15px; margin-top: 1px; }
+.msg-text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; line-height: 1.5; }
+.composer { flex: none; display: grid; gap: 8px; padding: 12px; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--surface); }
+.composer-top { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.composer-top label { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); font-weight: 550; }
+.composer-top select { font-weight: 450; color: var(--text); }
+.composer textarea { width: 100%; border: 0; padding: 4px 2px; resize: none; min-height: 44px; max-height: 200px; line-height: 1.5; font-size: 14px; background: transparent; }
+.composer textarea:focus-visible { outline: none; }
+.composer:focus-within { border-color: var(--accent); }
+.composer-foot { display: flex; align-items: center; gap: 12px; }
+.counter { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.counter.full { color: var(--error); }
+.keys { font-size: 12px; color: var(--muted); margin-left: auto; }
+.form-note { margin: 0; font-size: 12.5px; overflow-wrap: anywhere; }
+.form-note:empty { display: none; }
+.form-note.ok { color: var(--working); }
+.form-note.red { color: var(--error); }
+
+/* History */
+.history { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+.history .day { padding: 8px 16px; font-size: 11.5px; font-weight: 650; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); background: var(--surface-2); border-top: 1px solid var(--line); }
+.history .day:first-child { border-top: 0; }
+.entry { display: grid; grid-template-columns: 52px 20px minmax(0, 1fr); align-items: start; gap: 8px; padding: 9px 16px; font-size: 13.5px; line-height: 1.45; border-top: 1px solid var(--line); }
+.entry time { font: 12px var(--mono); color: var(--muted); padding-top: 1px; font-variant-numeric: tabular-nums; }
+.entry .mini-avatar { margin-top: 1px; }
 .what { color: var(--text-2); overflow-wrap: anywhere; }
 .what b { color: var(--text); font-weight: 650; }
 .what .code { color: var(--text); }
-.e-warning .what { color: var(--red); }
+.e-warning .what { color: var(--error); }
 .e-approval .what, .e-error .what { color: var(--approval); }
 .e-mail .what { color: var(--text); }
 
-.footer { text-align: center; color: var(--muted); font-size: 12px; padding: 4px 24px 28px; overflow-wrap: anywhere; }
-.toasts { position: fixed; right: 20px; bottom: 20px; z-index: 50; display: flex; flex-direction: column; gap: 8px; width: min(380px, calc(100vw - 40px)); }
-.toast {
-  background: var(--surface); border: 1px solid var(--line-strong); border-left: 4px solid var(--accent);
-  border-radius: 12px; padding: 10px 14px; box-shadow: var(--shadow-high); font-size: 13px;
-  animation: slide-in .25s ease-out;
+/* Settings */
+.set-section { margin-bottom: 30px; }
+.set-desc { margin: -4px 0 10px; color: var(--muted); font-size: 13px; }
+.set-list { border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; background: var(--surface); }
+.set-row { display: flex; align-items: center; justify-content: space-between; gap: 12px 24px; padding: 14px 16px; border-top: 1px solid var(--line); flex-wrap: wrap; }
+.set-row:first-child { border-top: 0; }
+.set-text { min-width: 0; flex: 1 1 260px; }
+.set-label { font-weight: 600; font-size: 14px; }
+.set-hint { color: var(--muted); font-size: 12.5px; margin-top: 2px; overflow-wrap: anywhere; }
+.set-control { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.set-value { font: 13px var(--mono); color: var(--text-2); overflow-wrap: anywhere; text-align: right; }
+.swatches { display: flex; gap: 8px; }
+.swatch { width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--bg); box-shadow: 0 0 0 1px var(--line-strong); padding: 0; background: var(--sw); }
+.swatch[aria-checked="true"] { box-shadow: 0 0 0 2px var(--text); }
+.cmd { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.cmd code { padding: 5px 9px; border-radius: 7px; background: var(--surface-2); border: 1px solid var(--line); font-size: 12.5px; }
+
+/* Toasts */
+.toasts { position: fixed; right: 20px; bottom: 20px; z-index: 50; display: flex; flex-direction: column; gap: 8px; width: min(380px, calc(100vw - 32px)); }
+.toast { background: var(--surface); border-radius: 10px; padding: 11px 14px; box-shadow: var(--pop); font-size: 13px; animation: slide-in .2s ease-out; display: flex; gap: 10px; }
+.toast > svg { width: 17px; height: 17px; margin-top: 1px; color: var(--accent); }
+.toast.approval > svg { color: var(--approval); }
+.toast.warning > svg, .toast.red > svg { color: var(--error); }
+.toast strong { display: block; font-size: 13px; }
+.toast div div { color: var(--text-2); overflow-wrap: anywhere; }
+@keyframes slide-in { from { transform: translateY(6px); opacity: 0; } }
+
+/* Sidebar tint, avatars, card list, message list, toast position */
+.sidebar { background: linear-gradient(color-mix(in srgb, var(--tint) var(--tint-o), transparent), color-mix(in srgb, var(--tint) var(--tint-o), transparent)), var(--bg); }
+:root[data-avatars="mono"] .avatar, :root[data-avatars="mono"] .mini-avatar { background: var(--surface-2); color: var(--text); box-shadow: inset 0 0 0 1px var(--line-strong); }
+:root[data-cards="list"] .cards { grid-template-columns: minmax(0, 1fr); }
+:root[data-cards="list"] .session { display: grid; grid-template-columns: minmax(150px, auto) minmax(0, 1fr); gap: 6px 18px; align-items: start; }
+:root[data-cards="list"] .session > .card-top { grid-row: span 6; flex-direction: column; align-items: flex-start; }
+:root[data-cards="list"] .session > * { grid-column: 2; }
+:root[data-cards="list"] .session > .card-top { grid-column: 1; }
+:root[data-bubbles="list"] .msg, :root[data-bubbles="list"] .msg.mine { align-self: stretch; max-width: none; }
+:root[data-toast="tr"] .toasts { bottom: auto; top: 20px; }
+:root[data-toast="bl"] .toasts { right: auto; left: 20px; }
+:root[data-toast="tl"] .toasts { right: auto; left: 20px; bottom: auto; top: 20px; }
+.toast-x { margin-left: auto; align-self: flex-start; background: none; border: 0; padding: 2px; border-radius: 5px; color: var(--muted); display: grid; }
+.toast-x:hover { background: var(--hover); color: var(--text); }
+.toast-x svg { width: 14px; height: 14px; }
+.group-icon { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: var(--surface-2); color: var(--text-2); flex: none; }
+.group-icon svg { width: 17px; height: 17px; }
+.group-icon.state .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--state, var(--muted)); }
+.person.s-working { --state: var(--working); } .person.s-approval { --state: var(--approval); } .person.s-waiting { --state: var(--waiting); }
+.person.s-quiet { --state: var(--quiet); } .person.s-error { --state: var(--error); }
+
+/* Sidebar search button */
+.side-search {
+  display: flex; align-items: center; gap: 10px; margin: 0 0 12px; padding: 7px 10px; border-radius: 8px; width: 100%;
+  border: 1px solid var(--line); background: var(--surface); color: var(--muted); font-size: 13px; text-align: left;
 }
-.toast strong { display: block; font-size: 13px; margin-bottom: 1px; }
-.toast div { color: var(--text-2); overflow-wrap: anywhere; }
-.toast.approval { border-left-color: var(--approval); }
-.toast.warning { border-left-color: var(--red); }
-@keyframes slide-in { from { transform: translateY(8px); opacity: 0; } }
-@media (max-width: 640px) {
-  .top { padding: 10px 16px; gap: 10px 12px; }
-  .stats { margin-left: 0; order: 3; width: 100%; }
-  .tools { margin-left: auto; gap: 4px; }
-  .live { padding: 0 4px 0 2px; }
-  .room { display: none; }
-  .fields { grid-template-columns: 1fr; }
-  .banner.wide { margin: 12px 16px 0; }
+.side-search:hover { border-color: var(--line-strong); color: var(--text-2); }
+.side-search svg { width: 15px; height: 15px; }
+.side-search .kbd { margin-left: auto; }
+.kbd { display: inline-grid; place-items: center; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 6px; border: 1px solid var(--line-strong); border-bottom-width: 2px; background: var(--surface-2); font: 600 11.5px var(--sans); color: var(--text-2); }
+.keys-row { gap: 4px; }
+
+/* Settings: pages on the left, one page on the right */
+.set-layout { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 32px; align-items: start; }
+.set-nav { position: sticky; top: 24px; display: flex; flex-direction: column; gap: 10px; }
+.set-search { display: flex; align-items: center; gap: 8px; padding: 0 10px; height: 36px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); }
+.set-search:focus-within { border-color: var(--accent); }
+.set-search svg { width: 15px; height: 15px; color: var(--muted); }
+.set-search input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; font-size: 13.5px; }
+.set-cats { display: flex; flex-direction: column; gap: 1px; }
+.set-cat {
+  display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: 8px; border: 0; background: none;
+  color: var(--text-2); font-size: 13.5px; font-weight: 500; text-align: left; transition: background-color .15s;
+}
+.set-cat svg { width: 16px; height: 16px; color: var(--muted); }
+.set-cat:hover { background: var(--hover); color: var(--text); }
+.set-cat[aria-current="page"] { background: var(--surface-2); color: var(--text); font-weight: 650; }
+.set-cat[aria-current="page"] svg { color: var(--accent); }
+.set-count { margin-left: auto; font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.set-title { margin: 0 0 18px; font-size: 19px; font-weight: 700; letter-spacing: -.02em; }
+.set-row.flash { animation: flash 1.8s ease-out; }
+.set-control select { height: 32px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--surface); max-width: 240px; }
+.range { display: flex; align-items: center; gap: 10px; }
+.range input { width: 160px; accent-color: var(--accent); }
+.range-value { min-width: 46px; text-align: right; font: 12.5px var(--mono); color: var(--text-2); font-variant-numeric: tabular-nums; }
+input.color { width: 32px; height: 32px; padding: 0; border: 1px solid var(--line-strong); border-radius: 8px; background: none; cursor: pointer; }
+.swatch.custom { position: relative; overflow: hidden; display: inline-block; cursor: pointer;
+  background: conic-gradient(from 0deg, #ef4444, #f59e0b, #22c55e, #06b6d4, #6366f1, #d946ef, #ef4444); }
+.swatch.custom.on { background: var(--sw); box-shadow: 0 0 0 2px var(--text); }
+.swatch.custom input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
+.dev { margin: 0; max-height: 420px; overflow: auto; padding: 14px; border-radius: var(--radius); border: 1px solid var(--line); background: var(--surface-2); font: 11.5px/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+.about-lead { margin: 0 0 14px; color: var(--text-2); max-width: 60ch; }
+
+/* Command palette */
+.palette { position: fixed; inset: 0; z-index: 60; display: grid; justify-items: center; align-items: start; padding: 12vh 16px 16px; background: light-dark(rgb(0 0 0 / .25), rgb(0 0 0 / .6)); }
+.palette-box { width: min(620px, 100%); border-radius: 14px; background: var(--surface); box-shadow: var(--pop); overflow: hidden; animation: slide-in .15s ease-out; }
+.palette-head { display: flex; align-items: center; gap: 10px; padding: 0 16px; border-bottom: 1px solid var(--line); }
+.palette-head svg { width: 18px; height: 18px; color: var(--muted); }
+.palette-head input { flex: 1; min-width: 0; height: 52px; border: 0; outline: 0; background: none; font-size: 15.5px; }
+.palette ul { list-style: none; margin: 0; padding: 6px; max-height: min(420px, 60vh); overflow: auto; }
+.palette li { display: flex; align-items: center; gap: 11px; padding: 9px 11px; border-radius: 8px; cursor: pointer; font-size: 14px; }
+.palette li svg { width: 16px; height: 16px; color: var(--muted); }
+.palette li[aria-selected="true"] { background: var(--hover); }
+.palette li[aria-selected="true"] svg { color: var(--accent); }
+.pal-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.palette li .sub { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.palette .pal-empty { color: var(--muted); cursor: default; justify-content: center; }
+
+/* Wall display: only the overview, bigger, no navigation */
+:root[data-wall="on"] .app { grid-template-columns: minmax(0, 1fr); }
+:root[data-wall="on"] .sidebar, :root[data-wall="on"] .topbar, :root[data-wall="on"] .tabbar { display: none; }
+:root[data-wall="on"] .view { max-width: none; }
+:root[data-wall="on"] .main { padding: 28px 36px; }
+.wall-exit { position: fixed; top: 14px; right: 14px; z-index: 30; opacity: .35; transition: opacity .15s; }
+.wall-exit:hover, .wall-exit:focus-visible { opacity: 1; }
+
+@media (max-width: 860px) {
+  .set-layout { grid-template-columns: minmax(0, 1fr); gap: 18px; }
+  .set-nav { position: static; }
+  .set-cats { flex-direction: row; overflow-x: auto; gap: 4px; padding-bottom: 4px; scrollbar-width: none; }
+  .set-cat { white-space: nowrap; flex: none; background: var(--surface-2); }
+  .set-count { display: none; }
+  .range input { width: 120px; }
+  .set-control, .set-control .seg { max-width: 100%; }
+  .set-control .seg { flex-wrap: wrap; }
+  .set-cat[aria-current="page"] { box-shadow: 0 0 0 1px var(--line-strong); }
+  :root[data-cards="list"] .session { display: block; }
+  :root[data-toast] .toasts { left: 16px; right: 16px; width: auto; }
+  :root[data-toast="br"] .toasts, :root[data-toast="bl"] .toasts { top: auto; bottom: calc(80px + env(safe-area-inset-bottom)); }
+}
+
+/* Small screens: top bar and a tab bar at the bottom instead of the sidebar */
+@media (max-width: 1080px) { .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 860px) {
+  .app { grid-template-columns: minmax(0, 1fr); }
+  .sidebar { display: none; }
+  .topbar {
+    position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 10px; height: 56px; padding: 0 16px;
+    background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--line);
+  }
+  .topbar .live { margin-left: auto; }
+  .tabbar {
+    position: fixed; inset: auto 0 0; z-index: 20; display: grid; grid-template-columns: repeat(4, 1fr);
+    padding: 6px 6px calc(6px + env(safe-area-inset-bottom)); background: color-mix(in srgb, var(--bg) 92%, transparent);
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border-top: 1px solid var(--line);
+  }
+  .tabbar a { position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 0 4px; min-height: 48px; text-decoration: none; color: var(--muted); font-size: 11px; font-weight: 600; border-radius: 8px; }
+  .tabbar a svg { width: 21px; height: 21px; }
+  .tabbar a[aria-current="page"] { color: var(--text); }
+  .tabbar a[aria-current="page"] svg { color: var(--accent); }
+  .tabbar .count { position: absolute; top: 2px; left: calc(50% + 6px); margin: 0; min-width: 17px; height: 17px; font-size: 10.5px; }
+  .main { padding: 18px 16px calc(84px + env(safe-area-inset-bottom)); }
+  .page-head h1 { font-size: 21px; }
+  .view.fill { height: calc(var(--vh) - 56px - 18px - 84px - env(safe-area-inset-bottom)); }
+  .msg { max-width: 94%; }
+  .entry { grid-template-columns: 44px 18px minmax(0, 1fr); padding: 9px 12px; }
+  .toasts { right: 16px; bottom: calc(80px + env(safe-area-inset-bottom)); }
 }
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation: none !important; transition: none !important; }
+  :root:not([data-motion="full"]) *, :root:not([data-motion="full"]) *::before, :root:not([data-motion="full"]) *::after { animation: none !important; transition: none !important; }
 }
+:root[data-motion="reduce"] *, :root[data-motion="reduce"] *::before, :root[data-motion="reduce"] *::after { animation: none !important; transition: none !important; }
 </style>
 </head>
 <body>
-<header class="top">
-  <div class="brand">
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <svg class="logo" viewBox="0 0 32 32" aria-hidden="true">
+        <circle cx="16" cy="16" r="13" fill="none" stroke="currentColor" stroke-width="2" opacity=".25"/>
+        <circle cx="16" cy="16" r="8" fill="none" stroke="currentColor" stroke-width="2" opacity=".6"/>
+        <path d="M16 3a13 13 0 0 1 13 13" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/>
+        <circle class="core" cx="16" cy="16" r="3.2"/>
+      </svg>
+      <span class="wordmark">Synchronauts</span>
+    </div>
+    <div class="room" id="room"></div>
+    <button class="side-search" type="button" data-palette><span data-icon="SEARCH"></span><span data-l='["Search","Suchen"]'></span><kbd class="kbd">⌘K</kbd></button>
+    <nav class="nav" data-t-label="nav.label">
+      <a href="#/overview" data-view="overview"><span data-icon="GRID"></span><span data-t="nav.overview"></span><span class="count warn" data-count="overview"></span></a>
+      <a href="#/messages" data-view="messages"><span data-icon="CHAT"></span><span data-t="nav.messages"></span><span class="count" data-count="messages"></span></a>
+      <a href="#/history" data-view="history"><span data-icon="CLOCK"></span><span data-t="nav.history"></span></a>
+      <a href="#/settings" data-view="settings"><span data-icon="GEAR"></span><span data-t="nav.settings"></span></a>
+    </nav>
+    <div class="side-foot">
+      <div class="side-row"><span class="lbl"><span data-icon="MOON"></span><span id="dark-label" data-t="theme.toggle"></span></span>
+        <button class="switch" type="button" role="switch" aria-labelledby="dark-label" data-dark><span class="knob"></span></button></div>
+      <div class="side-row"><span class="live" data-live><span class="dot"></span><span data-live-text></span></span></div>
+    </div>
+  </aside>
+
+  <header class="topbar">
     <svg class="logo" viewBox="0 0 32 32" aria-hidden="true">
-      <defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#8ea2ff"/><stop offset="1" stop-color="#34d399"/></linearGradient></defs>
-      <circle cx="16" cy="16" r="13" fill="none" stroke="url(#lg)" stroke-width="2" opacity=".3"/>
-      <circle cx="16" cy="16" r="8" fill="none" stroke="url(#lg)" stroke-width="2" opacity=".65"/>
-      <path class="arc" d="M16 3a13 13 0 0 1 13 13" fill="none" stroke="url(#lg)" stroke-width="2.6" stroke-linecap="round"/>
-      <circle cx="16" cy="16" r="3.2" fill="#34d399"/>
+      <circle cx="16" cy="16" r="13" fill="none" stroke="currentColor" stroke-width="2" opacity=".25"/>
+      <circle cx="16" cy="16" r="8" fill="none" stroke="currentColor" stroke-width="2" opacity=".6"/>
+      <path d="M16 3a13 13 0 0 1 13 13" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/>
+      <circle class="core" cx="16" cy="16" r="3.2"/>
     </svg>
     <span class="wordmark">Synchronauts</span>
-    <span class="room" id="room"></span>
-  </div>
-  <div class="stats" id="stats"></div>
-  <div class="tools">
-    <span class="live" id="live"><span class="dot"></span><span id="live-text"></span></span>
-    <button class="icon-btn" id="bell" type="button" aria-pressed="false">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
-    </button>
-    <button class="icon-btn" id="theme" type="button">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 0 0 18z" fill="currentColor"/></svg>
-    </button>
-    <div class="seg lang" id="lang" role="group" data-t-label="lang.label">
-      <button type="button" data-lang="en" lang="en" title="English" aria-pressed="false">EN</button>
-      <button type="button" data-lang="de" lang="de" title="Deutsch" aria-pressed="false">DE</button>
-    </div>
-  </div>
-</header>
-<div class="banner red wide" id="conn" hidden></div>
-<main class="layout">
-  <section aria-labelledby="board-title">
-    <h2 class="heading" id="board-title" data-t="board.title"></h2>
-    <div id="board"><div class="empty-state" data-t="board.loading"></div></div>
-  </section>
-  <aside class="side">
-    <section class="panel mail-panel" aria-labelledby="mail-title">
-      <div class="panel-head">
-        <h2 class="heading" id="mail-title" data-t="mail.title"></h2>
-        <div class="seg" role="group" data-t-label="mail.filter">
-          <button type="button" data-filter="mine" aria-pressed="true" data-t="mail.mine"></button>
-          <button type="button" data-filter="all" aria-pressed="false" data-t="mail.all"></button>
+    <span class="live" data-live><span class="dot"></span><span data-live-text></span></span>
+    <button class="icon-btn" type="button" data-palette data-l-label='["Search","Suchen"]'><span data-icon="SEARCH"></span></button>
+    <button class="icon-btn" type="button" data-dark-btn><span data-icon="MOON"></span></button>
+  </header>
+
+  <main class="main">
+    <div class="banner red" id="conn" hidden></div>
+
+    <section class="view" id="view-overview" aria-labelledby="h-overview">
+      <header class="page-head"><div><h1 id="h-overview" data-t="nav.overview"></h1><p id="sub-overview"></p></div></header>
+      <div id="overview"><div class="empty-state" data-t="board.loading"></div></div>
+    </section>
+
+    <section class="view fill" id="view-messages" aria-labelledby="h-messages" hidden>
+      <header class="page-head">
+        <div><h1 id="h-messages" data-t="nav.messages"></h1><p data-t="page.messages.sub"></p></div>
+        <div class="toolbar">
+          <div class="seg" role="group" data-t-label="mail.filter">
+            <button type="button" data-filter="mine" aria-pressed="true" data-t="mail.mine"></button>
+            <button type="button" data-filter="all" aria-pressed="false" data-t="mail.all"></button>
+          </div>
+          <select id="mail-person" data-t-label="filter.person"></select>
         </div>
-      </div>
-      <form class="compose" id="compose" autocomplete="off">
-        <div class="fields">
-          <label class="field"><span data-t="form.to"></span><select id="to"></select></label>
-          <label class="field"><span data-t="form.session"></span><select id="where"></select></label>
+      </header>
+      <div class="stream" id="mail" aria-live="polite"></div>
+      <form class="composer" id="compose" autocomplete="off">
+        <div class="composer-top">
+          <label><span data-t="form.to"></span><select id="to"></select></label>
+          <label><span data-t="form.session"></span><select id="where"></select></label>
         </div>
-        <textarea id="text" rows="3" data-t-label="form.message"></textarea>
-        <div class="send-row">
+        <textarea id="text" rows="1" data-t-label="form.message"></textarea>
+        <p class="form-note" id="form-note" role="status"></p>
+        <div class="composer-foot">
           <span class="counter" id="counter">0 / 1500</span>
           <span class="keys" id="keys"></span>
-          <button class="primary" id="send" type="submit" data-t="form.send"></button>
+          <button class="btn primary" id="send" type="submit"><span data-icon="SEND"></span><span data-t="form.send"></span></button>
         </div>
-        <p class="form-note" id="form-note" role="status"></p>
       </form>
-      <div class="mail-list" id="mail"></div>
     </section>
-    <section class="panel history-panel" aria-labelledby="history-title">
-      <h2 class="heading" id="history-title"><span data-t="history.title"></span> <span class="heading-note" data-t="history.window"></span></h2>
+
+    <section class="view" id="view-history" aria-labelledby="h-history" hidden>
+      <header class="page-head">
+        <div><h1 id="h-history" data-t="nav.history"></h1><p data-t="page.history.sub"></p></div>
+        <div class="toolbar">
+          <select id="hist-person" data-t-label="filter.person"></select>
+          <select id="hist-kind" data-t-label="filter.kind"></select>
+        </div>
+      </header>
       <ol class="history" id="history"></ol>
     </section>
-  </aside>
-</main>
-<footer class="footer" id="foot"></footer>
+
+    <section class="view" id="view-settings" aria-labelledby="h-settings" hidden>
+      <header class="page-head"><div><h1 id="h-settings" data-t="nav.settings"></h1><p data-t="page.settings.sub"></p></div></header>
+      <div id="settings"></div>
+    </section>
+  </main>
+
+  <nav class="tabbar" data-t-label="nav.label">
+    <a href="#/overview" data-view="overview"><span data-icon="GRID"></span><span data-t="nav.overview"></span><span class="count warn" data-count="overview"></span></a>
+    <a href="#/messages" data-view="messages"><span data-icon="CHAT"></span><span data-t="nav.messages"></span><span class="count" data-count="messages"></span></a>
+    <a href="#/history" data-view="history"><span data-icon="CLOCK"></span><span data-t="nav.history"></span></a>
+    <a href="#/settings" data-view="settings"><span data-icon="GEAR"></span><span data-t="nav.settings"></span></a>
+  </nav>
+</div>
 <div class="toasts" id="toasts" aria-live="polite"></div>
+<div class="palette" id="palette" hidden>
+  <div class="palette-box" role="dialog" aria-modal="true" data-l-label='["Search and commands","Suchen und Befehle"]'>
+    <div class="palette-head"><span data-icon="SEARCH"></span>
+      <input id="palette-input" type="text" role="combobox" aria-expanded="true" aria-controls="palette-list" autocomplete="off" spellcheck="false"><kbd class="kbd">Esc</kbd></div>
+    <ul id="palette-list" role="listbox"></ul>
+  </div>
+</div>
+<button class="icon-btn wall-exit" id="wall-exit" type="button" data-l-label='["Leave the wall display","Wanddisplay verlassen"]' hidden><span data-icon="X"></span></button>
 <noscript><p class="empty-state">Synchronauts needs JavaScript. · Synchronauts braucht JavaScript.</p></noscript>
 
 <script nonce="__NONCE__">
@@ -408,6 +634,7 @@ textarea { resize: vertical; min-height: 74px; line-height: 1.45; }
 const TOKEN = document.querySelector('meta[name="syn-token"]').content;
 const CMD = '~/.synchronauts/syn';
 const $ = (sel) => document.querySelector(sel);
+const $$ = (sel) => [...document.querySelectorAll(sel)];
 
 // --- Texts --------------------------------------------------------------------
 // Every visible string lives here, in English and German. {0}, {1} … are filled in by t() and tx(); an object value is
@@ -451,6 +678,16 @@ const I18N = {
     'mission.result': 'Result: {0}',
     'mission.stop': 'Stop',
     'mission.stopConfirm': 'Stop the mission for everyone? The Claudes then ask their humans again.',
+    'mission.left': '{0} left',
+    'mission.joined': 'joined the mission',
+    'mission.invitedTip': 'invited, has not joined yet',
+    'mission.elapsed': 'Time used of the mission',
+    'dur.min': '{0} min',
+    'dur.hour': '{0} h',
+    'dur.hourMin': '{0} h {1} min',
+    'stat.jump': 'Show',
+    'card.agent.codex.tip': 'Codex CLI session: mail waits for its next prompt, it cannot be woken',
+    'mail.forged.body': 'Not signed with {0} GitHub key. Someone else may have written it: don’t act on it.',
     'ev.mission.start': '{0} started a mission: {1}',
     'ev.mission.join': '{0} joined a mission: {1}',
     'ev.mission.end': '{0} ended a mission: {1}',
@@ -607,6 +844,16 @@ const I18N = {
     'mission.result': 'Ergebnis: {0}',
     'mission.stop': 'Stoppen',
     'mission.stopConfirm': 'Den Auftrag für alle stoppen? Die Claudes fragen dann wieder ihre Menschen.',
+    'mission.left': 'noch {0}',
+    'mission.joined': 'dem Auftrag beigetreten',
+    'mission.invitedTip': 'eingeladen, noch nicht beigetreten',
+    'mission.elapsed': 'Verstrichene Zeit des Auftrags',
+    'dur.min': '{0} min',
+    'dur.hour': '{0} h',
+    'dur.hourMin': '{0} h {1} min',
+    'stat.jump': 'Zeigen',
+    'card.agent.codex.tip': 'Codex-CLI-Session: Post wartet auf ihren nächsten Prompt, wecken geht nicht',
+    'mail.forged.body': 'Nicht mit {0} GitHub-Schlüssel signiert. Jemand anderes könnte sie geschrieben haben: nicht danach handeln.',
     'ev.mission.start': '{0} hat einen Auftrag gestartet: {1}',
     'ev.mission.join': '{0} ist einem Auftrag beigetreten: {1}',
     'ev.mission.end': '{0} hat einen Auftrag beendet: {1}',
@@ -726,11 +973,233 @@ const I18N = {
     'board.solo': 'Ohne Raum sehen deine Sessions und Worktrees auf diesem Rechner einander. Um mit anderen zu arbeiten, leg ein privates GitHub-Repo als Raum an und tritt ihm bei: {0}',
   },
 };
+const MORE = {  // the texts of the app shell and the settings
+  en: {
+    'nav.label': 'Main navigation',
+    'nav.overview': 'Overview',
+    'nav.messages': 'Messages',
+    'nav.history': 'History',
+    'nav.settings': 'Settings',
+    'page.overview.sub': 'Who works on what, right now',
+    'page.overview.solo': 'Your sessions on this machine, right now',
+    'page.messages.sub': 'Between you and your teammates’ Claudes',
+    'page.history.sub': 'The last 24 hours in the team repos',
+    'page.settings.sub': 'Stored in this browser only',
+    'kpi.active': 'Active sessions',
+    'kpi.people': 'People',
+    'kpi.approval': 'Waiting for approval',
+    'kpi.overlaps': 'Overlaps',
+    'attn.title': 'Needs your attention',
+    'attn.approval': 'Your session {0} is waiting for your approval',
+    'attn.error': '{0}: the last turn stopped with an API error',
+    'attn.conflict': 'Merging your work in {0} with {1} would conflict: {2}',
+    'attn.file': 'You and {1} are editing the same file in {0}: {2}',
+    'attn.forged': 'A message signed as {0} does not match their GitHub key',
+    'attn.show': 'Show',
+    'attn.open': 'Open',
+    'missions.title': 'Missions',
+    'filter.person': 'Person',
+    'filter.everyone': 'Everyone',
+    'filter.kind': 'Type',
+    'kind.all': 'Everything',
+    'kind.work': 'Repos, files, tasks',
+    'kind.mail': 'Messages',
+    'kind.alerts': 'Warnings and approvals',
+    'kind.missions': 'Missions',
+    'theme.toggle': 'Dark mode',
+    'set.appearance': 'Appearance',
+    'set.theme': 'Color scheme',
+    'set.theme.desc': 'Follow the system or choose one',
+    'set.accent': 'Accent color',
+    'set.accent.desc': 'Buttons, links and the active page',
+    'accent.mono': 'Black and white',
+    'accent.blue': 'Blue',
+    'accent.green': 'Green',
+    'accent.violet': 'Violet',
+    'accent.orange': 'Orange',
+    'set.density': 'Density',
+    'set.density.desc': 'Compact shows more at a glance',
+    'density.comfortable': 'Comfortable',
+    'density.compact': 'Compact',
+    'set.language': 'Language',
+    'set.language.desc': 'Of this page; Claude answers in its own',
+    'lang.auto': 'Browser',
+    'set.notifications': 'Notifications',
+    'set.toasts': 'Notices in the app',
+    'set.toasts.desc': 'Short notes at the bottom right',
+    'set.bell': 'Browser notifications',
+    'set.bell.desc': 'Also while this tab is in the background',
+    'set.notifyMail': 'Messages to me',
+    'set.notifyApproval': 'My sessions waiting for approval',
+    'set.notifyOverlap': 'New overlaps and conflicts',
+    'set.titleCount': 'Counter in the tab title',
+    'set.titleCount.desc': 'For example (2) Synchronauts, while something is waiting for you',
+    'set.board': 'Overview',
+    'set.showQuiet': 'Show quiet sessions',
+    'set.showQuiet.desc': 'Sessions in which nothing has happened for a while',
+    'set.showLocal': 'Show my sessions outside the team repos',
+    'set.showLocal.desc': 'Only you see them, they never leave this machine',
+    'set.messages': 'Messages',
+    'set.mailFilter': 'Show by default',
+    'set.enterSends': 'Send with Enter',
+    'set.enterSends.desc': 'Shift+Enter for a new line. Off: {0} sends',
+    'set.connection': 'Connection',
+    'set.connection.desc': 'Set on the command line, shown here for reference',
+    'conn.room': 'Room',
+    'conn.noRoom': 'none, this machine only',
+    'conn.orgs': 'Team repos',
+    'conn.orgsVal': 'owned by {0}',
+    'conn.machine': 'This machine',
+    'conn.version': 'Version',
+    'conn.wake': 'Wake window',
+    'conn.wakeVal': 'up to {0} min after a session’s last step',
+    'conn.sync': 'Last sync',
+    'set.commands': 'Commands',
+    'set.commands.desc': 'For the terminal; Claude runs them itself',
+    'cmd.status': 'The picture in the terminal',
+    'cmd.setup': 'Join a room, set whose repos count as team repos',
+    'cmd.ui': 'Open this page',
+    'copy': 'Copy',
+    'copied': 'Copied',
+    'set.reset': 'Reset settings',
+    'set.reset.desc': 'Back to the defaults, in this browser',
+    'set.resetDone': 'Settings reset',
+    'form.keys.enter': '↵ send · ⇧↵ new line',
+  },
+  de: {
+    'nav.label': 'Hauptnavigation',
+    'nav.overview': 'Übersicht',
+    'nav.messages': 'Nachrichten',
+    'nav.history': 'Verlauf',
+    'nav.settings': 'Einstellungen',
+    'page.overview.sub': 'Wer gerade woran arbeitet',
+    'page.overview.solo': 'Deine Sessions auf diesem Rechner',
+    'page.messages.sub': 'Zwischen dir und den Claudes deines Teams',
+    'page.history.sub': 'Die letzten 24 Stunden in den Team-Repos',
+    'page.settings.sub': 'Nur in diesem Browser gespeichert',
+    'kpi.active': 'Aktive Sessions',
+    'kpi.people': 'Personen',
+    'kpi.approval': 'Warten auf Freigabe',
+    'kpi.overlaps': 'Überschneidungen',
+    'attn.title': 'Braucht dich',
+    'attn.approval': 'Deine Session {0} wartet auf deine Freigabe',
+    'attn.error': '{0}: der letzte Turn brach mit einem API-Fehler ab',
+    'attn.conflict': 'Deine Arbeit in {0} mit der von {1} zusammenzuführen gäbe einen Konflikt: {2}',
+    'attn.file': 'Du und {1} bearbeitet in {0} dieselbe Datei: {2}',
+    'attn.forged': 'Eine Nachricht im Namen von {0} passt nicht zu deren GitHub-Schlüssel',
+    'attn.show': 'Zeigen',
+    'attn.open': 'Öffnen',
+    'missions.title': 'Aufträge',
+    'filter.person': 'Person',
+    'filter.everyone': 'Alle',
+    'filter.kind': 'Art',
+    'kind.all': 'Alles',
+    'kind.work': 'Repos, Dateien, Vorhaben',
+    'kind.mail': 'Nachrichten',
+    'kind.alerts': 'Warnungen und Freigaben',
+    'kind.missions': 'Aufträge',
+    'theme.toggle': 'Dunkelmodus',
+    'set.appearance': 'Darstellung',
+    'set.theme': 'Farbschema',
+    'set.theme.desc': 'Wie das System oder fest gewählt',
+    'set.accent': 'Akzentfarbe',
+    'set.accent.desc': 'Knöpfe, Links und die aktive Seite',
+    'accent.mono': 'Schwarz-Weiß',
+    'accent.blue': 'Blau',
+    'accent.green': 'Grün',
+    'accent.violet': 'Violett',
+    'accent.orange': 'Orange',
+    'set.density': 'Dichte',
+    'set.density.desc': 'Kompakt zeigt mehr auf einen Blick',
+    'density.comfortable': 'Bequem',
+    'density.compact': 'Kompakt',
+    'set.language': 'Sprache',
+    'set.language.desc': 'Dieser Seite; Claude antwortet in seiner eigenen',
+    'lang.auto': 'Browser',
+    'set.notifications': 'Benachrichtigungen',
+    'set.toasts': 'Hinweise in der App',
+    'set.toasts.desc': 'Kurze Hinweise unten rechts',
+    'set.bell': 'Browser-Benachrichtigungen',
+    'set.bell.desc': 'Auch wenn dieser Tab im Hintergrund ist',
+    'set.notifyMail': 'Nachrichten an mich',
+    'set.notifyApproval': 'Meine Sessions warten auf Freigabe',
+    'set.notifyOverlap': 'Neue Überschneidungen und Konflikte',
+    'set.titleCount': 'Zähler im Tab-Titel',
+    'set.titleCount.desc': 'Etwa (2) Synchronauts, solange etwas auf dich wartet',
+    'set.board': 'Übersicht',
+    'set.showQuiet': 'Ruhige Sessions zeigen',
+    'set.showQuiet.desc': 'Sessions, in denen länger nichts passiert ist',
+    'set.showLocal': 'Meine Sessions außerhalb der Team-Repos zeigen',
+    'set.showLocal.desc': 'Nur du siehst sie, sie verlassen diesen Rechner nie',
+    'set.messages': 'Nachrichten',
+    'set.mailFilter': 'Standardmäßig zeigen',
+    'set.enterSends': 'Mit Enter senden',
+    'set.enterSends.desc': 'Umschalt+Enter für eine neue Zeile. Aus: {0} sendet',
+    'set.connection': 'Verbindung',
+    'set.connection.desc': 'Wird auf der Kommandozeile eingestellt, hier nur zur Ansicht',
+    'conn.room': 'Raum',
+    'conn.noRoom': 'keiner, nur dieser Rechner',
+    'conn.orgs': 'Team-Repos',
+    'conn.orgsVal': 'von {0}',
+    'conn.machine': 'Dieser Rechner',
+    'conn.version': 'Version',
+    'conn.wake': 'Weckfenster',
+    'conn.wakeVal': 'bis {0} min nach dem letzten Schritt einer Session',
+    'conn.sync': 'Letzter Abgleich',
+    'set.commands': 'Befehle',
+    'set.commands.desc': 'Für das Terminal; Claude ruft sie selbst auf',
+    'cmd.status': 'Das Lagebild im Terminal',
+    'cmd.setup': 'Einem Raum beitreten, festlegen, wessen Repos Team-Repos sind',
+    'cmd.ui': 'Diese Seite öffnen',
+    'copy': 'Kopieren',
+    'copied': 'Kopiert',
+    'set.reset': 'Einstellungen zurücksetzen',
+    'set.reset.desc': 'Zurück auf die Vorgaben, in diesem Browser',
+    'set.resetDone': 'Einstellungen zurückgesetzt',
+    'form.keys.enter': '↵ senden · ⇧↵ neue Zeile',
+  },
+};
+for (const l of Object.keys(MORE)) Object.assign(I18N[l], MORE[l]);
+
 const LANGS = ['en', 'de'];
+const VIEWS = ['overview', 'messages', 'history', 'settings'];
+const ACCENTS = { mono: ['#0a0a0a', '#f5f5f5'], blue: ['#1d4ed8', '#60a5fa'], green: ['#15803d', '#4ade80'], violet: ['#6d28d9', '#a78bfa'], orange: ['#c2410c', '#fb923c'] };
 const STATES = ['working', 'approval', 'waiting', 'quiet', 'error'];
 const RANK = { approval: 0, error: 1, working: 2, waiting: 3, quiet: 4 };
 const OVERLAP_RANK = { conflict: 0, file: 1, branch: 2, repo: 3 };
-const FOLDER = 'M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z';
+const KINDS = { work: ['repo', 'branch', 'file', 'task', 'end', 'claim', 'release'], mail: ['mail'],
+  alerts: ['approval', 'error', 'warning', 'woken'], missions: ['mission'] };
+// Icons: fixed path data from this script only
+const ICONS = {
+  GRID: ['M4 4h7v7H4z', 'M13 4h7v7h-7z', 'M4 13h7v7H4z', 'M13 13h7v7h-7z'],
+  CHAT: ['M4 5h16v11H9l-5 4z'],
+  CLOCK: ['M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z', 'M12 7v5l3 2'],
+  GEAR: ['M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6z', 'M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z'],
+  MOON: ['M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z'],
+  SUN: ['M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z', 'M12 2v2', 'M12 20v2', 'M4.9 4.9l1.4 1.4', 'M17.7 17.7l1.4 1.4', 'M2 12h2', 'M20 12h2', 'M4.9 19.1l1.4-1.4', 'M17.7 6.3l1.4-1.4'],
+  SEND: ['M4 12l16-8-6 16-2.5-6.5z', 'M11.5 13.5L20 4'],
+  FOLDER: ['M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'],
+  LOCK: ['M6 11h12v9H6z', 'M8.5 11V8a3.5 3.5 0 0 1 7 0v3'],
+  SHIELD: ['M12 3l7 3v5c0 4.5-3 8.3-7 10-4-1.7-7-5.5-7-10V6z', 'M9 12l2 2 4-4'],
+  ALERT: ['M12 3l9.5 17h-19z', 'M12 10v4', 'M12 17.2v.1'],
+  INFO: ['M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z', 'M12 11v5', 'M12 7.8v.1'],
+  BRANCH: ['M6 4v12', 'M18 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4z', 'M6 20a2 2 0 1 0 0-4 2 2 0 0 0 0 4z', 'M18 8c0 5-6 4-12 8'],
+  LAPTOP: ['M5 6h14v9H5z', 'M2.5 18.5h19'],
+  ROCKET: ['M12 15l-3-3c1.5-4.5 4.5-8 10-9-1 5.5-4.5 8.5-9 10z', 'M9 12H5l2.5-3.5H11', 'M12 15v4l3.5-2.5V13', 'M6.5 16.5c-1.5.5-2 2.5-2 3 .5 0 2.5-.5 3-2'],
+  COPY: ['M9 9h11v11H9z', 'M5 15H4V4h11v1'],
+  BELL: ['M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9', 'M10.3 21a1.94 1.94 0 0 0 3.4 0'],
+  SLIDERS: ['M4 6h10', 'M18 6h2', 'M16 4v4', 'M4 12h4', 'M12 12h8', 'M10 10v4', 'M4 18h12', 'M20 18h0', 'M18 16v4'],
+  PALETTE: ['M12 3a9 9 0 1 0 0 18c1.1 0 1.7-.8 1.7-1.7 0-.5-.2-.9-.5-1.2-.3-.3-.5-.7-.5-1.2 0-.9.8-1.7 1.7-1.7H16a5 5 0 0 0 5-5c0-4-4-7.2-9-7.2z', 'M7.5 11.5v.1', 'M10 7.5v.1', 'M14.5 7.5v.1', 'M17 11v.1'],
+  KEYBOARD: ['M3 6h18v12H3z', 'M7 10h.01', 'M11 10h.01', 'M15 10h.01', 'M7 14h10'],
+  LINK: ['M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1', 'M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1'],
+  WRENCH: ['M14.7 6.3a4 4 0 0 0 5 5l-9.4 9.4a2.1 2.1 0 0 1-3-3z', 'M14.7 6.3L17 4'],
+  SEARCH: ['M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14z', 'M20 20l-4-4'],
+  MAXIMIZE: ['M4 9V4h5', 'M20 9V4h-5', 'M4 15v5h5', 'M20 15v5h-5'],
+  X: ['M6 6l12 12', 'M18 6L6 18'],
+  DOWNLOAD: ['M12 4v11', 'M7 10l5 5 5-5', 'M5 20h14'],
+  UPLOAD: ['M12 20V9', 'M7 14l5-5 5 5', 'M5 4h14'],
+  VOLUME: ['M4 9h4l5-4v14l-5-4H4z', 'M16.5 8.5a5 5 0 0 1 0 7', 'M19 6a8.5 8.5 0 0 1 0 12'],
+};
 
 function store(key, value) {  // every access in try/catch: private windows and blocked site data throw
   try {
@@ -740,17 +1209,234 @@ function store(key, value) {  // every access in try/catch: private windows and 
   return null;
 }
 
-let lang = store('syn-lang');
-if (!LANGS.includes(lang)) lang = (navigator.language || '').toLowerCase().startsWith('de') ? 'de' : 'en';
-let theme = store('syn-theme');
-if (theme !== 'light' && theme !== 'dark') theme = 'system';
-let bell = store('syn-bell') === 'on';
+// --- Settings -------------------------------------------------------------------
+// All in one key of this browser's storage; nothing here reaches the server or the room. Every setting is described
+// once in SCHEMA (its page, control, default and texts): the settings pages, their search and the command palette
+// are built from it.
+const L = (pair) => (Array.isArray(pair) ? pair[lang === 'de' ? 1 : 0] : String(pair ?? ''));
+const opt = (v, en, de) => [v, [en, de ?? en]];
+const CATS = [
+  ['general', 'SLIDERS', ['General', 'Allgemein']],
+  ['appearance', 'PALETTE', ['Appearance', 'Darstellung']],
+  ['overview', 'GRID', ['Overview', 'Übersicht']],
+  ['messages', 'CHAT', ['Messages', 'Nachrichten']],
+  ['notifications', 'BELL', ['Notifications', 'Benachrichtigungen']],
+  ['history', 'CLOCK', ['History', 'Verlauf']],
+  ['shortcuts', 'KEYBOARD', ['Keyboard', 'Tastatur']],
+  ['connection', 'LINK', ['Connection', 'Verbindung']],
+  ['advanced', 'WRENCH', ['Advanced', 'Erweitert']],
+  ['about', 'INFO', ['About', 'Über']],
+];
+const SCHEMA = [
+  // General
+  { k: 'lang', cat: 'general', type: 'seg', def: '', opts: [opt('', 'Browser'), opt('en', 'English'), opt('de', 'Deutsch')],
+    label: ['Language', 'Sprache'], hint: ['Of this page; Claude answers in its own', 'Dieser Seite; Claude antwortet in seiner eigenen'] },
+  { k: 'clock', cat: 'general', type: 'seg', def: '24', opts: [opt('24', '24 h'), opt('12', '12 h')],
+    label: ['Time format', 'Zeitformat'] },
+  { k: 'relTimes', cat: 'general', type: 'switch', def: true, label: ['Relative times', 'Relative Zeiten'],
+    hint: ['“5 min ago” instead of the clock time on cards', '„vor 5 min“ statt der Uhrzeit auf den Karten'] },
+  { k: 'startPage', cat: 'general', type: 'select', def: 'overview',
+    opts: [opt('overview', 'Overview', 'Übersicht'), opt('messages', 'Messages', 'Nachrichten'), opt('history', 'History', 'Verlauf')],
+    label: ['Start page', 'Startseite'], hint: ['What opens when the address names no page', 'Was öffnet, wenn die Adresse keine Seite nennt'] },
+  { k: 'navHistory', cat: 'general', type: 'switch', def: true, label: ['History in the navigation', 'Verlauf in der Navigation'] },
+  { k: 'confirmStop', cat: 'general', type: 'switch', def: true, label: ['Ask before stopping a mission', 'Vor dem Stoppen eines Auftrags fragen'] },
+
+  // Appearance
+  { k: 'theme', cat: 'appearance', type: 'seg', def: 'system',
+    opts: [opt('system', 'System'), opt('light', 'Light', 'Hell'), opt('dark', 'Dark', 'Dunkel')],
+    label: ['Color scheme', 'Farbschema'], hint: ['Follow the system or choose one', 'Wie das System oder fest gewählt'] },
+  { k: 'accent', cat: 'appearance', type: 'custom', def: 'mono', choices: ['mono', 'blue', 'green', 'violet', 'orange', 'custom'],
+    label: ['Accent color', 'Akzentfarbe'], hint: ['Buttons, links, switches and the active page', 'Knöpfe, Links, Schalter und die aktive Seite'], render: accentControl },
+  { k: 'accentCustom', type: 'hidden', def: '#0a84ff' },
+  { k: 'font', cat: 'appearance', type: 'seg', def: 'system',
+    opts: [opt('system', 'System'), opt('rounded', 'Rounded', 'Rund'), opt('serif', 'Serif'), opt('mono', 'Mono')],
+    label: ['App font', 'Schrift'] },
+  { k: 'zoom', cat: 'appearance', type: 'range', def: 100, min: 80, max: 130, step: 5, unit: ' %', live: true,
+    label: ['Scale', 'Größe'], hint: ['Text and controls together', 'Text und Bedienelemente zusammen'] },
+  { k: 'radius', cat: 'appearance', type: 'seg', def: '10',
+    opts: [opt('0', 'Sharp', 'Eckig'), opt('6', 'Small', 'Klein'), opt('10', 'Medium', 'Mittel'), opt('16', 'Round', 'Rund')],
+    label: ['Corners', 'Ecken'] },
+  { k: 'density', cat: 'appearance', type: 'seg', def: 'comfortable',
+    opts: [opt('comfortable', 'Comfortable', 'Bequem'), opt('compact', 'Compact', 'Kompakt')],
+    label: ['Density', 'Dichte'], hint: ['Compact shows more at a glance', 'Kompakt zeigt mehr auf einen Blick'] },
+  { k: 'contrast', cat: 'appearance', type: 'switch', def: false, label: ['Higher contrast', 'Mehr Kontrast'],
+    hint: ['Darker secondary text, stronger lines', 'Dunklerer Nebentext, kräftigere Linien'] },
+  { k: 'avatars', cat: 'appearance', type: 'seg', def: 'color', opts: [opt('color', 'Colored', 'Farbig'), opt('mono', 'Monochrome', 'Einfarbig')],
+    label: ['Avatars', 'Avatare'] },
+  { k: 'tint', cat: 'appearance', type: 'custom', def: 0, min: 0, max: 40,
+    label: ['Sidebar tint', 'Seitenleiste tönen'], hint: ['A color wash behind the navigation', 'Ein Farbschleier hinter der Navigation'], render: tintControl },
+  { k: 'tintColor', type: 'hidden', def: '#6d28d9' },
+  { k: 'motion', cat: 'appearance', type: 'seg', def: 'system',
+    opts: [opt('system', 'System'), opt('reduce', 'Reduced', 'Reduziert'), opt('full', 'Full', 'Voll')],
+    label: ['Animations', 'Animationen'] },
+
+  // Overview
+  { k: 'showKpis', cat: 'overview', type: 'switch', def: true, label: ['Figures at the top', 'Kennzahlen oben'] },
+  { k: 'showAttention', cat: 'overview', type: 'switch', def: true, label: ['“Needs your attention”', '„Braucht dich“'],
+    hint: ['Your approvals, API errors, conflicts and forged messages', 'Deine Freigaben, API-Fehler, Konflikte und gefälschte Nachrichten'] },
+  { k: 'showMissions', cat: 'overview', type: 'switch', def: true, label: ['Missions', 'Aufträge'] },
+  { k: 'groupBy', cat: 'overview', type: 'seg', def: 'person',
+    opts: [opt('person', 'Person'), opt('repo', 'Repo'), opt('state', 'State', 'Zustand'), opt('none', 'None', 'Keine')],
+    label: ['Group sessions by', 'Sessions gruppieren nach'] },
+  { k: 'sortBy', cat: 'overview', type: 'seg', def: 'state',
+    opts: [opt('state', 'State', 'Zustand'), opt('recent', 'Last activity', 'Letzte Aktivität'), opt('repo', 'Repo')],
+    label: ['Sort sessions by', 'Sessions sortieren nach'] },
+  { k: 'mineFirst', cat: 'overview', type: 'switch', def: true, label: ['My sessions first', 'Meine Sessions zuerst'] },
+  { k: 'layout', cat: 'overview', type: 'seg', def: 'grid', opts: [opt('grid', 'Cards', 'Karten'), opt('list', 'List', 'Liste')],
+    label: ['Layout', 'Anordnung'] },
+  { k: 'filesPerCard', cat: 'overview', type: 'range', def: 6, min: 0, max: 12, step: 1,
+    label: ['Files per session', 'Dateien je Session'], hint: ['0 hides the files', '0 blendet die Dateien aus'] },
+  { k: 'showBranch', cat: 'overview', type: 'switch', def: true, label: ['Branch on the card', 'Branch auf der Karte'] },
+  { k: 'showOverlaps', cat: 'overview', type: 'switch', def: true, label: ['Overlaps on the card', 'Überschneidungen auf der Karte'] },
+  { k: 'showQuiet', cat: 'overview', type: 'switch', def: true, label: ['Quiet sessions', 'Ruhige Sessions'],
+    hint: ['Sessions in which nothing has happened for a while', 'Sessions, in denen länger nichts passiert ist'] },
+  { k: 'showLocal', cat: 'overview', type: 'switch', def: true, label: ['My sessions outside the team repos', 'Meine Sessions außerhalb der Team-Repos'],
+    hint: ['Only you see them, they never leave this machine', 'Nur du siehst sie, sie verlassen diesen Rechner nie'] },
+  { k: 'showCodex', cat: 'overview', type: 'switch', def: true, label: ['Codex sessions', 'Codex-Sessions'] },
+  { k: 'hideEmpty', cat: 'overview', type: 'switch', def: false, label: ['Hide people without a session', 'Personen ohne Session ausblenden'] },
+  { k: 'wall', cat: 'overview', type: 'switch', def: false, label: ['Wall display', 'Wanddisplay'],
+    hint: ['Only the overview, without navigation: for a second screen or a TV. Esc or W leaves it', 'Nur die Übersicht, ohne Navigation: für einen zweiten Bildschirm oder einen Fernseher. Esc oder W beendet es'] },
+
+  // Messages
+  { k: 'mailFilter', cat: 'messages', type: 'seg', def: 'mine', opts: [opt('mine', 'Mine', 'Meine'), opt('all', 'All', 'Alle')],
+    label: ['Show by default', 'Standardmäßig zeigen'] },
+  { k: 'defaultTo', cat: 'messages', type: 'select', def: '', label: ['Default recipient', 'Standard-Empfänger'],
+    opts: () => [opt('', 'First in the list', 'Erste in der Liste'), ...(data ? data.people.filter((p) => p.login !== data.me).map((p) => [p.login, p.name]) : [])] },
+  { k: 'enterSends', cat: 'messages', type: 'switch', def: false, label: ['Send with Enter', 'Mit Enter senden'],
+    hint: () => L([`Shift+Enter for a new line. Off: ${keysHint()} sends`, `Umschalt+Enter für eine neue Zeile. Aus: ${keysHint()} sendet`]) },
+  { k: 'confirmAll', cat: 'messages', type: 'switch', def: true, label: ['Ask before sending to everyone', 'Vor dem Senden an alle fragen'],
+    hint: ['Every message can wake a session on the other side', 'Jede Nachricht kann drüben eine Session wecken'] },
+  { k: 'drafts', cat: 'messages', type: 'switch', def: true, label: ['Keep unsent text', 'Ungesendeten Text behalten'],
+    hint: ['Survives a reload, in this browser', 'Übersteht ein Neuladen, in diesem Browser'] },
+  { k: 'bubbles', cat: 'messages', type: 'seg', def: 'chat', opts: [opt('chat', 'Chat'), opt('list', 'List', 'Liste')],
+    label: ['Layout', 'Anordnung'], hint: ['Chat puts your own messages on the right', 'Chat stellt deine eigenen Nachrichten nach rechts'] },
+  { k: 'msgTime', cat: 'messages', type: 'seg', def: 'clock', opts: [opt('clock', 'Clock', 'Uhrzeit'), opt('relative', 'Relative', 'Relativ')],
+    label: ['Time on messages', 'Zeit an Nachrichten'] },
+  { k: 'daySeps', cat: 'messages', type: 'switch', def: true, label: ['Day separators', 'Tagestrenner'] },
+  { k: 'showSeals', cat: 'messages', type: 'switch', def: true, label: ['Signature marks', 'Signatur-Zeichen'],
+    hint: ['A shield on messages signed with the sender’s GitHub key', 'Ein Schild an Nachrichten mit dem GitHub-Schlüssel des Absenders'] },
+
+  // Notifications
+  { k: 'notifyOn', cat: 'notifications', type: 'switch', def: true, label: ['Notifications', 'Benachrichtigungen'],
+    hint: ['Off silences the page, the counter on Messages stays', 'Aus macht die Seite still, der Zähler an Nachrichten bleibt'] },
+  { k: 'toasts', cat: 'notifications', type: 'switch', def: true, label: ['Notices in the page', 'Hinweise in der Seite'], when: () => settings.notifyOn },
+  { k: 'toastPos', cat: 'notifications', type: 'seg', def: 'br', when: () => settings.notifyOn && settings.toasts,
+    opts: [opt('br', 'Bottom right', 'Unten rechts'), opt('tr', 'Top right', 'Oben rechts'), opt('bl', 'Bottom left', 'Unten links'), opt('tl', 'Top left', 'Oben links')],
+    label: ['Position', 'Position'] },
+  { k: 'toastSecs', cat: 'notifications', type: 'range', def: 9, min: 3, max: 30, step: 1, unit: ' s', when: () => settings.notifyOn && settings.toasts,
+    label: ['Show for', 'Anzeigedauer'] },
+  { k: 'bell', cat: 'notifications', type: 'switch', def: false, set: toggleBell, when: () => settings.notifyOn,
+    label: ['Browser notifications', 'Browser-Benachrichtigungen'], hint: ['Also while this tab is in the background', 'Auch wenn dieser Tab im Hintergrund ist'] },
+  { k: 'onlyHidden', cat: 'notifications', type: 'switch', def: false, when: () => settings.notifyOn,
+    label: ['Only while the tab is in the background', 'Nur wenn der Tab im Hintergrund ist'] },
+  { k: 'sound', cat: 'notifications', type: 'switch', def: false, when: () => settings.notifyOn, label: ['Sound', 'Ton'] },
+  { k: 'soundKind', cat: 'notifications', type: 'custom', def: 'chime', choices: ['ping', 'chime', 'soft'], when: () => settings.notifyOn && settings.sound,
+    label: ['Tone', 'Klang'], render: soundControl },
+  { k: 'volume', cat: 'notifications', type: 'range', def: 60, min: 0, max: 100, step: 5, unit: ' %', when: () => settings.notifyOn && settings.sound,
+    label: ['Volume', 'Lautstärke'] },
+  { k: 'nMail', cat: 'notifications', type: 'switch', def: true, group: ['When', 'Wann'], when: () => settings.notifyOn, label: ['Messages to me', 'Nachrichten an mich'] },
+  { k: 'nFyi', cat: 'notifications', type: 'switch', def: false, when: () => settings.notifyOn, label: ['Messages to everyone', 'Nachrichten an alle'] },
+  { k: 'nApproval', cat: 'notifications', type: 'switch', def: true, when: () => settings.notifyOn, label: ['My sessions waiting for approval', 'Meine Sessions warten auf Freigabe'] },
+  { k: 'nTeamApproval', cat: 'notifications', type: 'switch', def: false, when: () => settings.notifyOn, label: ['Teammates waiting for approval', 'Kollegen warten auf Freigabe'] },
+  { k: 'nOverlap', cat: 'notifications', type: 'switch', def: true, when: () => settings.notifyOn, label: ['New overlaps', 'Neue Überschneidungen'] },
+  { k: 'nConflict', cat: 'notifications', type: 'switch', def: true, when: () => settings.notifyOn, label: ['Conflicts', 'Konflikte'] },
+  { k: 'nError', cat: 'notifications', type: 'switch', def: true, when: () => settings.notifyOn, label: ['API errors', 'API-Fehler'] },
+  { k: 'nForged', cat: 'notifications', type: 'switch', def: true, when: () => settings.notifyOn, label: ['Forged messages', 'Gefälschte Nachrichten'] },
+  { k: 'nMission', cat: 'notifications', type: 'switch', def: true, when: () => settings.notifyOn, label: ['Missions started, joined or ended', 'Aufträge gestartet, beigetreten, beendet'] },
+  { k: 'titleCount', cat: 'notifications', type: 'switch', def: true, group: ['In the tab', 'Im Tab'], label: ['Counter in the tab title', 'Zähler im Tab-Titel'],
+    hint: ['For example (2) Synchronauts', 'Etwa (2) Synchronauts'] },
+  { k: 'faviconBadge', cat: 'notifications', type: 'switch', def: true, label: ['Badge on the tab icon', 'Punkt am Tab-Symbol'] },
+
+  // History
+  { k: 'histHours', cat: 'history', type: 'seg', def: '24', opts: [opt('1', '1 h'), opt('6', '6 h'), opt('24', '24 h')],
+    label: ['Time window', 'Zeitraum'] },
+  { k: 'histKind', cat: 'history', type: 'select', def: 'all',
+    opts: [opt('all', 'Everything', 'Alles'), opt('work', 'Repos, files, tasks', 'Repos, Dateien, Vorhaben'), opt('mail', 'Messages', 'Nachrichten'),
+      opt('alerts', 'Warnings and approvals', 'Warnungen und Freigaben'), opt('missions', 'Missions', 'Aufträge')],
+    label: ['Show by default', 'Standardmäßig zeigen'] },
+  { k: 'histOwn', cat: 'history', type: 'switch', def: true, label: ['My own events', 'Meine eigenen Ereignisse'] },
+  { k: 'histDays', cat: 'history', type: 'switch', def: true, label: ['Group by day', 'Nach Tagen gruppieren'] },
+
+  // Keyboard
+  { k: 'shortcuts', cat: 'shortcuts', type: 'switch', def: true, label: ['Keyboard shortcuts', 'Tastenkürzel'],
+    hint: ['⌘K always works', '⌘K geht immer'] },
+
+  // Connection
+  { k: 'poll', cat: 'connection', type: 'seg', def: '2', opts: [opt('1', '1 s'), opt('2', '2 s'), opt('5', '5 s'), opt('10', '10 s')],
+    label: ['Refresh', 'Aktualisieren'], hint: ['How often the page asks the local server; the room itself syncs on its own', 'Wie oft die Seite beim lokalen Server fragt; der Raum gleicht sich selbst ab'] },
+  { k: 'pollHidden', cat: 'connection', type: 'seg', def: '15', opts: [opt('15', '15 s'), opt('60', '60 s'), opt('0', 'Pause')],
+    label: ['Refresh in the background', 'Im Hintergrund aktualisieren'] },
+
+  // Advanced
+  { k: 'devInfo', cat: 'advanced', type: 'switch', def: false, label: ['Developer view', 'Entwickleransicht'],
+    hint: ['The raw data of the page, below', 'Die Rohdaten der Seite, unten'] },
+  { k: 'export', cat: 'advanced', type: 'custom', label: ['Export and import', 'Exportieren und importieren'],
+    hint: ['As a JSON file, for another browser', 'Als JSON-Datei, für einen anderen Browser'], render: () => [
+      h('button', { class: 'btn', type: 'button', onclick: exportSettings }, icon('DOWNLOAD'), L(['Export', 'Exportieren'])),
+      h('button', { class: 'btn', type: 'button', onclick: importSettings }, icon('UPLOAD'), L(['Import', 'Importieren']))] },
+  { k: 'reset', cat: 'advanced', type: 'custom', label: ['Reset settings', 'Einstellungen zurücksetzen'],
+    hint: ['Back to the defaults, in this browser', 'Zurück auf die Vorgaben, in diesem Browser'], render: () =>
+      h('button', { class: 'btn danger', type: 'button', onclick: () => {
+        if (!confirm(L(['Reset all settings?', 'Alle Einstellungen zurücksetzen?']))) return;
+        settings = { ...DEFAULTS };
+        store('syn-settings', null);
+        applySettings();
+        toast(L(['Settings reset', 'Einstellungen zurückgesetzt']), '', 'info');
+      } }, L(['Reset', 'Zurücksetzen'])) },
+];
+const SHORTCUTS = [
+  [['⌘', 'K'], ['Search and commands', 'Suchen und Befehle']],
+  [['G', 'O'], ['Overview', 'Übersicht']],
+  [['G', 'M'], ['Messages', 'Nachrichten']],
+  [['G', 'H'], ['History', 'Verlauf']],
+  [['G', 'S'], ['Settings', 'Einstellungen']],
+  [['N'], ['New message', 'Neue Nachricht']],
+  [['D'], ['Dark mode on or off', 'Dunkelmodus an oder aus']],
+  [['W'], ['Wall display', 'Wanddisplay']],
+  [['/'], ['Search (settings) or commands', 'Suchen (Einstellungen) oder Befehle']],
+  [['?'], ['This list', 'Diese Liste']],
+  [['Esc'], ['Close, leave the wall display', 'Schließen, Wanddisplay verlassen']],
+];
+const DEFAULTS = Object.fromEntries(SCHEMA.filter((e) => 'def' in e).map((e) => [e.k, e.def]));
+
+function sanitize(saved) {  // only known keys with a value of the right kind; anything else falls back to the default
+  const out = { ...DEFAULTS };
+  for (const e of SCHEMA.filter((x) => 'def' in x)) {
+    const v = saved[e.k];
+    if (v == null || typeof v !== typeof e.def) continue;
+    const allowed = e.choices || (Array.isArray(e.opts) ? e.opts.map((o) => o[0]) : null);
+    if (allowed && !allowed.includes(v)) continue;
+    if (typeof v === 'number') { out[e.k] = Math.min(e.max ?? v, Math.max(e.min ?? v, v)); continue; }
+    if (/Color$|Custom$/.test(e.k) && !/^#[0-9a-f]{6}$/i.test(v)) continue;
+    out[e.k] = v;
+  }
+  return out;
+}
+function loadSettings() {
+  let saved = {};
+  try { saved = JSON.parse(store('syn-settings') || '{}') || {}; } catch (_) { saved = {}; }
+  // until 0.4 three separate keys
+  const old = { theme: store('syn-theme'), lang: store('syn-lang'), bell: store('syn-bell') === 'on' || undefined };
+  return sanitize({ ...old, ...saved });
+}
+let settings = loadSettings();
+function save(patch) {
+  settings = sanitize({ ...settings, ...patch });
+  store('syn-settings', JSON.stringify(settings));
+  for (const k of ['syn-theme', 'syn-lang', 'syn-bell']) store(k, null);
+  applySettings();
+}
+const autoLang = () => ((navigator.language || '').toLowerCase().startsWith('de') ? 'de' : 'en');
+let lang = settings.lang || autoLang();
+const darkQuery = matchMedia('(prefers-color-scheme: dark)');
+const isDark = () => (settings.theme === 'system' ? darkQuery.matches : settings.theme === 'dark');
+const keysHint = () => t(/Mac|iPhone|iPad/.test(navigator.platform) ? 'form.keys.mac' : 'form.keys.other');
 
 let fmt, plural;
 function setFormats() {  // Intl formatters for the active language (the browser's own region wins if it speaks it)
   const nav = navigator.language || '', locale = nav.toLowerCase().startsWith(lang) ? nav : lang;
   fmt = {
-    time: new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }),
+    time: new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit', hourCycle: settings.clock === '12' ? 'h12' : 'h23' }),
     day: new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'short' }),
     weekday: new Intl.DateTimeFormat(locale, { weekday: 'short', day: 'numeric', month: 'short' }),
   };
@@ -767,10 +1453,13 @@ const t = (key, ...args) => tpl(key, args[0]).replace(/\{(\d+)\}/g, (_, i) => ar
 const tx = (key, ...args) => tpl(key).split(/\{(\d+)\}/).map((part, i) => (i % 2 ? args[part] : part));  // args may be nodes
 
 // --- State ------------------------------------------------------------------
-let data = null, etag = '', fetchedAt = null, connected = null, connKind = '', filter = 'mine';
-let timer = 0, busy = false, first = true, unread = 0, optionsKey = '';
-const seen = { mail: new Set(), state: new Map(), overlap: new Set() };
-const freshMail = new Set();
+let data = null, etag = '', fetchedAt = null, connected = null, connKind = '';
+let timer = 0, busy = false, first = true, unread = 0, optionsKey = '', histKey = '';
+let view = 'overview', setCat = 'general', setQuery = '';
+let mailFilter = settings.mailFilter, mailPerson = '', histPerson = '', histKind = settings.histKind;
+const seen = { mail: new Set(), state: new Map(), overlap: new Set(), mission: new Map() };
+const freshMail = new Set();   // to me since the page opened, highlighted for a while
+const unseenMail = new Set();  // to me and not looked at yet: the badge on Messages
 
 // --- Helpers ------------------------------------------------------------------
 
@@ -791,12 +1480,14 @@ function h(tag, attrs, ...children) {
 function fill(el, ...children) {  // replaceChildren would turn a null into the text "null"
   el.replaceChildren(...children.flat(Infinity).filter((c) => c != null && c !== false));
 }
-function icon(...paths) {  // fixed path data from this script only
+function icon(name) {
   const ns = 'http://www.w3.org/2000/svg', svg = document.createElementNS(ns, 'svg');
-  for (const [k, v] of Object.entries({ viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'stroke-linejoin': 'round', 'aria-hidden': 'true' })) svg.setAttribute(k, v);
-  for (const d of paths) { const p = document.createElementNS(ns, 'path'); p.setAttribute('d', d); svg.append(p); }
+  for (const [k, v] of Object.entries({ viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.9',
+    'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true' })) svg.setAttribute(k, v);
+  for (const d of ICONS[name] || []) { const p = document.createElementNS(ns, 'path'); p.setAttribute('d', d); svg.append(p); }
   return svg;
 }
+function icons() { for (const el of $$('[data-icon]')) el.replaceWith(icon(el.dataset.icon)); }
 
 const list = (v) => (Array.isArray(v) ? v : []);
 const cls = (v) => String(v).replace(/[^\w-]/g, '');  // remote data in a class name: letters, digits, - and _ only
@@ -821,6 +1512,11 @@ function ago(s) {
   }
   return stamp(s);
 }
+const when = (s) => (settings.relTimes ? ago(s) : stamp(s));
+function dur(ms) {
+  const m = Math.max(1, Math.round(ms / 6e4)), hours = Math.floor(m / 60), min = m % 60;
+  return hours ? (min ? t('dur.hourMin', hours, min) : t('dur.hour', hours)) : t('dur.min', min);
+}
 function dayLabel(s) {
   const d = toDate(s);
   if (!d) return '';
@@ -842,6 +1538,8 @@ const loginOf = (key) => String(key || '').split('/')[0];
 const hasRepos = (s) => Object.keys(s.repos || {}).length > 0;
 const shorten = (s, n) => { s = String(s || ''); return s.length > n ? `${s.slice(0, n - 1)}…` : s; };
 const sessionOf = (key) => data.sessions.find((s) => s.key === key);
+const mini = (login) => h('span', { class: 'mini-avatar', style: { '--hue': hue(login) }, 'aria-hidden': 'true' }, initials(name(login)));
+const kbd = (k) => h('kbd', { class: 'kbd' }, k);
 function mainRepo(s) {
   const e = Object.entries(s.repos || {}).sort((a, b) => String(b[1].last || '').localeCompare(String(a[1].last || '')));
   return e.length ? e[0][0] : null;
@@ -853,6 +1551,15 @@ function who(key, from) {  // a session, seen from a session of the person `from
 }
 const whoDat = (key, from) => (loginOf(key) === from ? t('who.otherDat', name(from)) : name(loginOf(key)));
 const where = (s) => (mainRepo(s) ? t('where', short(mainRepo(s))) : s.cwd ? t('where', s.cwd) : '');
+const pairKey = (o) => [o.a, o.b].sort().concat(o.repo).join('|');
+function serious(d) {  // overlaps worth a warning: no plain "same repo", nothing within a mission, a conflict instead of its file row
+  const conflicts = new Set(d.overlaps.filter((o) => o.kind === 'conflict').map(pairKey));
+  return d.overlaps.filter((o) => o.kind !== 'repo' && !o.mission && !(o.kind === 'file' && conflicts.has(pairKey(o))));
+}
+function readableOn(hex) {  // black or white text on a color, whichever reads better
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.4 ? '#000000' : '#ffffff';
+}
 
 // --- Loading ------------------------------------------------------------------
 
@@ -878,7 +1585,8 @@ async function load() {
   } finally {
     busy = false;
     liveRender();
-    timer = setTimeout(load, document.hidden ? 15000 : 2000);
+    const hidden = +settings.pollHidden;
+    timer = setTimeout(load, document.hidden ? (hidden ? hidden * 1000 : 6e5) : +settings.poll * 1000);
   }
 }
 
@@ -889,11 +1597,11 @@ function connection(kind) {
   if (connected) { el.hidden = true; return; }
   fill(el,
     h('span', {}, kind === 'restarted' ? t('conn.restarted') : tx('conn.down', h('code', {}, `${CMD} ui`))),
-    h('button', { class: 'link', type: 'button', onclick: () => location.reload() }, t('conn.reload')));
+    h('button', { class: 'btn small', type: 'button', onclick: () => location.reload() }, t('conn.reload')));
   el.hidden = false;
 }
 
-// --- Telling: toast, tab title, browser notification ---------------------------
+// --- Telling: toast, sound, tab title, tab icon, browser notification ---------------
 
 function notify() {
   const d = data, me = d.me;
@@ -902,79 +1610,168 @@ function notify() {
     seen.mail.add(n.id);
     if (first || n.from === me || !list(n.to).includes(me)) continue;
     freshMail.add(n.id);
-    toast(t('toast.mail', name(n.from)), shorten(n.text, 160), 'mail');
+    if (!(view === 'messages' && !document.hidden)) unseenMail.add(n.id);
+    if (n.trust === 'bad') {
+      if (settings.nForged) toast(L(['Forged message', 'Gefälschte Nachricht']), t('attn.forged', name(n.from)), 'red');
+    } else if (list(n.to).length > 1 ? settings.nFyi : settings.nMail) {
+      toast(t('toast.mail', name(n.from)), shorten(n.text, 160), 'mail');
+    }
   }
   for (const s of d.sessions) {
     const before = seen.state.get(s.key);
     seen.state.set(s.key, s.state);
-    if (!first && s.login === me && s.state === 'approval' && before !== 'approval') {
-      toast(t('toast.approval'), t('toast.approvalBody', where(s)).replace(/ {2,}/g, ' '), 'approval');
+    if (first || before === s.state) continue;
+    const mine = s.login === me;
+    if (s.state === 'approval' && (mine ? settings.nApproval : settings.nTeamApproval)) {
+      toast(t('toast.approval'), mine ? t('toast.approvalBody', where(s)).replace(/ {2,}/g, ' ')
+        : L([`${name(s.login)} is waiting for an approval ${where(s)}`, `${name(s.login)} wartet auf eine Freigabe ${where(s)}`]), 'approval');
     }
+    if (s.state === 'error' && settings.nError) toast(t('state.error'), t('attn.error', `${mine ? t('mail.you') : name(s.login)} ${where(s)}`), 'red');
   }
-  for (const o of d.overlaps) {
-    if (o.kind === 'repo' || o.mission) continue;
+  for (const o of serious(d)) {
     const key = [o.a, o.b, o.repo, o.kind, list(o.files).join(',')].join('|');
     if (seen.overlap.has(key)) continue;
     seen.overlap.add(key);
     const mine = [o.a, o.b].find((x) => loginOf(x) === me);
-    if (first || !mine) continue;
+    if (first || !mine || !(o.kind === 'conflict' ? settings.nConflict : settings.nOverlap)) continue;
     const other = cap(who(mine === o.a ? o.b : o.a, me));
     toast(t('toast.overlap'), o.kind === 'conflict' ? t('toast.conflict', other, short(o.repo), list(o.files).join(', '))
-      : o.kind === 'file'
-      ? t('toast.overlapFile', other, short(o.repo), list(o.files).join(', '))
-      : t('toast.overlapBranch', other, short(o.repo)), 'warning');
+      : o.kind === 'file' ? t('toast.overlapFile', other, short(o.repo), list(o.files).join(', '))
+        : t('toast.overlapBranch', other, short(o.repo)), 'warning');
+  }
+  for (const m of list(d.missions)) {
+    const key = `${m.live}|${list(m.joined).length}|${m.ended ? 1 : 0}`, before = seen.mission.get(m.id);
+    seen.mission.set(m.id, key);
+    if (first || before === key || !settings.nMission) continue;
+    toast(t('mission.title'), m.ended ? (m.ended.summary ? t('mission.result', m.ended.summary) : t('mission.ended', hhmm(m.ended.time), name(m.ended.by)))
+      : !m.live ? t('mission.over') : shorten(m.plan, 140), 'mail');
   }
   first = false;
 }
 
 function toast(title, text, kind) {
-  const el = h('div', { class: `toast ${kind}`, role: 'status' }, h('strong', {}, title), h('div', {}, text));
-  $('#toasts').append(el);
-  setTimeout(() => el.remove(), 9000);
+  const info = kind === 'info';
+  if (!info && (!settings.notifyOn || (settings.onlyHidden && !document.hidden))) return;
+  if (settings.toasts || info) {
+    const sym = { mail: 'CHAT', approval: 'ALERT', warning: 'ALERT', red: 'ALERT' }[kind] || 'INFO';
+    const el = h('div', { class: `toast ${cls(kind)}`, role: 'status' }, icon(sym),
+      h('div', {}, h('strong', {}, title), text ? h('div', {}, text) : null),
+      h('button', { class: 'toast-x', type: 'button', 'aria-label': L(['Close', 'Schließen']), onclick: () => el.remove() }, icon('X')));
+    $('#toasts').append(el);
+    setTimeout(() => el.remove(), (info ? 4 : settings.toastSecs) * 1000);
+  }
+  if (info) return;
+  if (settings.sound) playSound();
   if (document.hidden) { unread++; setTitle(); }
-  if (document.hidden && bell && 'Notification' in window && Notification.permission === 'granted') {
+  if (document.hidden && settings.bell && 'Notification' in window && Notification.permission === 'granted') {
     try { new Notification(title, { body: text, tag: `${kind}:${title}:${text}`.slice(0, 120) }); } catch (_) { /* never mind */ }
   }
 }
 
+let audio = null;
+function playSound(kind = settings.soundKind) {  // short tones from WebAudio: no sound files to load
+  try {
+    audio = audio || new (window.AudioContext || window.webkitAudioContext)();
+    const tones = { ping: [[880, 0, 0.14]], chime: [[660, 0, 0.12], [990, 0.12, 0.22]], soft: [[440, 0, 0.3]] }[kind] || [];
+    const vol = (settings.volume / 100) * 0.25;
+    for (const [freq, at, len] of tones) {
+      const o = audio.createOscillator(), g = audio.createGain(), t0 = audio.currentTime + at;
+      o.type = kind === 'soft' ? 'triangle' : 'sine';
+      o.frequency.value = freq;
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.exponentialRampToValueAtTime(Math.max(vol, 0.0002), t0 + 0.012);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + len);
+      o.connect(g).connect(audio.destination);
+      o.start(t0);
+      o.stop(t0 + len + 0.03);
+    }
+  } catch (_) { /* no audio here */ }
+}
+
+const BASE_ICON = $('link[rel="icon"]').href;
+let badgeShown = 0;
 function setTitle() {
   const approvals = data ? data.sessions.filter((s) => s.login === data.me && s.state === 'approval').length : 0;
   const n = unread + approvals;
-  document.title = `${n ? `(${n}) ` : ''}Synchronauts`;
+  document.title = `${settings.titleCount && n ? `(${n}) ` : ''}Synchronauts`;
+  badge(settings.faviconBadge ? n : 0);
 }
+function badge(n) {  // a red dot with the count on the tab icon, drawn into a data: URL (the page allows img-src data:)
+  if (n === badgeShown) return;
+  badgeShown = n;
+  const link = $('link[rel="icon"]');
+  if (!n) { link.href = BASE_ICON; return; }
+  const img = new Image();
+  img.onload = () => {
+    const c = h('canvas', { width: '64', height: '64' }), g = c.getContext('2d');
+    g.drawImage(img, 0, 0, 64, 64);
+    g.fillStyle = '#ef4444';
+    g.beginPath(); g.arc(46, 18, 17, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#fff'; g.font = 'bold 22px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillText(n > 9 ? '9+' : String(n), 46, 19);
+    if (badgeShown === n) link.href = c.toDataURL('image/png');
+  };
+  img.src = BASE_ICON;
+}
+
+// --- Navigation -----------------------------------------------------------------
+// Pages live in the address (#/messages, #/settings/notifications): the back button works and a link opens a page.
+
+function show(path) {
+  const [v, sub] = String(path || '').split('/');
+  view = VIEWS.includes(v) ? v : settings.startPage;
+  if (settings.wall) view = 'overview';
+  if (view === 'settings' && CATS.some((c) => c[0] === sub)) setCat = sub;
+  for (const v2 of VIEWS) $(`#view-${v2}`).hidden = v2 !== view;
+  for (const a of $$('[data-view]')) {
+    if (a.dataset.view === view) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
+  }
+  if (view === 'messages') unseenMail.clear();
+  if (view === 'settings') settingsRender();
+  render();
+  if (view === 'messages') { const box = $('#mail'); box.scrollTop = box.scrollHeight; }
+}
+function go(path) {
+  if (location.hash !== `#/${path}`) history.pushState(null, '', `#/${path}`);
+  if (path.split('/')[0] !== view) window.scrollTo(0, 0);
+  show(path);
+}
+window.addEventListener('hashchange', () => { show(location.hash.replace(/^#\/?/, '')); window.scrollTo(0, 0); });
+
+function jump(key) {
+  go('overview');
+  const el = $$('.session[data-key]').find((x) => x.dataset.key === key);
+  if (!el) return;
+  el.scrollIntoView({ block: 'center', behavior: reducedMotion() ? 'auto' : 'smooth' });
+  el.classList.remove('flash');
+  void el.offsetWidth;  // restart the animation
+  el.classList.add('flash');
+}
+const reducedMotion = () => settings.motion === 'reduce' || (settings.motion === 'system' && matchMedia('(prefers-reduced-motion: reduce)').matches);
 
 // --- Drawing ------------------------------------------------------------------
 
 function render() {
   if (!data) return;
-  headRender();
-  boardRender();
-  recipients();
-  mailRender();
-  historyRender();
-  count();
-  $('#foot').textContent = data.room ? t('foot', data.version, data.room, list(data.orgs).join(', ')) : t('foot.solo', data.version);
+  shellRender();
+  if (view === 'overview') overviewRender();
+  if (view === 'messages') { recipients(); mailRender(); count(); }
+  if (view === 'history') historyRender();
+  if (view === 'settings') { if (!settingsData) settingsRender(); else { connRender(); devRender(); } }
   setTitle();
 }
 
-const stat = (n, label, kind = '') => h('span', { class: `stat ${kind}` }, h('b', {}, String(n)), label);
-
-function headRender() {
+function shellRender() {
   const d = data;
   $('#room').textContent = d.room || t('room.solo');
   $('#room').title = d.room ? t('room.tip') : t('room.solo.tip');
-  const active = d.sessions.filter((s) => hasRepos(s) && s.state !== 'quiet').length;
-  const approvals = d.sessions.filter((s) => s.state === 'approval').length;
-  const serious = d.overlaps.filter((o) => o.kind !== 'repo' && !o.mission).length;
-  fill($('#stats'),
-    stat(active, t('stat.active', active)),
-    stat(d.people.length, t('stat.people', d.people.length)),
-    approvals ? stat(approvals, t('stat.approval', approvals), 'warn') : null,
-    serious ? stat(serious, t('stat.overlaps', serious), 'red') : null);
+  const attention = attentionRows().length;
+  for (const el of $$('[data-count="overview"]')) el.textContent = attention ? String(attention) : '';
+  for (const el of $$('[data-count="messages"]')) el.textContent = unseenMail.size ? String(unseenMail.size) : '';
 }
 
 function liveRender() {
-  const el = $('#live'), when = toDate(fetchedAt), age = when ? (Date.now() - when) / 1000 : null;
+  const at = toDate(fetchedAt), age = at ? (Date.now() - at) / 1000 : null;
   let text = t('live.ok'), kind = '';
   if (connected === false) { text = t('live.off'); kind = 'off'; }
   else if (connected === null) text = t('live.connecting');
@@ -982,56 +1779,147 @@ function liveRender() {
   else if (age == null) text = t('live.waiting');
   else if (age > 60) { text = t('live.synced', ago(fetchedAt)); kind = 'degraded'; }
   else if (age > 15) text = t('live.synced', t('ago.sec', Math.round(age)));
-  el.className = `live ${kind}`;
-  $('#live-text').textContent = text;
-  el.title = data && data.error ? data.error : t('live.tip');
+  for (const el of $$('[data-live]')) {
+    el.className = `live ${kind}`;
+    el.title = data && data.error ? data.error : t('live.tip');
+    el.querySelector('[data-live-text]').textContent = text;
+  }
 }
 
-function boardRender() {
-  const d = data, kids = [];
-  if (d.error) kids.push(h('div', { class: 'banner yellow' }, h('strong', {}, t('board.degraded')), t('board.degradedBody', d.error)));
-  kids.push(...list(d.missions).map(missionCard));
-  const sorted = (arr) => arr.sort((a, b) => (RANK[a.state] ?? 9) - (RANK[b.state] ?? 9)
-    || String(b.last).localeCompare(String(a.last)));
-  for (const p of d.people) {
-    const all = d.sessions.filter((s) => s.login === p.login);
-    const team = sorted(all.filter(hasRepos)), local = sorted(all.filter((s) => !hasRepos(s)));
-    const me = p.login === d.me;
-    const info = [team.length ? t('board.sessions', team.length) : t('board.noSession'),
-      list(p.machines).join(', ')].filter(Boolean).join(' · ');
-    kids.push(h('section', { class: 'person', style: { '--hue': hue(p.login) } },
-      h('div', { class: 'person-head' },
-        h('span', { class: 'avatar', 'aria-hidden': 'true' }, initials(p.name)),
-        h('div', {},
-          h('div', { class: 'person-name' }, p.name, me ? h('span', { class: 'you' }, t('board.you')) : null),
-          h('div', { class: 'person-info' }, info))),
-      team.length || local.length
-        ? h('div', { class: 'cards' }, team.map(card), local.map(localCard))
-        : h('div', { class: 'empty-state small' }, me ? t('board.emptyMine') : t('board.emptyOther', p.name))));
+// Overview
+
+function attentionRows() {
+  const d = data, me = d.me, rows = [];
+  for (const s of d.sessions.filter((x) => x.login === me && x.state === 'approval')) {
+    rows.push({ kind: 'warn', text: t('attn.approval', where(s)), action: t('attn.show'), run: () => jump(s.key) });
   }
+  for (const s of d.sessions.filter((x) => x.state === 'error')) {
+    rows.push({ kind: 'red', text: t('attn.error', `${s.login === me ? t('mail.you') : name(s.login)} ${where(s)}`), action: t('attn.show'), run: () => jump(s.key) });
+  }
+  for (const o of serious(d).filter((x) => x.kind !== 'branch')) {
+    const mine = [o.a, o.b].find((x) => loginOf(x) === me);
+    if (!mine) continue;
+    const other = who(mine === o.a ? o.b : o.a, me);
+    rows.push({ kind: 'red', text: tx(o.kind === 'conflict' ? 'attn.conflict' : 'attn.file', short(o.repo), other, h('code', {}, list(o.files).join(', '))),
+      action: t('attn.show'), run: () => jump(mine) });
+  }
+  for (const n of d.mail.filter((x) => x.trust === 'bad' && x.from !== me && list(x.to).includes(me))) {
+    rows.push({ kind: 'red', text: t('attn.forged', name(n.from)), action: t('attn.open'), run: () => go('messages') });
+  }
+  return rows;
+}
+
+function sortSessions(arr) {
+  const me = data.me, recent = (a, b) => String(b.last).localeCompare(String(a.last));
+  const by = {
+    state: (a, b) => (RANK[a.state] ?? 9) - (RANK[b.state] ?? 9) || recent(a, b),
+    recent,
+    repo: (a, b) => short(mainRepo(a) || '~').localeCompare(short(mainRepo(b) || '~')) || recent(a, b),
+  }[settings.sortBy] || recent;
+  return arr.sort((a, b) => (settings.mineFirst ? (b.login === me) - (a.login === me) : 0) || by(a, b));
+}
+
+function groupHead(lead, title, info, extra) {
+  return h('div', { class: 'person-head' }, lead, h('div', {}, h('div', { class: 'person-name' }, title, extra), info ? h('div', { class: 'person-info' }, info) : null));
+}
+
+function overviewRender() {
+  const d = data, kids = [];
+  $('#sub-overview').textContent = d.room ? t('page.overview.sub') : t('page.overview.solo');
+  if (d.error) kids.push(h('div', { class: 'banner yellow' }, h('strong', {}, t('board.degraded')), t('board.degradedBody', d.error)));
+
+  if (settings.showKpis) {
+    const active = d.sessions.filter((s) => hasRepos(s) && s.state !== 'quiet').length;
+    const approvals = d.sessions.filter((s) => s.state === 'approval');
+    const warn = serious(d);
+    const kpi = (value, label, kind, target) => h(target ? 'button' : 'div', {
+      class: `kpi ${kind}`, type: target ? 'button' : null, title: target ? t('attn.show') : null, onclick: target ? () => jump(target) : null,
+    }, h('span', { class: 'kpi-label' }, kind ? h('span', { class: 'dot', 'aria-hidden': 'true' }) : null, label), h('span', { class: 'kpi-value' }, String(value)));
+    kids.push(h('div', { class: 'kpis' },
+      kpi(active, t('kpi.active'), ''),
+      kpi(d.people.length, t('kpi.people'), ''),
+      kpi(approvals.length, t('kpi.approval'), approvals.length ? 'warn' : '', approvals[0] && approvals[0].key),
+      kpi(warn.length, t('kpi.overlaps'), warn.length ? 'red' : '', warn[0] && warn[0].a)));
+  }
+  const rows = settings.showAttention ? attentionRows() : [];
+  if (rows.length) {
+    kids.push(h('section', { class: 'block' }, h('h2', { class: 'block-title' }, t('attn.title')),
+      h('div', { class: 'attn' }, rows.map((r) => h('div', { class: `attn-row k-${r.kind}` }, icon('ALERT'),
+        h('span', { class: 'attn-text' }, r.text), h('button', { class: 'link', type: 'button', onclick: r.run }, r.action))))));
+  }
+  const ms = list(d.missions);
+  if (settings.showMissions && ms.length) kids.push(h('section', { class: 'block' }, h('h2', { class: 'block-title' }, t('missions.title')), ms.map(missionCard)));
+
+  const visible = d.sessions.filter((s) => (settings.showQuiet || s.state !== 'quiet') && (settings.showCodex || s.agent !== 'codex')
+    && (settings.showLocal || hasRepos(s)));
+  const draw = (s) => (hasRepos(s) ? card(s) : localCard(s));
+  const grid = (arr) => h('div', { class: 'cards' }, sortSessions(arr).map(draw));
+  const groups = [];
+  if (settings.groupBy === 'person') {
+    for (const p of d.people) {
+      const mine = visible.filter((s) => s.login === p.login), me = p.login === d.me;
+      if (!mine.length && settings.hideEmpty) continue;
+      const team = mine.filter(hasRepos).length;
+      const info = [team ? t('board.sessions', team) : t('board.noSession'), list(p.machines).join(', ')].filter(Boolean).join(' · ');
+      groups.push(h('section', { class: 'person' },
+        groupHead(h('span', { class: 'avatar', style: { '--hue': hue(p.login) }, 'aria-hidden': 'true' }, initials(p.name)), p.name, info,
+          me ? h('span', { class: 'you' }, t('board.you')) : null),
+        mine.length ? grid(mine) : h('div', { class: 'empty-state small' }, me ? t('board.emptyMine') : t('board.emptyOther', p.name))));
+    }
+  } else if (settings.groupBy === 'repo') {
+    const repos = [...new Set(visible.flatMap((s) => Object.keys(s.repos || {})))].sort((a, b) => short(a).localeCompare(short(b)));
+    for (const repo of repos) {
+      const here = visible.filter((s) => s.repos && s.repos[repo]);
+      const people = [...new Set(here.map((s) => name(s.login)))].join(', ');
+      groups.push(h('section', { class: 'person' }, groupHead(h('span', { class: 'group-icon' }, icon('FOLDER')), short(repo),
+        `${t('board.sessions', here.length)} · ${people}`), grid(here)));
+    }
+    const local = visible.filter((s) => !hasRepos(s));
+    if (local.length) groups.push(h('section', { class: 'person' }, groupHead(h('span', { class: 'group-icon' }, icon('LAPTOP')), cap(t('card.outside'))), grid(local)));
+  } else if (settings.groupBy === 'state') {
+    for (const st of [...STATES].sort((a, b) => RANK[a] - RANK[b])) {
+      const here = visible.filter((s) => s.state === st);
+      if (!here.length) continue;
+      groups.push(h('section', { class: `person s-${st}` }, groupHead(h('span', { class: 'group-icon state' }, h('span', { class: 'dot' })), cap(t(`state.${st}`)),
+        String(here.length)), grid(here)));
+    }
+  } else {
+    groups.push(visible.length ? grid(visible) : h('div', { class: 'empty-state small' }, t('board.noSession')));
+  }
+  kids.push(h('section', { class: 'block' }, h('h2', { class: 'block-title' }, t('board.title')), groups));
   if (!d.room) {
     kids.push(h('div', { class: 'empty-state' }, tx('board.solo', h('code', {}, `${CMD} setup <owner/repo>`))));
   } else if (d.people.length === 1) {
-    kids.push(h('div', { class: 'empty-state' },
-      tx('board.alone', h('code', {}, d.room), h('code', {}, `${CMD} setup ${d.room}`))));
+    kids.push(h('div', { class: 'empty-state' }, tx('board.alone', h('code', {}, d.room), h('code', {}, `${CMD} setup ${d.room}`))));
   }
-  fill($('#board'), kids);
+  fill($('#overview'), kids);
 }
 
 function missionCard(m) {
   const joined = new Set(list(m.joined).map((k) => k.split('/')[0]));
-  const people = list(m.with).map((l) => name(l) + (joined.has(l) ? '' : ` (${t('mission.invited')})`)).join(', ');
-  const state = m.ended ? t('mission.ended', hhmm(m.ended.time), name(m.ended.by))
-    : m.live ? t('mission.until', hhmm(m.until)) : t('mission.over');
-  return h('section', { class: `mission${m.live ? '' : ' over'}` },
-    h('div', { class: 'mission-head' }, h('b', {}, t('mission.title')), h('span', { class: 'person-info' }, `${people} · ${state}`),
-      m.live ? h('button', { class: 'link', type: 'button', onclick: () => stopMission(m) }, t('mission.stop')) : null),
-    h('p', {}, m.plan),
-    m.ended && m.ended.summary ? h('p', { class: 'result' }, t('mission.result', m.ended.summary)) : null);
+  const crew = list(m.with).map((l) => h('span', {
+    class: `crew-member${joined.has(l) ? '' : ' invited'}`, title: joined.has(l) ? t('mission.joined') : t('mission.invitedTip'),
+  }, mini(l), name(l) + (joined.has(l) ? '' : ` · ${t('mission.invited')}`)));
+  const start = toDate(m.start), until = toDate(m.until);
+  let time;
+  if (m.ended) time = t('mission.ended', hhmm(m.ended.time), name(m.ended.by));
+  else if (m.live && until) time = [h('b', {}, t('mission.left', dur(until - Date.now()))), ` · ${t('mission.until', hhmm(m.until))}`];
+  else time = t('mission.over');
+  const share = m.live && start && until && until > start ? Math.min(100, Math.max(2, ((Date.now() - start) / (until - start)) * 100)) : 0;
+  return h('article', { class: `mission${m.live ? '' : ' over'}` },
+    h('div', { class: 'mission-head' },
+      h('span', { class: 'mission-tag' }, icon('ROCKET'), t('mission.title')),
+      h('div', { class: 'crew' }, crew),
+      h('span', { class: 'mission-time' }, time),
+      m.live ? h('button', { class: 'btn small danger', type: 'button', onclick: () => stopMission(m) }, t('mission.stop')) : null),
+    h('p', { class: 'plan' }, m.plan),
+    m.ended && m.ended.summary ? h('p', { class: 'result' }, t('mission.result', m.ended.summary)) : null,
+    m.live ? h('div', { class: 'mission-bar', role: 'progressbar', 'aria-label': t('mission.elapsed'), 'aria-valuemin': '0',
+      'aria-valuemax': '100', 'aria-valuenow': String(Math.round(share)) }, h('span', { style: { width: `${share}%` } })) : null);
 }
 
 async function stopMission(m) {
-  if (!confirm(t('mission.stopConfirm'))) return;
+  if (settings.confirmStop && !confirm(t('mission.stopConfirm'))) return;
   try {
     const r = await fetch('/api/end', {
       method: 'POST', headers: { 'Content-Type': 'application/json', 'X-SYN-Token': TOKEN }, body: JSON.stringify({ id: m.id }),
@@ -1049,24 +1937,26 @@ function statePill(s) {
   const tip = known ? t(`state.${s.state}.tip`) : '';
   return h('span', { class: 'state', title: tip + (s.wakeable ? ` · ${t('card.wakeable.tip', data.wake_min)}` : '') },
     h('span', { class: 'dot', 'aria-hidden': 'true' }), known ? t(`state.${s.state}`) : String(s.state),
-    h('span', { class: 'since' }, s.state === 'quiet' ? ago(s.last) : t('card.since', hhmm(s.since))));
+    h('span', { class: 'since' }, s.state === 'quiet' ? when(s.last) : t('card.since', hhmm(s.since))));
 }
 
 function card(s) {
   const d = data;
-  const hits = d.overlaps.filter((o) => o.a === s.key || o.b === s.key)
-    .sort((a, b) => (a.mission - b.mission) || (OVERLAP_RANK[a.kind] ?? 9) - (OVERLAP_RANK[b.kind] ?? 9));
+  const conflicts = new Set(d.overlaps.filter((o) => o.kind === 'conflict').map(pairKey));
+  const hits = d.overlaps.filter((o) => (o.a === s.key || o.b === s.key) && !(o.kind === 'file' && !o.mission && conflicts.has(pairKey(o))))
+    .sort((a, b) => (!!a.mission - !!b.mission) || (OVERLAP_RANK[a.kind] ?? 9) - (OVERLAP_RANK[b.kind] ?? 9));
   const hot = new Set(hits.filter((o) => !o.mission).flatMap((o) => list(o.files).map((f) => `${o.repo}|${f}`)));
   const repos = Object.entries(s.repos).sort((a, b) => String(b[1].last || '').localeCompare(String(a[1].last || '')));
   const files = repos.flatMap(([repo, r]) => list(r.files).slice().reverse().map((f) => [repo, String(f)]));
-  const shown = files.slice(0, 6);
+  const shown = files.slice(0, settings.filesPerCard);
   const claims = repos.flatMap(([repo, r]) => list(r.claims).map((c) => [repo, String(c)]));
-  return h('article', { class: `session s-${cls(s.state)}` },
+  const codex = s.agent === 'codex';
+  return h('article', { class: `session s-${cls(s.state)}`, 'data-key': s.key },
     h('div', { class: 'card-top' }, statePill(s),
-      h('span', { class: 'machine', title: s.here ? (s.cwd || t('card.machine', d.machine)) : t('card.machine', s.machine) },
-        (s.agent === 'codex' ? 'Codex · ' : '') + (s.here ? t('card.thisMachine') : s.machine))),
-    h('div', { class: 'repos' }, repos.map(([repo, r]) => h('div', { class: 'repo', title: repo },
-      icon(FOLDER), h('span', { class: 'name' }, short(repo)), h('span', { class: 'branch', title: r.branch || '' }, r.branch || '–')))),
+      codex ? h('span', { class: 'tag codex', title: t('card.agent.codex.tip') }, 'Codex') : null),  // Claude is the default
+    repos.map(([repo, r]) => h('div', { class: 'repo', title: repo },
+      icon('FOLDER'), h('span', { class: 'name' }, short(repo)),
+      settings.showBranch ? h('span', { class: 'branch', title: r.branch || '' }, r.branch || '–') : null)),
     s.task ? h('p', { class: 'task' }, t('q', s.task))
       : h('p', { class: 'task empty', title: t('card.noTask.tip', `${CMD} task "…"`) }, t('card.noTask')),
     shown.length ? h('div', { class: 'files' },
@@ -1074,50 +1964,45 @@ function card(s) {
         f.length > 34 ? `…/${f.split('/').pop()}` : f)),
       files.length > shown.length ? h('span', { class: 'file more' }, `+${files.length - shown.length}`) : null) : null,
     claims.length ? h('div', { class: 'files' }, claims.map(([repo, c]) => h('span', { class: 'file claim', title: t('card.claim.tip', `${short(repo)}/${c}`) },
-      `🔒 ${c.length > 34 ? `…/${c.replace(/\/$/, '').split('/').pop()}${c.endsWith('/') ? '/' : ''}` : c}`))) : null,
-    hits.map((o) => overlapRow(o, s)),
+      icon('LOCK'), c.length > 34 ? `…/${c.replace(/\/$/, '').split('/').pop()}${c.endsWith('/') ? '/' : ''}` : c))) : null,
+    settings.showOverlaps && hits.length ? h('div', { class: 'ovs' }, hits.map((o) => overlapRow(o, s))) : null,
     h('div', { class: 'card-foot' },
-      h('span', {}, t('card.active', ago(s.last)),
-        s.wakeable ? h('span', { class: 'wakeable', title: t('card.wakeable.tip', d.wake_min) }, ` · ${t('card.wakeable')}`) : null),
+      h('span', { class: 'foot-meta', title: s.here ? (s.cwd || t('card.machine', d.machine)) : t('card.machine', s.machine) },
+        icon('LAPTOP'), `${s.here ? t('card.thisMachine') : s.machine} · ${when(s.last)}`,
+        s.wakeable ? h('span', { class: 'wakeable', title: t('card.wakeable.tip', d.wake_min) }, `· ${t('card.wakeable')}`) : null),
       s.login !== d.me ? h('button', { class: 'link', type: 'button', onclick: () => composeTo(s) }, t('card.message')) : null));
 }
 
 function overlapRow(o, s) {
   const otherKey = o.a === s.key ? o.b : o.a, other = who(otherKey, s.login);
-  const mark = (c) => h('span', { class: 'mark', 'aria-hidden': 'true' }, h('span', {}, c));
+  const files = h('b', {}, list(o.files).join(', '));
   if (o.mission) {
-    const files = list(o.files).length ? list(o.files).join(', ') : short(o.repo);
-    return h('div', { class: 'overlap o-repo' }, mark('i'), h('span', {}, tx('ov.mission', other, h('b', {}, files))));
+    return h('div', { class: 'ov ov-repo' }, icon('ROCKET'),
+      h('span', {}, tx('ov.mission', other, h('b', {}, list(o.files).length ? list(o.files).join(', ') : short(o.repo)))));
   }
-  if (o.kind === 'conflict') {
-    return h('div', { class: 'overlap o-file' }, mark('!'), h('span', {}, tx('ov.conflict', other, h('b', {}, list(o.files).join(', ')))));
-  }
-  if (o.kind === 'file') {
-    return h('div', { class: 'overlap o-file' }, mark('!'), h('span', {}, tx('ov.file', other, h('b', {}, list(o.files).join(', ')))));
-  }
-  if (o.kind === 'branch') {
-    return h('div', { class: 'overlap o-branch' }, mark('!'), h('span', {}, t('ov.branch', other, short(o.repo))));
-  }
+  if (o.kind === 'conflict') return h('div', { class: 'ov ov-conflict' }, icon('ALERT'), h('span', {}, tx('ov.conflict', other, files)));
+  if (o.kind === 'file') return h('div', { class: 'ov ov-file' }, icon('ALERT'), h('span', {}, tx('ov.file', other, files)));
+  if (o.kind === 'branch') return h('div', { class: 'ov ov-branch' }, icon('BRANCH'), h('span', {}, t('ov.branch', other, short(o.repo))));
   const there = sessionOf(otherKey), branch = there && there.repos[o.repo] ? there.repos[o.repo].branch : '';
-  return h('div', { class: 'overlap o-repo' }, mark('i'),
+  return h('div', { class: 'ov ov-repo' }, icon('INFO'),
     h('span', {}, branch ? t('ov.repoBranch', short(o.repo), other, branch) : t('ov.repo', short(o.repo), other)));
 }
 
 function localCard(s) {
-  return h('article', { class: `session local s-${cls(s.state)}` },
-    h('div', { class: 'card-top' }, statePill(s), h('span', { class: 'machine', title: t('card.localOnly.tip') }, t('card.localOnly'))),
+  return h('article', { class: `session local s-${cls(s.state)}`, 'data-key': s.key },
+    h('div', { class: 'card-top' }, statePill(s), h('span', { class: 'tag', title: t('card.localOnly.tip') }, t('card.localOnly'))),
     h('div', { class: 'cwd', title: t('card.outside') }, s.cwd || t('card.outside')),
     s.task ? h('p', { class: 'task' }, t('q', s.task)) : null,
-    h('div', { class: 'card-foot' }, h('span', {}, t('card.active', ago(s.last))), h('span', {}, t('card.outside'))));
+    h('div', { class: 'card-foot' }, h('span', { class: 'foot-meta' }, icon('LAPTOP'), `${t('card.thisMachine')} · ${when(s.last)}`), h('span', {}, t('card.outside'))));
 }
 
-// --- Messages -----------------------------------------------------------------
+// Messages
 
 function recipients() {
   const d = data, to = $('#to'), at = $('#where');
   const others = d.people.filter((p) => p.login !== d.me);
   const options = [...others.map((p) => p.login), ...(others.length > 1 ? ['all'] : [])];
-  const chosen = options.includes(to.value) ? to.value : options[0] || '';
+  const chosen = options.includes(to.value) ? to.value : options.includes(settings.defaultTo) ? settings.defaultTo : options[0] || '';
   const targets = chosen === 'all' ? others.map((p) => p.login) : [chosen];
   const repos = [...new Set(d.sessions.filter((s) => targets.includes(s.login) && s.state !== 'quiet')
     .flatMap((s) => Object.keys(s.repos).map(short)))].sort();
@@ -1133,24 +2018,34 @@ function recipients() {
   for (const el of [to, at, $('#text'), $('#send')]) el.disabled = empty;
   $('#text').placeholder = empty ? t('form.none')
     : chosen === 'all' ? t('form.toAll') : t('form.toOne', name(chosen), poss(name(chosen)));
+  const person = $('#mail-person'), before = mailPerson;
+  fill(person, h('option', { value: '' }, t('filter.everyone')), others.map((p) => h('option', { value: p.login }, p.name)));
+  person.value = others.some((p) => p.login === before) ? before : '';
 }
 
 function composeTo(s) {
+  go('messages');
   $('#to').value = s.login;
   optionsKey = '';  // the sessions to pick from depend on the recipient
   recipients();
   const r = mainRepo(s);
   if (r && [...$('#where').options].some((o) => o.value === short(r))) $('#where').value = short(r);
-  $('#compose').scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   $('#text').focus();
 }
 
 function mailRender() {
   const d = data, box = $('#mail');
-  const mine = d.mail.filter((n) => filter === 'all' || n.from === d.me || list(n.to).includes(d.me));
-  const atEnd = box.scrollHeight - box.scrollTop - box.clientHeight < 60;
-  fill(box, mine.length ? mine.slice(-80).map(msg)
-    : h('div', { class: 'empty-state small' }, t(filter === 'all' ? 'mail.emptyAll' : 'mail.emptyMine')));
+  const items = d.mail.filter((n) => (mailFilter === 'all' || n.from === d.me || list(n.to).includes(d.me))
+    && (!mailPerson || n.from === mailPerson || list(n.to).includes(mailPerson))).slice(-150);
+  const atEnd = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
+  const kids = [];
+  let day = '';
+  for (const n of items) {
+    const label = dayLabel(n.time);
+    if (settings.daySeps && label !== day) { day = label; kids.push(h('div', { class: 'day-sep' }, label)); }
+    kids.push(msg(n));
+  }
+  fill(box, kids.length ? kids : h('div', { class: 'empty-state small' }, t(mailFilter === 'all' ? 'mail.emptyAll' : 'mail.emptyMine')));
   if (atEnd) box.scrollTop = box.scrollHeight;
 }
 
@@ -1160,17 +2055,20 @@ function msg(n) {
   const forged = !mine && n.trust === 'bad';
   return h('article', { class: `msg${mine ? ' mine' : ''}${forged ? ' forged' : ''}${freshMail.has(n.id) ? ' new' : ''}` },
     h('div', { class: 'msg-head' },
-      h('span', { class: 'mini-avatar', style: { '--hue': hue(n.from) }, 'aria-hidden': 'true' }, initials(name(n.from))),
-      h('b', {}, mine ? t('mail.you') : name(n.from)), '→', h('b', {}, list(n.to).map((l) => name(l)).join(', ')),
-      target ? h('span', { class: 'target', title: toUi ? t('mail.ui.tip', `${CMD} send <name>@ui "…"`) : t('mail.session.tip') }, target) : null,
-      h('span', { class: `origin ${human ? 'human' : 'claude'}`, title: human ? t('mail.human.tip')
-        : n.from_repo ? t('mail.claude.from', n.from_repo) : t('mail.claude.tip') }, human ? t('mail.human') : t('mail.claude')),
-      n.mission ? h('span', { class: 'target', title: t('mail.mission.tip') }, t('mission.title')) : null,
-      forged ? h('span', { class: 'forged-note', title: t('mail.forged.tip', n.from) }, `⚠ ${t('mail.forged')}`)
-        : n.trust === 'ok' ? h('span', { class: 'seal', title: t('mail.signed', name(n.from)), 'aria-label': t('mail.signed', name(n.from)) }, '🔏') : null,
-      h('time', { datetime: n.time }, stamp(n.time)),
+      mini(n.from),
+      // Claude writes most messages: only a human author gets a badge, the author shows on hover over the name
+      h('b', { title: human ? t('mail.human.tip') : n.from_repo ? t('mail.claude.from', n.from_repo) : t('mail.claude.tip') },
+        mine ? t('mail.you') : name(n.from)), '→', h('b', {}, list(n.to).map((l) => name(l)).join(', ')),
+      target ? h('span', { class: 'chip', title: toUi ? t('mail.ui.tip', `${CMD} send <name>@ui "…"`) : t('mail.session.tip') }, target) : null,
+      human ? h('span', { class: 'chip human', title: t('mail.human.tip') }, t('mail.human')) : null,
+      n.mission ? h('span', { class: 'chip', title: t('mail.mission.tip') }, t('mission.title')) : null,
+      settings.showSeals && !forged && n.trust === 'ok'
+        ? h('span', { class: 'seal', role: 'img', title: t('mail.signed', name(n.from)), 'aria-label': t('mail.signed', name(n.from)) }, icon('SHIELD')) : null,
+      h('time', { datetime: n.time, title: stamp(n.time) }, settings.msgTime === 'relative' ? ago(n.time) : hhmm(n.time)),
       mine ? h('span', { class: `delivery${n.uploaded ? ' ok' : ''}`, title: n.uploaded ? t('mail.uploaded') : t('mail.uploading') },
         n.uploaded ? '✓' : '…') : null),
+    forged ? h('div', { class: 'forged-note', role: 'note', title: t('mail.forged.tip', n.from) }, icon('ALERT'),
+      h('span', {}, `${t('mail.forged')}. ${t('mail.forged.body', poss(name(n.from)))}`)) : null,
     h('p', { class: 'msg-text' }, n.text || ''));
 }
 
@@ -1186,6 +2084,7 @@ $('#compose').addEventListener('submit', async (ev) => {
     note.textContent = t('form.tooLong', [...text].length, max);
     return;
   }
+  if (to === 'all' && settings.confirmAll && !confirm(L(['Send this to everyone in the room?', 'An alle im Raum senden?']))) return;
   $('#send').disabled = true;
   try {
     const r = await fetch('/api/send', {
@@ -1196,7 +2095,9 @@ $('#compose').addEventListener('submit', async (ev) => {
     const a = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(a.error || t('form.error', r.status));
     $('#text').value = '';
+    store('syn-draft', null);
     count();
+    grow();
     // The server's `who` is English prose; build the same sentence in the active language instead.
     const names = to === 'all' ? data.people.filter((p) => p.login !== data.me).map((p) => p.name) : [name(to)];
     const recipient = names.join(', ') + (repo ? ` (${t('form.sessionIn', repo)})` : '');
@@ -1218,21 +2119,40 @@ function count() {
   el.textContent = `${n} / ${max}`;
   el.classList.toggle('full', n > max);
 }
+function grow() {  // the field grows with its text, up to its max-height
+  const el = $('#text');
+  el.style.setProperty('height', 'auto');
+  el.style.setProperty('height', `${el.scrollHeight}px`);
+}
 
-// --- History ------------------------------------------------------------------
+// History
 
 function historyRender() {
   const d = data, kids = [];
+  const people = [...d.people];
+  const key = JSON.stringify([lang, people.map((p) => [p.login, p.name])]);
+  if (key !== histKey) {  // only when they change: an open select stays open
+    histKey = key;
+    const sel = $('#hist-person');
+    fill(sel, h('option', { value: '' }, t('filter.everyone')), people.map((p) => h('option', { value: p.login }, p.login === d.me ? `${p.name} (${t('board.you')})` : p.name)));
+    sel.value = people.some((p) => p.login === histPerson) ? histPerson : '';
+    const kind = $('#hist-kind');
+    fill(kind, ['all', ...Object.keys(KINDS)].map((k) => h('option', { value: k }, t(`kind.${k}`))));
+    kind.value = histKind;
+  }
+  const windowMs = +settings.histHours * 36e5;
   const entries = [...d.events, ...d.mail.map((n) => ({ time: n.time, kind: 'mail', login: n.from, n }))]
-    .filter((x) => toDate(x.time) && Date.now() - toDate(x.time) < 864e5)
-    .sort((a, b) => toDate(b.time) - toDate(a.time)).slice(0, 150);
+    .filter((x) => toDate(x.time) && Date.now() - toDate(x.time) < windowMs)
+    .filter((x) => !histPerson || x.login === histPerson)
+    .filter((x) => settings.histOwn || x.login !== d.me)
+    .filter((x) => histKind === 'all' || (KINDS[histKind] || []).includes(x.kind))
+    .sort((a, b) => toDate(b.time) - toDate(a.time)).slice(0, 300);
   let day = '';
   for (const x of entries) {
     const label = dayLabel(x.time);
-    if (label !== day) { day = label; kids.push(h('li', { class: 'day' }, label)); }
-    kids.push(h('li', { class: `entry e-${cls(x.kind)}`, style: { '--hue': hue(x.login) } },
-      h('time', { datetime: x.time }, hhmm(x.time)), h('span', { class: 'bullet', 'aria-hidden': 'true' }),
-      h('span', { class: 'what' }, historyText(x))));
+    if (settings.histDays && label !== day) { day = label; kids.push(h('li', { class: 'day' }, label)); }
+    kids.push(h('li', { class: `entry e-${cls(x.kind)}` },
+      h('time', { datetime: x.time }, settings.histDays ? hhmm(x.time) : stamp(x.time)), mini(x.login), h('span', { class: 'what' }, historyText(x))));
   }
   fill($('#history'), kids.length ? kids : h('li', { class: 'empty-state small' }, t('history.empty')));
 }
@@ -1264,81 +2184,425 @@ function historyText(x) {
   }
 }
 
-// --- Settings and start ---------------------------------------------------------
+// Settings page: a list of pages on the left, the settings of one page on the right, a search over all of them
 
-function themeRender() {
-  if (theme === 'system') delete document.documentElement.dataset.theme;
-  else document.documentElement.dataset.theme = theme;
-  $('#theme').title = t('theme.tip', t(`theme.${theme}`));
-}
-$('#theme').addEventListener('click', () => {
-  theme = { system: 'light', light: 'dark', dark: 'system' }[theme];
-  store('syn-theme', theme === 'system' ? null : theme);
-  themeRender();
-});
+let settingsData = false;
+const catLabel = (id) => L((CATS.find((c) => c[0] === id) || [])[2]);
+const matches = (e, q) => `${L(e.label)} ${typeof e.hint === 'function' ? e.hint() : L(e.hint)} ${catLabel(e.cat)} ${e.k}`.toLowerCase().includes(q);
 
-function bellRender() {
-  const on = bell && 'Notification' in window && Notification.permission === 'granted';
-  $('#bell').setAttribute('aria-pressed', String(on));
-  $('#bell').title = on ? t('bell.on') : t('bell.off');
-}
-$('#bell').addEventListener('click', async () => {
-  if (!('Notification' in window)) return toast(t('bell.title'), t('bell.unsupported'), 'info');
-  if (bell && Notification.permission === 'granted') {
-    bell = false;
+function settingsRender() {
+  // built when the page opens or a setting changes, never on a data update; the focused control keeps its focus
+  const ctl = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.ctl : null;
+  settingsData = !!data;
+  const q = setQuery.trim().toLowerCase();
+  const nav = h('nav', { class: 'set-nav', 'aria-label': L(['Settings pages', 'Einstellungsseiten']) },
+    h('label', { class: 'set-search' }, icon('SEARCH'),
+      h('input', { type: 'search', value: setQuery, placeholder: L(['Search settings', 'Einstellungen durchsuchen']),
+        'aria-label': L(['Search settings', 'Einstellungen durchsuchen']), 'data-ctl': 'search',
+        oninput: (ev) => { setQuery = ev.target.value; settingsRender(); } })),
+    h('div', { class: 'set-cats' }, CATS.map(([id, ic, label]) => h('button', {
+      type: 'button', class: 'set-cat', 'data-ctl': `cat:${id}`, 'aria-current': !q && id === setCat ? 'page' : null,
+      onclick: () => { setQuery = ''; go(`settings/${id}`); },
+    }, icon(ic), L(label), h('span', { class: 'set-count' }, String(SCHEMA.filter((e) => e.cat === id && e.label).length || ''))))));
+
+  let body;
+  if (q) {
+    const found = CATS.map(([id]) => [id, SCHEMA.filter((e) => e.cat === id && e.label && matches(e, q))]).filter(([, es]) => es.length);
+    body = found.length
+      ? found.map(([id, es]) => h('section', { class: 'set-section' }, h('h2', { class: 'block-title' }, catLabel(id)), h('div', { class: 'set-list' }, es.map(settingRow))))
+      : h('div', { class: 'empty-state' }, L([`No setting matches “${setQuery}”`, `Keine Einstellung passt zu „${setQuery}“`]));
   } else {
-    const answer = Notification.permission === 'default' ? await Notification.requestPermission() : Notification.permission;
-    bell = answer === 'granted';
-    if (!bell) toast(t('bell.title'), t('bell.blocked'), 'info');
+    const es = SCHEMA.filter((e) => e.cat === setCat && e.label);
+    const blocks = [];
+    let group = null, rows = [];
+    const flush = () => { if (rows.length) blocks.push(h('section', { class: 'set-section' }, group ? h('h2', { class: 'block-title' }, L(group)) : null, h('div', { class: 'set-list' }, rows))); rows = []; };
+    for (const e of es) {
+      if (e.group) { flush(); group = e.group; }
+      const row = settingRow(e);
+      if (row) rows.push(row);
+    }
+    flush();
+    body = [h('h2', { class: 'set-title' }, catLabel(setCat)), blocks, extraBlocks(setCat)];
   }
-  store('syn-bell', bell ? 'on' : null);
-  bellRender();
+  fill($('#settings'), h('div', { class: 'set-layout' }, nav, h('div', { class: 'set-body' }, body)));
+  if (ctl) {
+    const el = $(`#settings [data-ctl="${CSS.escape(ctl)}"]`);
+    if (el) { el.focus(); if (ctl === 'search') el.setSelectionRange(el.value.length, el.value.length); }
+  }
+  connRender();
+  devRender();
+}
+
+function settingRow(e) {
+  if (e.when && !e.when()) return null;
+  const id = `set-${e.k}`;
+  const hint = typeof e.hint === 'function' ? e.hint() : e.hint ? L(e.hint) : '';
+  return h('div', { class: 'set-row', 'data-k': e.k },
+    h('div', { class: 'set-text' }, h('div', { class: 'set-label', id }, L(e.label)), hint ? h('div', { class: 'set-hint' }, hint) : null),
+    h('div', { class: 'set-control' }, control(e, id)));
+}
+
+function control(e, id) {
+  const v = settings[e.k];
+  if (e.type === 'switch') {
+    return h('button', { type: 'button', class: 'switch', role: 'switch', 'aria-checked': String(!!v), 'aria-labelledby': id, 'data-ctl': e.k,
+      onclick: () => (e.set ? e.set(!v) : save({ [e.k]: !v })) }, h('span', { class: 'knob' }));
+  }
+  if (e.type === 'seg') {
+    return h('div', { class: 'seg', role: 'radiogroup', 'aria-labelledby': id }, e.opts.map(([val, label], i) => h('button', {
+      type: 'button', role: 'radio', 'aria-checked': String(v === val), 'data-ctl': `${e.k}:${i}`, onclick: () => save({ [e.k]: val }),
+    }, L(label))));
+  }
+  if (e.type === 'select') {
+    const opts = typeof e.opts === 'function' ? e.opts() : e.opts;
+    const sel = h('select', { 'aria-labelledby': id, 'data-ctl': e.k, onchange: (ev) => save({ [e.k]: ev.target.value }) },
+      opts.map(([val, label]) => h('option', { value: val }, L(label))));
+    sel.value = v;
+    return sel;
+  }
+  if (e.type === 'range') {
+    const out = h('output', { class: 'range-value' }, `${v}${e.unit || ''}`);
+    return h('div', { class: 'range' }, h('input', {
+      type: 'range', min: String(e.min), max: String(e.max), step: String(e.step), value: String(v), 'aria-labelledby': id, 'data-ctl': e.k,
+      oninput: (ev) => { out.textContent = `${ev.target.value}${e.unit || ''}`; if (e.live) applyLook({ ...settings, [e.k]: +ev.target.value }); },
+      onchange: (ev) => save({ [e.k]: +ev.target.value }),
+    }), out);
+  }
+  if (e.type === 'custom') return e.render(id, e);
+  return null;
+}
+
+function accentControl(id) {
+  const swatch = (a, color, label) => h('button', {
+    type: 'button', class: 'swatch', role: 'radio', 'aria-checked': String(settings.accent === a), 'aria-label': label, title: label,
+    'data-ctl': `accent:${a}`, style: { '--sw': color }, onclick: () => save({ accent: a }),
+  });
+  const names = { mono: ['Black and white', 'Schwarz-Weiß'], blue: ['Blue', 'Blau'], green: ['Green', 'Grün'], violet: ['Violet', 'Violett'], orange: ['Orange', 'Orange'] };
+  return h('div', { class: 'swatches', role: 'radiogroup', 'aria-labelledby': id },
+    Object.entries(ACCENTS).map(([a, [light, dark]]) => swatch(a, isDark() ? dark : light, L(names[a]))),
+    h('label', { class: `swatch custom${settings.accent === 'custom' ? ' on' : ''}`, title: L(['Your own color', 'Eigene Farbe']), style: { '--sw': settings.accentCustom } },
+      h('input', { type: 'color', value: settings.accentCustom, 'aria-label': L(['Your own color', 'Eigene Farbe']), 'data-ctl': 'accent:custom',
+        oninput: (ev) => applyLook({ ...settings, accent: 'custom', accentCustom: ev.target.value }),
+        onchange: (ev) => save({ accent: 'custom', accentCustom: ev.target.value }) })));
+}
+
+function tintControl(id, e) {
+  const out = h('output', { class: 'range-value' }, `${settings.tint} %`);
+  return [h('input', { type: 'color', class: 'color', value: settings.tintColor, 'aria-label': L(['Tint color', 'Farbe']), 'data-ctl': 'tintColor',
+    oninput: (ev) => applyLook({ ...settings, tintColor: ev.target.value, tint: settings.tint || 12 }),
+    onchange: (ev) => save({ tintColor: ev.target.value, tint: settings.tint || 12 }) }),
+  h('div', { class: 'range' }, h('input', { type: 'range', min: String(e.min), max: String(e.max), step: '2', value: String(settings.tint), 'aria-labelledby': id, 'data-ctl': 'tint',
+    oninput: (ev) => { out.textContent = `${ev.target.value} %`; applyLook({ ...settings, tint: +ev.target.value }); },
+    onchange: (ev) => save({ tint: +ev.target.value }) }), out)];
+}
+
+function soundControl(id) {
+  const kinds = [['ping', ['Ping', 'Ping']], ['chime', ['Chime', 'Glocke']], ['soft', ['Soft', 'Sanft']]];
+  return [h('div', { class: 'seg', role: 'radiogroup', 'aria-labelledby': id }, kinds.map(([k, label]) => h('button', {
+    type: 'button', role: 'radio', 'aria-checked': String(settings.soundKind === k), 'data-ctl': `soundKind:${k}`,
+    onclick: () => { playSound(k); save({ soundKind: k }); },
+  }, L(label)))),
+  h('button', { class: 'btn small', type: 'button', onclick: () => playSound(), 'data-ctl': 'soundTest' }, icon('VOLUME'), L(['Play', 'Abspielen']))];
+}
+
+function extraBlocks(cat) {  // what is not a setting of its own: the shortcuts, the connection, the raw data, about
+  const section = (title, desc, ...body) => h('section', { class: 'set-section' }, h('h2', { class: 'block-title' }, title),
+    desc ? h('p', { class: 'set-desc' }, desc) : null, ...body);
+  if (cat === 'shortcuts') {
+    return section(L(['Shortcuts', 'Kürzel']), settings.shortcuts ? null : L(['Off: only ⌘K works', 'Aus: nur ⌘K geht']),
+      h('div', { class: 'set-list' }, SHORTCUTS.map(([keys, label]) => h('div', { class: 'set-row' },
+        h('div', { class: 'set-text' }, h('div', { class: 'set-label' }, L(label))),
+        h('div', { class: 'set-control keys-row' }, keys.map(kbd))))));
+  }
+  if (cat === 'connection') {
+    const room = data && data.room ? data.room : '<owner/repo>';
+    const cmd = (text, hint) => h('div', { class: 'set-row' }, h('div', { class: 'set-text' }, h('div', { class: 'set-label' }, hint)),
+      h('div', { class: 'set-control cmd' }, h('code', {}, text),
+        h('button', { class: 'icon-btn', type: 'button', title: t('copy'), 'aria-label': `${t('copy')}: ${text}`, onclick: (ev) => copy(text, ev.currentTarget) }, icon('COPY'))));
+    return [
+      section(L(['This room', 'Dieser Raum']), L(['Set on the command line, shown here for reference', 'Wird auf der Kommandozeile eingestellt, hier nur zur Ansicht']),
+        h('div', { class: 'set-list', id: 'set-conn' })),
+      section(t('set.commands'), t('set.commands.desc'), h('div', { class: 'set-list' },
+        cmd(`${CMD} status`, t('cmd.status')),
+        cmd(`${CMD} setup ${room} --org ${data ? list(data.orgs).join(',') || 'owner' : 'owner'}`, t('cmd.setup')),
+        cmd(`${CMD} ui`, t('cmd.ui')))),
+    ];
+  }
+  if (cat === 'advanced' && settings.devInfo) {
+    return section(L(['Raw data', 'Rohdaten']), L(['What the page gets from the local server, live', 'Was die Seite vom lokalen Server bekommt, live']),
+      h('pre', { class: 'dev', id: 'dev-data' }));
+  }
+  if (cat === 'about') {
+    return section(L(['Synchronauts', 'Synchronauts']), null, h('div', { class: 'about' },
+      h('p', { class: 'about-lead' }, L(['Your team’s agents see each other, talk, and stop stepping on each other’s files. No server: a private GitHub repo is the bus.',
+        'Die Agenten deines Teams sehen einander, reden miteinander und treten sich nicht mehr auf die Dateien. Kein Server: ein privates GitHub-Repo ist der Bus.'])),
+      h('div', { class: 'set-list' },
+        ...[[L(['Version', 'Version']), data ? data.version : '–'], [L(['License', 'Lizenz']), 'MIT'],
+          [L(['Settings on this page', 'Einstellungen auf dieser Seite']), String(SCHEMA.filter((e) => e.label && e.cat).length)],
+          [L(['Stored', 'Gespeichert']), L(['in this browser only (localStorage)', 'nur in diesem Browser (localStorage)'])]]
+          .map(([k, v]) => h('div', { class: 'set-row' }, h('div', { class: 'set-text' }, h('div', { class: 'set-label' }, k)), h('span', { class: 'set-value' }, v))))));
+  }
+  return null;
+}
+
+function connRender() {
+  const box = $('#set-conn');
+  if (!box || !data) return;
+  const d = data, v = (text) => h('span', { class: 'set-value' }, text);
+  const row = (label, value) => h('div', { class: 'set-row' }, h('div', { class: 'set-text' }, h('div', { class: 'set-label' }, label)), value);
+  fill(box,
+    row(t('conn.room'), v(d.room || t('conn.noRoom'))),
+    d.room ? row(t('conn.orgs'), v(t('conn.orgsVal', list(d.orgs).join(', ')))) : null,
+    row(t('conn.machine'), v(d.machine)),
+    row(t('conn.sync'), v(fetchedAt ? ago(fetchedAt) : '–')),
+    row(t('conn.wake'), v(t('conn.wakeVal', d.wake_min))),
+    row(t('conn.version'), v(d.version)));
+}
+
+function devRender() {
+  const el = $('#dev-data');
+  if (el && data) el.textContent = JSON.stringify(data, null, 2).slice(0, 60000);
+}
+
+async function copy(text, btn) {
+  try {
+    await navigator.clipboard.writeText(text);
+    btn.title = t('copied');
+    toast(t('copied'), text, 'info');
+  } catch (_) { /* the text is still there to select */ }
+}
+
+async function toggleBell() {
+  if (!('Notification' in window)) return toast(t('bell.title'), t('bell.unsupported'), 'info');
+  if (settings.bell) return save({ bell: false });
+  const answer = Notification.permission === 'default' ? await Notification.requestPermission() : Notification.permission;
+  if (answer !== 'granted') toast(t('bell.title'), t('bell.blocked'), 'info');
+  save({ bell: answer === 'granted' });
+}
+
+function exportSettings() {
+  const url = URL.createObjectURL(new Blob([JSON.stringify(settings, null, 2)], { type: 'application/json' }));
+  const a = h('a', { href: url, download: 'synchronauts-settings.json' });
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+function importSettings() {
+  const input = h('input', { type: 'file', accept: 'application/json,.json' });
+  input.addEventListener('change', async () => {
+    const f = input.files[0];
+    if (!f) return;
+    try {
+      settings = sanitize(JSON.parse(await f.text()));
+      store('syn-settings', JSON.stringify(settings));
+      applySettings();
+      toast(L(['Settings imported', 'Einstellungen importiert']), f.name, 'info');
+    } catch (_) {
+      toast(L(['Not a settings file', 'Keine Einstellungsdatei']), f.name, 'info');
+    }
+  });
+  input.click();
+}
+
+function flashRow(k) {
+  const el = $(`#settings [data-k="${CSS.escape(k)}"]`);
+  if (!el) return;
+  el.scrollIntoView({ block: 'center', behavior: reducedMotion() ? 'auto' : 'smooth' });
+  el.classList.remove('flash');
+  void el.offsetWidth;
+  el.classList.add('flash');
+}
+
+// --- Command palette (⌘K) -----------------------------------------------------------
+
+let palItems = [], palSel = 0;
+function commands() {
+  const pageIcon = { overview: 'GRID', messages: 'CHAT', history: 'CLOCK', settings: 'GEAR' };
+  const items = [
+    ...VIEWS.map((v) => ({ icon: pageIcon[v], label: t(`nav.${v}`), sub: L(['Page', 'Seite']), run: () => go(v) })),
+    { icon: isDark() ? 'SUN' : 'MOON', label: L(['Dark mode on or off', 'Dunkelmodus an oder aus']), sub: 'D', run: toggleDark },
+    { icon: 'CHAT', label: L(['New message', 'Neue Nachricht']), sub: 'N', run: () => { go('messages'); $('#text').focus(); } },
+    { icon: 'MAXIMIZE', label: L(['Wall display', 'Wanddisplay']), sub: 'W', run: () => save({ wall: !settings.wall }) },
+  ];
+  if (data) {
+    for (const p of data.people.filter((x) => x.login !== data.me)) {
+      items.push({ icon: 'SEND', label: L([`Message to ${p.name}`, `Nachricht an ${p.name}`]), sub: '', run: () => {
+        go('messages'); $('#to').value = p.login; optionsKey = ''; recipients(); $('#text').focus();
+      } });
+    }
+  }
+  for (const [id, ic, label] of CATS) items.push({ icon: ic, label: `${t('nav.settings')} › ${L(label)}`, sub: '', run: () => go(`settings/${id}`) });
+  for (const e of SCHEMA.filter((x) => x.label && x.cat)) {
+    items.push({ icon: 'SLIDERS', label: L(e.label), sub: catLabel(e.cat), run: () => { setQuery = ''; go(`settings/${e.cat}`); flashRow(e.k); } });
+  }
+  return items;
+}
+function openPalette() {
+  $('#palette').hidden = false;
+  const input = $('#palette-input');
+  input.value = '';
+  input.placeholder = L(['Type a page, a setting or a command …', 'Seite, Einstellung oder Befehl eingeben …']);
+  palFilter();
+  input.focus();
+}
+function closePalette() { $('#palette').hidden = true; }
+function palFilter() {
+  const q = $('#palette-input').value.trim().toLowerCase();
+  palItems = commands().filter((c) => !q || `${c.label} ${c.sub}`.toLowerCase().includes(q)).slice(0, 50);
+  palSel = 0;
+  palRender();
+}
+function palRender() {
+  fill($('#palette-list'), palItems.length ? palItems.map((c, i) => h('li', {
+    role: 'option', id: `pal-${i}`, 'aria-selected': String(i === palSel), onclick: () => runPal(i),
+    onmouseenter: () => { palSel = i; for (const li of $$('#palette-list li')) li.setAttribute('aria-selected', String(li.id === `pal-${i}`)); },
+  }, icon(c.icon), h('span', { class: 'pal-label' }, c.label), c.sub ? h('span', { class: 'sub' }, c.sub) : null))
+    : h('li', { class: 'pal-empty' }, L(['Nothing found', 'Nichts gefunden'])));
+  $('#palette-input').setAttribute('aria-activedescendant', palItems.length ? `pal-${palSel}` : '');
+  const el = $(`#pal-${palSel}`);
+  if (el) el.scrollIntoView({ block: 'nearest' });
+}
+function runPal(i) { const c = palItems[i]; closePalette(); if (c) c.run(); }
+$('#palette-input').addEventListener('input', palFilter);
+$('#palette-input').addEventListener('keydown', (ev) => {
+  if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
+    ev.preventDefault();
+    palSel = Math.max(0, Math.min(palItems.length - 1, palSel + (ev.key === 'ArrowDown' ? 1 : -1)));
+    palRender();
+  } else if (ev.key === 'Enter') { ev.preventDefault(); runPal(palSel); }
+});
+$('#palette').addEventListener('click', (ev) => { if (ev.target.id === 'palette') closePalette(); });
+for (const b of $$('[data-palette]')) b.addEventListener('click', openPalette);
+
+// --- Keyboard ---------------------------------------------------------------------
+
+let gUntil = 0;
+document.addEventListener('keydown', (ev) => {
+  if ((ev.metaKey || ev.ctrlKey) && ev.key.toLowerCase() === 'k') { ev.preventDefault(); if ($('#palette').hidden) openPalette(); else closePalette(); return; }
+  if (ev.key === 'Escape') {
+    if (!$('#palette').hidden) { closePalette(); return; }
+    if (settings.wall) { save({ wall: false }); return; }
+    return;
+  }
+  const typing = ev.target.closest && ev.target.closest('input, textarea, select, [contenteditable]');
+  if (!settings.shortcuts || typing || ev.metaKey || ev.ctrlKey || ev.altKey || !$('#palette').hidden) return;
+  const k = ev.key.toLowerCase();
+  if (Date.now() < gUntil) {
+    gUntil = 0;
+    const v = { o: 'overview', m: 'messages', h: 'history', s: 'settings' }[k];
+    if (v) { ev.preventDefault(); go(v); }
+    return;
+  }
+  if (k === 'g') { gUntil = Date.now() + 1200; return; }
+  if (k === 'n') { ev.preventDefault(); go('messages'); $('#text').focus(); }
+  else if (k === 'd') toggleDark();
+  else if (k === 'w') save({ wall: !settings.wall });
+  else if (ev.key === '/') { ev.preventDefault(); if (view === 'settings') { const s = $('[data-ctl="search"]'); if (s) s.focus(); } else openPalette(); }
+  else if (ev.key === '?') go('settings/shortcuts');
 });
 
-function langRender() {  // everything that is not redrawn from the data: static texts, titles, the language buttons
+// --- Settings applied -------------------------------------------------------------
+
+function darkRender() {
+  const on = isDark();
+  for (const el of $$('[data-dark]')) el.setAttribute('aria-checked', String(on));
+  for (const b of $$('[data-dark-btn]')) {
+    b.title = t('theme.toggle');
+    b.setAttribute('aria-label', t('theme.toggle'));
+    b.setAttribute('aria-pressed', String(on));
+    b.replaceChildren(icon(on ? 'SUN' : 'MOON'));
+  }
+}
+function toggleDark() { save({ theme: isDark() ? 'light' : 'dark' }); }
+for (const el of $$('[data-dark], [data-dark-btn]')) el.addEventListener('click', toggleDark);
+darkQuery.addEventListener('change', () => { darkRender(); if (view === 'settings') settingsRender(); });
+
+function applyLook(s) {  // everything visual, also for a live preview while a slider moves
+  const root = document.documentElement, st = root.style, set = (k, v) => (v == null ? delete root.dataset[k] : (root.dataset[k] = v));
+  set('theme', s.theme === 'system' ? null : s.theme);
+  set('accent', s.accent);
+  if (s.accent === 'custom') { st.setProperty('--accent', s.accentCustom); st.setProperty('--on-accent', readableOn(s.accentCustom)); }
+  else { st.removeProperty('--accent'); st.removeProperty('--on-accent'); }
+  set('density', s.density === 'compact' ? 'compact' : null);
+  set('font', s.font === 'system' ? null : s.font);
+  set('contrast', s.contrast ? 'high' : null);
+  set('avatars', s.avatars === 'mono' ? 'mono' : null);
+  set('motion', s.motion === 'system' ? null : s.motion);
+  set('cards', s.layout === 'list' ? 'list' : null);
+  set('toast', s.toastPos);
+  set('bubbles', s.bubbles === 'list' ? 'list' : null);
+  set('wall', s.wall ? 'on' : null);
+  st.setProperty('--zoom', String(s.zoom / 100));
+  st.setProperty('--radius', `${s.radius}px`);
+  st.setProperty('--radius-s', `${Math.round(s.radius * 0.6)}px`);
+  st.setProperty('--tint', s.tintColor);
+  st.setProperty('--tint-o', `${s.tint}%`);
+  for (const a of $$('[data-view="history"]')) a.hidden = !s.navHistory;
+  $('#wall-exit').hidden = !s.wall;
+}
+
+function applySettings() {
+  applyLook(settings);
+  lang = settings.lang || autoLang();
+  if (settings.wall && view !== 'overview') go('overview');
+  langRender();
+}
+
+function langRender() {  // everything that is not redrawn from the data: static texts, titles, labels
   document.documentElement.lang = lang;
   setFormats();
-  for (const el of document.querySelectorAll('[data-t]')) el.textContent = t(el.dataset.t);
-  for (const el of document.querySelectorAll('[data-t-label]')) el.setAttribute('aria-label', t(el.dataset.tLabel));
-  for (const b of document.querySelectorAll('#lang button')) b.setAttribute('aria-pressed', String(b.dataset.lang === lang));
-  $('#keys').textContent = t(/Mac|iPhone|iPad/.test(navigator.platform) ? 'form.keys.mac' : 'form.keys.other');
+  for (const el of $$('[data-t]')) el.textContent = t(el.dataset.t);
+  for (const el of $$('[data-t-label]')) el.setAttribute('aria-label', t(el.dataset.tLabel));
+  for (const el of $$('[data-l]')) el.textContent = L(JSON.parse(el.dataset.l));
+  for (const el of $$('[data-l-label]')) { const v = L(JSON.parse(el.dataset.lLabel)); el.setAttribute('aria-label', v); el.title = v; }
+  for (const b of $$('.seg button[data-filter]')) b.setAttribute('aria-pressed', String(b.dataset.filter === mailFilter));
+  $('#keys').textContent = settings.enterSends ? t('form.keys.enter') : keysHint();
   $('#form-note').textContent = '';
-  themeRender();
-  bellRender();
+  optionsKey = '';
+  histKey = '';
+  darkRender();
   liveRender();
   if (connKind && connKind !== 'ok') connection(connKind);
+  if (view === 'settings') settingsRender();
   render();
 }
-document.querySelectorAll('#lang button').forEach((b) => b.addEventListener('click', () => {
-  if (b.dataset.lang === lang) return;
-  lang = b.dataset.lang;
-  store('syn-lang', lang);
-  langRender();
-}));
 
-document.querySelectorAll('.seg button[data-filter]').forEach((b) => b.addEventListener('click', () => {
-  filter = b.dataset.filter;
-  document.querySelectorAll('.seg button[data-filter]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+// --- Events and start -------------------------------------------------------------
+
+$$('.seg button[data-filter]').forEach((b) => b.addEventListener('click', () => {
+  mailFilter = b.dataset.filter;
+  for (const x of $$('.seg button[data-filter]')) x.setAttribute('aria-pressed', String(x === b));
   if (data) mailRender();
 }));
+$('#mail-person').addEventListener('change', (ev) => { mailPerson = ev.target.value; if (data) mailRender(); });
+$('#hist-person').addEventListener('change', (ev) => { histPerson = ev.target.value; if (data) historyRender(); });
+$('#hist-kind').addEventListener('change', (ev) => { histKind = ev.target.value; if (data) historyRender(); });
 $('#to').addEventListener('change', () => { optionsKey = ''; recipients(); });
-$('#text').addEventListener('input', count);
+$('#text').addEventListener('input', () => { count(); grow(); if (settings.drafts) store('syn-draft', $('#text').value || null); });
 $('#text').addEventListener('keydown', (ev) => {
-  if (ev.key === 'Enter' && (ev.metaKey || ev.ctrlKey)) { ev.preventDefault(); $('#compose').requestSubmit(); }
+  if (ev.key !== 'Enter' || ev.isComposing) return;
+  const send = settings.enterSends ? !ev.shiftKey && !ev.metaKey && !ev.ctrlKey : ev.metaKey || ev.ctrlKey;
+  if (send) { ev.preventDefault(); $('#compose').requestSubmit(); }
 });
+$('#wall-exit').addEventListener('click', () => save({ wall: false }));
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) return;
   unread = 0;
+  if (view === 'messages') unseenMail.clear();
   setTitle();
   load();
-  setTimeout(() => { if (freshMail.size && data) { freshMail.clear(); mailRender(); } }, 10000);
+  setTimeout(() => { if (freshMail.size && data) { freshMail.clear(); if (view === 'messages') mailRender(); } }, 10000);
 });
 setInterval(() => {  // keep the relative times current
-  if (data && !document.hidden) { boardRender(); historyRender(); }
+  if (data && !document.hidden && view !== 'settings') render();
   liveRender();
 }, 30000);
 
-langRender();
+icons();
+if (settings.drafts) { $('#text').value = store('syn-draft') || ''; }
+applySettings();
+show(location.hash.replace(/^#\/?/, ''));
 load();
 </script>
 </body>

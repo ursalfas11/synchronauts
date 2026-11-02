@@ -118,6 +118,8 @@ The approval is a real permission prompt of Claude Code, which Claude cannot ans
 - **Messages:** read and write them right there, to a person or to their session in a repo. The recipient's Claude sees that the human writes in person, and its reply (`send <name>@ui`) comes back to the board instead of into a session.
 - **History** of the last 24 hours: session start, task, edited files, warnings to Claude, open approvals, wake-ups and messages.
 - **Alerts:** a toast, a counter in the tab title and, if you allow it, a browser notification when mail arrives, one of your sessions waits for approval or a new overlap appears.
+- **Settings:** about 70, on ten pages with a search: appearance (scheme, accent or your own color, font, scale, corners, density, contrast, sidebar tint), what the overview shows and how it groups and sorts, messages (Enter to send, drafts, layout), notifications per event with sound, position and duration, history, refresh, export and import. They stay in your browser.
+- **Keyboard:** ⌘K opens a command palette for pages, settings and messages to a person; `g o/m/h/s`, `n`, `d`, `w` (wall display for a second screen), `?`.
 - English and German.
 
 ## Commands
