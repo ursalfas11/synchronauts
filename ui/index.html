@@ -13,7 +13,8 @@
     const s = JSON.parse(localStorage.getItem('syn-settings') || '{}') || {};
     const theme = s.theme || localStorage.getItem('syn-theme'), root = document.documentElement;
     if (theme === 'light' || theme === 'dark') root.dataset.theme = theme;
-    if (typeof s.accent === 'string') root.dataset.accent = s.accent;
+    root.dataset.accent = typeof s.accent === 'string' ? s.accent : 'blue';
+    if (s.style !== 'flat') root.dataset.style = 'glass';
     if (s.density === 'compact') root.dataset.density = 'compact';
     if (['rounded', 'serif', 'mono'].includes(s.font)) root.dataset.font = s.font;
     if (typeof s.zoom === 'number') root.style.setProperty('--zoom', String(Math.min(1.3, Math.max(0.8, s.zoom / 100))));
@@ -491,6 +492,118 @@ input.color { width: 32px; height: 32px; padding: 0; border: 1px solid var(--lin
   :root[data-cards="list"] .session { display: block; }
   :root[data-toast] .toasts { left: 16px; right: 16px; width: auto; }
   :root[data-toast="br"] .toasts, :root[data-toast="bl"] .toasts { top: auto; bottom: calc(80px + env(safe-area-inset-bottom)); }
+}
+
+/* Glass: translucent panels over a soft background, Apple-like */
+:root[data-style="glass"] {
+  --bg: light-dark(#eef1f6, #050507);
+  --surface: light-dark(rgb(255 255 255 / .58), rgb(30 30 38 / .52));
+  --surface-2: light-dark(rgb(255 255 255 / .5), rgb(255 255 255 / .07));
+  --hover: light-dark(rgb(255 255 255 / .78), rgb(255 255 255 / .1));
+  --line: light-dark(rgb(15 23 42 / .07), rgb(255 255 255 / .08));
+  --line-strong: light-dark(rgb(15 23 42 / .13), rgb(255 255 255 / .15));
+  --muted: light-dark(#6e6e73, #98989f);
+  --text-2: light-dark(#3a3a3c, #d1d1d6);
+  --text: light-dark(#1d1d1f, #f5f5f7);
+  --glass: blur(26px) saturate(180%);
+  --rim: inset 0 1px 0 light-dark(rgb(255 255 255 / .8), rgb(255 255 255 / .07));
+  --lift: 0 1px 2px light-dark(rgb(15 23 42 / .04), rgb(0 0 0 / .3)), 0 10px 30px light-dark(rgb(15 23 42 / .07), rgb(0 0 0 / .35));
+  --pop: 0 24px 60px light-dark(rgb(15 23 42 / .18), rgb(0 0 0 / .6)), 0 0 0 1px var(--line-strong);
+  --wall:
+    radial-gradient(42% 50% at 8% 6%, rgb(129 140 248 / .55), transparent 70%),
+    radial-gradient(38% 45% at 92% 10%, rgb(244 114 182 / .38), transparent 70%),
+    radial-gradient(45% 50% at 75% 92%, rgb(56 189 248 / .42), transparent 70%),
+    radial-gradient(40% 45% at 18% 96%, rgb(167 139 250 / .4), transparent 70%),
+    linear-gradient(180deg, #f4f6fb, #e9edf5);
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-style="glass"]:not([data-theme="light"]) { --wall:
+    radial-gradient(42% 50% at 8% 6%, rgb(67 56 202 / .5), transparent 70%),
+    radial-gradient(38% 45% at 92% 10%, rgb(157 23 77 / .32), transparent 70%),
+    radial-gradient(45% 50% at 75% 92%, rgb(3 105 161 / .45), transparent 70%),
+    radial-gradient(40% 45% at 18% 96%, rgb(91 33 182 / .4), transparent 70%),
+    linear-gradient(180deg, #07070b, #040406); }
+}
+:root[data-style="glass"][data-theme="dark"] { --wall:
+  radial-gradient(42% 50% at 8% 6%, rgb(67 56 202 / .5), transparent 70%),
+  radial-gradient(38% 45% at 92% 10%, rgb(157 23 77 / .32), transparent 70%),
+  radial-gradient(45% 50% at 75% 92%, rgb(3 105 161 / .45), transparent 70%),
+  radial-gradient(40% 45% at 18% 96%, rgb(91 33 182 / .4), transparent 70%),
+  linear-gradient(180deg, #07070b, #040406); }
+:root[data-style="glass"][data-accent="blue"] { --accent: light-dark(#007aff, #0a84ff); --on-accent: #fff; }
+:root[data-style="glass"] body { background: var(--bg); font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", var(--sans); }
+:root[data-style="glass"]:not([data-font]) body { font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", var(--sans-base); }
+:root[data-style="glass"] body::before { content: ""; position: fixed; inset: 0; z-index: -1; background: var(--wall); pointer-events: none; }
+
+/* the panels */
+:root[data-style="glass"] :is(.sidebar, .kpi, .attn, .mission, .session, .set-list, .history, .composer, .toast, .palette-box, .side-search, .set-search, .empty-state, .banner, .btn, .icon-btn, .msg) {
+  -webkit-backdrop-filter: var(--glass); backdrop-filter: var(--glass);
+}
+:root[data-style="glass"] :is(.kpi, .attn, .mission, .session, .set-list, .history, .composer) {
+  background: var(--surface); border-color: var(--line); box-shadow: var(--rim), var(--lift);
+}
+:root[data-style="glass"] :is(.attn-row, .set-row, .entry) { background: transparent; }
+:root[data-style="glass"] .history .day { background: var(--surface-2); }
+:root[data-style="glass"] .session { transition: transform .2s cubic-bezier(.2, .8, .2, 1), box-shadow .2s, border-color .2s; }
+:root[data-style="glass"] .session:hover { transform: translateY(-2px); box-shadow: var(--rim), 0 2px 4px light-dark(rgb(15 23 42 / .05), rgb(0 0 0 / .3)), 0 18px 40px light-dark(rgb(15 23 42 / .1), rgb(0 0 0 / .45)); }
+:root[data-style="glass"] .session.local { background: light-dark(rgb(255 255 255 / .28), rgb(255 255 255 / .03)); box-shadow: none; }
+:root[data-style="glass"] .session.s-approval, :root[data-style="glass"] .session.s-error {
+  border-color: color-mix(in srgb, var(--state) 55%, transparent); box-shadow: var(--rim), var(--lift), 0 0 0 3px color-mix(in srgb, var(--state) 12%, transparent);
+}
+:root[data-style="glass"] .empty-state { background: light-dark(rgb(255 255 255 / .3), rgb(255 255 255 / .03)); border-color: var(--line-strong); }
+:root[data-style="glass"] .msg { background: var(--surface); border-color: var(--line); box-shadow: var(--rim); border-radius: 18px; }
+:root[data-style="glass"] .msg.mine { background: color-mix(in srgb, var(--accent) 16%, var(--surface)); border-color: color-mix(in srgb, var(--accent) 22%, transparent); }
+:root[data-style="glass"] .stream { border-top: 0; }
+:root[data-style="glass"] .composer { border-radius: 22px; }
+:root[data-style="glass"] .composer:focus-within { border-color: color-mix(in srgb, var(--accent) 55%, transparent); box-shadow: var(--rim), var(--lift), 0 0 0 4px color-mix(in srgb, var(--accent) 16%, transparent); }
+
+/* controls */
+:root[data-style="glass"] .btn, :root[data-style="glass"] .icon-btn { background: var(--surface); border-color: var(--line-strong); box-shadow: var(--rim); border-radius: 999px; }
+:root[data-style="glass"] .icon-btn { border-radius: 50%; }
+:root[data-style="glass"] .btn:hover, :root[data-style="glass"] .icon-btn:hover { background: var(--hover); }
+:root[data-style="glass"] .btn.primary { background: var(--accent); color: var(--on-accent); border-color: transparent; box-shadow: 0 4px 14px color-mix(in srgb, var(--accent) 35%, transparent); }
+:root[data-style="glass"] .seg { background: light-dark(rgb(118 118 128 / .12), rgb(118 118 128 / .24)); border-color: transparent; border-radius: 10px; }
+:root[data-style="glass"] .seg button { border-radius: 8px; }
+:root[data-style="glass"] .seg button[aria-pressed="true"], :root[data-style="glass"] .seg button[aria-checked="true"] {
+  background: light-dark(#fff, rgb(99 99 102 / .9)); box-shadow: 0 1px 3px rgb(0 0 0 / .12), 0 0 0 .5px rgb(0 0 0 / .04);
+}
+:root[data-style="glass"] .switch { background: light-dark(rgb(120 120 128 / .2), rgb(120 120 128 / .36)); border-color: transparent; }
+:root[data-style="glass"] .switch[aria-checked="true"] { background: #34c759; }
+:root[data-style="glass"] .switch[aria-checked="true"] .knob, :root[data-style="glass"] .switch .knob { background: #fff; box-shadow: 0 2px 4px rgb(0 0 0 / .2); }
+:root[data-style="glass"] select, :root[data-style="glass"] .set-control select { background: var(--surface); border-color: var(--line-strong); border-radius: 9px; }
+:root[data-style="glass"] .set-search, :root[data-style="glass"] .side-search { background: light-dark(rgb(118 118 128 / .1), rgb(118 118 128 / .22)); border-color: transparent; border-radius: 10px; }
+:root[data-style="glass"] .kbd { background: var(--surface); border-color: var(--line-strong); }
+
+/* the shell: a floating sidebar */
+:root[data-style="glass"] .sidebar {
+  top: 12px; height: calc(var(--vh) - 24px); margin: 12px 0 12px 12px; border: 1px solid var(--line); border-radius: 22px;
+  background: linear-gradient(color-mix(in srgb, var(--tint) var(--tint-o), transparent), color-mix(in srgb, var(--tint) var(--tint-o), transparent)), var(--surface);
+  box-shadow: var(--rim), var(--lift);
+}
+:root[data-style="glass"] .side-foot { border-top-color: var(--line); }
+:root[data-style="glass"] .nav a, :root[data-style="glass"] .set-cat { border-radius: 10px; }
+:root[data-style="glass"] .nav a[aria-current="page"], :root[data-style="glass"] .set-cat[aria-current="page"] {
+  background: color-mix(in srgb, var(--accent) 15%, transparent); color: var(--text);
+}
+:root[data-style="glass"] .main { padding-top: 34px; }
+:root[data-style="glass"] .page-head h1 { font-size: 30px; letter-spacing: -.035em; }
+:root[data-style="glass"] .block-title { letter-spacing: .02em; text-transform: none; font-size: 13px; font-weight: 600; color: var(--text-2); }
+:root[data-style="glass"] .kpi-value { font-size: 32px; font-weight: 650; }
+:root[data-style="glass"] .toast { background: var(--surface); border-radius: 16px; box-shadow: var(--rim), var(--pop); }
+:root[data-style="glass"] .palette { background: light-dark(rgb(0 0 0 / .12), rgb(0 0 0 / .45)); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); }
+:root[data-style="glass"] .palette-box { background: var(--surface); border-radius: 20px; box-shadow: var(--rim), var(--pop); }
+:root[data-style="glass"] .palette li { border-radius: 10px; }
+:root[data-style="glass"] .palette li[aria-selected="true"] { background: color-mix(in srgb, var(--accent) 15%, transparent); }
+:root[data-style="glass"] .mission-bar { background: transparent; }
+@media (max-width: 860px) {
+  :root[data-style="glass"] .topbar { background: var(--surface); -webkit-backdrop-filter: var(--glass); backdrop-filter: var(--glass); }
+  :root[data-style="glass"] .tabbar {
+    inset: auto 12px calc(10px + env(safe-area-inset-bottom)); padding: 6px; border: 1px solid var(--line); border-radius: 28px;
+    background: var(--surface); -webkit-backdrop-filter: var(--glass); backdrop-filter: var(--glass); box-shadow: var(--rim), var(--pop);
+  }
+  :root[data-style="glass"] .tabbar a { border-radius: 22px; }
+  :root[data-style="glass"] .tabbar a[aria-current="page"] { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+  :root[data-style="glass"] .main { padding-top: 18px; padding-bottom: calc(100px + env(safe-area-inset-bottom)); }
 }
 
 /* Small screens: top bar and a tab bar at the bottom instead of the sidebar */
@@ -1318,10 +1431,12 @@ const SCHEMA = [
   { k: 'confirmStop', cat: 'general', type: 'switch', def: true, label: ['Ask before stopping a mission', 'Vor dem Stoppen eines Auftrags fragen'] },
 
   // Appearance
+  { k: 'style', cat: 'appearance', type: 'seg', def: 'glass', opts: [opt('glass', 'Glass', 'Glas'), opt('flat', 'Clean', 'Klar')],
+    label: ['Style', 'Stil'], hint: ['Glass: translucent panels over a soft background', 'Glas: durchscheinende Flächen über einem weichen Hintergrund'] },
   { k: 'theme', cat: 'appearance', type: 'seg', def: 'system',
     opts: [opt('system', 'System'), opt('light', 'Light', 'Hell'), opt('dark', 'Dark', 'Dunkel')],
     label: ['Color scheme', 'Farbschema'], hint: ['Follow the system or choose one', 'Wie das System oder fest gewählt'] },
-  { k: 'accent', cat: 'appearance', type: 'custom', def: 'mono', choices: ['mono', 'blue', 'green', 'violet', 'orange', 'custom'],
+  { k: 'accent', cat: 'appearance', type: 'custom', def: 'blue', choices: ['mono', 'blue', 'green', 'violet', 'orange', 'custom'],
     label: ['Accent color', 'Akzentfarbe'], hint: ['Buttons, links, switches and the active page', 'Knöpfe, Links, Schalter und die aktive Seite'], render: accentControl },
   { k: 'accentCustom', type: 'hidden', def: '#0a84ff' },
   { k: 'font', cat: 'appearance', type: 'seg', def: 'system',
@@ -1329,7 +1444,7 @@ const SCHEMA = [
     label: ['App font', 'Schrift'] },
   { k: 'zoom', cat: 'appearance', type: 'range', def: 100, min: 80, max: 130, step: 5, unit: ' %', live: true,
     label: ['Scale', 'Größe'], hint: ['Text and controls together', 'Text und Bedienelemente zusammen'] },
-  { k: 'radius', cat: 'appearance', type: 'seg', def: '10',
+  { k: 'radius', cat: 'appearance', type: 'seg', def: '16',
     opts: [opt('0', 'Sharp', 'Eckig'), opt('6', 'Small', 'Klein'), opt('10', 'Medium', 'Mittel'), opt('16', 'Round', 'Rund')],
     label: ['Corners', 'Ecken'] },
   { k: 'density', cat: 'appearance', type: 'seg', def: 'comfortable',
@@ -2615,6 +2730,7 @@ function applyLook(s) {  // everything visual, also for a live preview while a s
   const root = document.documentElement, st = root.style, set = (k, v) => (v == null ? delete root.dataset[k] : (root.dataset[k] = v));
   set('theme', s.theme === 'system' ? null : s.theme);
   set('accent', s.accent);
+  set('style', s.style === 'glass' ? 'glass' : null);
   if (s.accent === 'custom') { st.setProperty('--accent', s.accentCustom); st.setProperty('--on-accent', readableOn(s.accentCustom)); }
   else { st.removeProperty('--accent'); st.removeProperty('--on-accent'); }
   set('density', s.density === 'compact' ? 'compact' : null);

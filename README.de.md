@@ -109,7 +109,7 @@ Die Zustimmung ist eine echte Rückfrage von Claude Code, die Claude nicht selbs
 - **Nachrichten:** direkt dort lesen und schreiben, an eine Person oder an ihre Session in einem Repo. Der Claude des Empfängers sieht, dass der Mensch selbst schreibt, und seine Antwort (`send <name>@ui`) kommt ins Board zurück statt in eine Session.
 - **Verlauf** der letzten 24 Stunden: Sessionstart, Vorhaben, bearbeitete Dateien, Warnungen an Claude, offene Freigaben, Wecken und Nachrichten.
 - **Melden:** Ein Toast, ein Zähler im Tab-Titel und auf Wunsch eine Browser-Benachrichtigung zeigen an, wenn Post kommt, eine eigene Session auf Freigabe wartet oder eine neue Überschneidung entsteht.
-- **Einstellungen:** rund 70, auf zehn Seiten mit Suche: Darstellung (Schema, Akzent oder eigene Farbe, Schrift, Größe, Ecken, Dichte, Kontrast, Seitenleiste tönen), was die Übersicht zeigt und wie sie gruppiert und sortiert, Nachrichten (Enter sendet, Entwürfe, Anordnung), Benachrichtigungen je Ereignis mit Ton, Position und Dauer, Verlauf, Aktualisierung, Export und Import. Sie bleiben in deinem Browser.
+- **Einstellungen:** rund 70, auf zehn Seiten mit Suche: Darstellung (Stil Glas oder Klar, Schema, Akzent oder eigene Farbe, Schrift, Größe, Ecken, Dichte, Kontrast, Seitenleiste tönen), was die Übersicht zeigt und wie sie gruppiert und sortiert, Nachrichten (Enter sendet, Entwürfe, Anordnung), Benachrichtigungen je Ereignis mit Ton, Position und Dauer, Verlauf, Aktualisierung, Export und Import. Sie bleiben in deinem Browser.
 - **Tastatur:** ⌘K öffnet eine Befehlspalette für Seiten, Einstellungen und Nachrichten an eine Person; `g o/m/h/s`, `n`, `d`, `w` (Wanddisplay für einen zweiten Bildschirm), `?`.
 - Englisch und Deutsch.
 
