@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 500" width="1280" height="500" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, Helvetica, Arial, sans-serif">
+<defs>
+  <radialGradient id="b1"><stop offset="0" stop-color="#6366f1" stop-opacity=".55"/><stop offset="1" stop-color="#6366f1" stop-opacity="0"/></radialGradient>
+  <radialGradient id="b2"><stop offset="0" stop-color="#ec4899" stop-opacity=".55"/><stop offset="1" stop-color="#ec4899" stop-opacity="0"/></radialGradient>
+  <radialGradient id="b3"><stop offset="0" stop-color="#0ea5e9" stop-opacity=".55"/><stop offset="1" stop-color="#0ea5e9" stop-opacity="0"/></radialGradient>
+  <linearGradient id="word" x1="0" x2="1" y1="0" y2="0"><stop offset="0" stop-color="#f5f5f7"/><stop offset=".55" stop-color="#f5f5f7"/><stop offset="1" stop-color="#818cf8"/></linearGradient>
+  <clipPath id="frame"><rect width="1280" height="500" rx="28"/></clipPath>
+</defs>
+<g clip-path="url(#frame)">
+<rect width="1280" height="500" fill="#07070c"/>
+<circle cx="154" cy="75" r="400" fill="url(#b1)"><animateTransform attributeName="transform" type="translate" values="0 0;70 40;0 0" dur="14s" repeatCount="indefinite"/></circle>
+<circle cx="1178" cy="50" r="350" fill="url(#b2)"><animateTransform attributeName="transform" type="translate" values="0 0;-60 35;0 0" dur="17s" repeatCount="indefinite"/></circle>
+<circle cx="870" cy="525" r="425" fill="url(#b3)"><animateTransform attributeName="transform" type="translate" values="0 0;-50 -35;0 0" dur="19s" repeatCount="indefinite"/></circle>
+<rect x="48" y="60" width="340" height="250" rx="20" fill="#ffffff" fill-opacity=".06" stroke="#ffffff" stroke-opacity=".13"/><text x="70" y="94" font-size="15" font-weight="700" fill="#b4b4c0">Annas Laptop</text>
+<rect x="470" y="60" width="340" height="250" rx="20" fill="#ffffff" fill-opacity=".06" stroke="#ffffff" stroke-opacity=".13"/><text x="492" y="94" font-size="13" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#b4b4c0">github.com/acme/agents-room · privat</text>
+<rect x="892" y="60" width="340" height="250" rx="20" fill="#ffffff" fill-opacity=".06" stroke="#ffffff" stroke-opacity=".13"/><text x="914" y="94" font-size="15" font-weight="700" fill="#b4b4c0">Bens Laptop</text>
+<g>
+  <rect x="73.0" y="115.0" width="290" height="50" rx="13" fill="#ffffff" fill-opacity=".06" stroke="#ffffff" stroke-opacity=".13"/>
+  <circle cx="91.0" cy="140" r="5" fill="#4ade80"></circle>
+  <text x="104.0" y="145" font-size="15" font-weight="700" fill="#f5f5f7">claude<tspan font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="400" fill="#b4b4c0" dx="7">shop@feat/auth</tspan></text>
+</g>
+<g>
+  <rect x="73.0" y="195.0" width="290" height="50" rx="13" fill="#ffffff" fill-opacity=".06" stroke="#ffffff" stroke-opacity=".13"/>
+  <circle cx="91.0" cy="220" r="5" fill="#4ade80"></circle>
+  <text x="104.0" y="225" font-size="15" font-weight="700" fill="#f5f5f7">codex<tspan font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="400" fill="#b4b4c0" dx="7">api@main</tspan></text>
+</g>
+<g>
+  <rect x="917.0" y="115.0" width="290" height="50" rx="13" fill="#ffffff" fill-opacity=".06" stroke="#ffffff" stroke-opacity=".13"/>
+  <circle cx="935.0" cy="140" r="5" fill="#60a5fa"><animate attributeName="fill" values="#60a5fa;#60a5fa;#4ade80;#4ade80" keyTimes="0;.78;.79;1" dur="10s" repeatCount="indefinite"/></circle>
+  <text x="948.0" y="145" font-size="15" font-weight="700" fill="#f5f5f7">claude<tspan font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="400" fill="#b4b4c0" dx="7">shop@main</tspan></text>
+</g>
+<g>
+  <rect x="917.0" y="195.0" width="290" height="50" rx="13" fill="#ffffff" fill-opacity=".06" stroke="#ffffff" stroke-opacity=".13"/>
+  <circle cx="935.0" cy="220" r="5" fill="#4ade80"></circle>
+  <text x="948.0" y="225" font-size="15" font-weight="700" fill="#f5f5f7">claude<tspan font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="400" fill="#b4b4c0" dx="7">web@main</tspan></text>
+</g>
+<text x="1185" y="145" text-anchor="end" font-size="12" font-weight="600" fill="#60a5fa">wartet<animate attributeName="opacity" values="1;1;0;0" keyTimes="0;.78;.79;1" dur="10s" repeatCount="indefinite"/></text><text x="1185" y="145" text-anchor="end" font-size="12" font-weight="700" fill="#4ade80" opacity="0">geweckt<animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;.78;.79;.97;1" dur="10s" repeatCount="indefinite"/></text>
+<g><rect x="494" y="108" width="292" height="44" rx="12" fill="#818cf8" fill-opacity="0"><animate attributeName="fill-opacity" values="0;0;.22;0;0;.22;0;0" keyTimes="0;.12;.16;.24;.58;.62;.7;1" dur="10s" repeatCount="indefinite"/></rect><circle cx="516" cy="130" r="5" fill="none" stroke="#818cf8" stroke-width="2"/><line x1="516" y1="135" x2="516" y2="146" stroke="#818cf8" stroke-width="2" opacity=".5"/><text x="532" y="135" font-size="14" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f5f5f7">syn/anna/mac</text><text x="770" y="135" text-anchor="end" font-size="12" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#8b8b99">state.json</text></g>
+<g><rect x="494" y="188" width="292" height="44" rx="12" fill="#818cf8" fill-opacity="0"><animate attributeName="fill-opacity" values="0;0;.22;0;0;.22;0;0" keyTimes="0;.3;.34;.42;.42;.42;.42;1" dur="10s" repeatCount="indefinite"/></rect><circle cx="516" cy="210" r="5" fill="none" stroke="#818cf8" stroke-width="2"/><line x1="516" y1="215" x2="516" y2="226" stroke="#818cf8" stroke-width="2" opacity=".5"/><text x="532" y="215" font-size="14" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f5f5f7">syn/ben/pc</text><text x="770" y="215" text-anchor="end" font-size="12" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#8b8b99">state.json</text></g>
+<line x1="396" y1="270" x2="462" y2="270" stroke="#ffffff" stroke-opacity="0.26" stroke-width="1.5" stroke-dasharray="4 6"><animate attributeName="stroke-dashoffset" values="0;-20" dur="1.4s" repeatCount="indefinite"/></line>
+<line x1="818" y1="270" x2="884" y2="270" stroke="#ffffff" stroke-opacity="0.26" stroke-width="1.5" stroke-dasharray="4 6"><animate attributeName="stroke-dashoffset" values="0;-20" dur="1.4s" repeatCount="indefinite"/></line>
+<g opacity="0"><animateMotion dur="10s" repeatCount="indefinite" keyPoints="0;0;1;1" keyTimes="0;0.04;0.14;1" calcMode="linear" path="M363 140 L516 130"/><animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.04;0.045;0.14;0.145;1" dur="10s" repeatCount="indefinite"/><circle r="6" fill="#818cf8"/><circle r="11" fill="#818cf8" opacity=".25"/></g>
+<g opacity="0"><animateMotion dur="10s" repeatCount="indefinite" keyPoints="0;0;1;1" keyTimes="0;0.16;0.26;1" calcMode="linear" path="M786 130 L937 140"/><animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.16;0.165;0.26;0.265;1" dur="10s" repeatCount="indefinite"/><circle r="6" fill="#818cf8"/><circle r="11" fill="#818cf8" opacity=".25"/></g>
+<g opacity="0"><animateMotion dur="10s" repeatCount="indefinite" keyPoints="0;0;1;1" keyTimes="0;0.24;0.32;1" calcMode="linear" path="M937 220 L786 210"/><animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.24;0.245;0.32;0.325;1" dur="10s" repeatCount="indefinite"/><circle r="6" fill="#818cf8"/><circle r="11" fill="#818cf8" opacity=".25"/></g>
+<g opacity="0"><animateMotion dur="10s" repeatCount="indefinite" keyPoints="0;0;1;1" keyTimes="0;0.34;0.42;1" calcMode="linear" path="M516 210 L363 220"/><animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.34;0.345;0.42;0.425;1" dur="10s" repeatCount="indefinite"/><circle r="6" fill="#818cf8"/><circle r="11" fill="#818cf8" opacity=".25"/></g>
+<g opacity="0"><animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;.27;.29;.5;.52;1" dur="10s" repeatCount="indefinite"/><rect x="917" y="168" width="200" height="26" rx="13" fill="#fbbf24"/><text x="1017" y="186" text-anchor="middle" font-size="12.5" font-weight="700" fill="#1a1300">⚠ Anna ist auch in shop</text></g>
+<g opacity="0"><animateMotion dur="10s" repeatCount="indefinite" keyPoints="0;0;1;1" keyTimes="0;0.55;0.78;1" calcMode="linear" path="M218 112 L640 100 L1062 112"/><animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.55;0.555;0.78;0.785;1" dur="10s" repeatCount="indefinite"/><rect x="-82" y="-15" width="164" height="30" rx="15" fill="#818cf8"/><text y="5" text-anchor="middle" font-size="12.5" font-weight="700" fill="#07070c">✉ fertig mit routes.ts?</text></g>
+<circle cx="62" cy="362" r="14" fill="#818cf8"/><text x="62" y="367" text-anchor="middle" font-size="14" font-weight="800" fill="#07070c">1</text><text x="88" y="367" font-size="15" fill="#f5f5f7">Jede Session meldet Repo, Branch und</text><text x="88" y="389" font-size="15" fill="#b4b4c0">Dateien in ihren eigenen Branch.</text>
+<circle cx="484" cy="362" r="14" fill="#818cf8"/><text x="484" y="367" text-anchor="middle" font-size="14" font-weight="800" fill="#07070c">2</text><text x="510" y="367" font-size="15" fill="#f5f5f7">Jeder Rechner holt alle paar Sekunden die</text><text x="510" y="389" font-size="15" fill="#b4b4c0">der anderen.</text>
+<circle cx="906" cy="362" r="14" fill="#818cf8"/><text x="906" y="367" text-anchor="middle" font-size="14" font-weight="800" fill="#07070c">3</text><text x="932" y="367" font-size="15" fill="#f5f5f7">Überschneidungen warnen vor dem Merge.</text><text x="932" y="389" font-size="15" fill="#b4b4c0">Nachrichten wecken die wartende Session.</text>
+</g>
+<rect x=".5" y=".5" width="1279" height="499" rx="28" fill="none" stroke="#ffffff" stroke-opacity=".13"/>
+</svg>

@@ -1,6 +1,19 @@
-# Synchronauts
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/hero-de-dark.svg">
+  <img src="docs/hero-de-light.svg" alt="Synchronauts: die Coding-Agenten deines Teams, im Gleichtakt" width="100%">
+</picture>
+</p>
 
-[English](README.md) · Deutsch
+<p align="center"><a href="README.md">English</a> · <b>Deutsch</b></p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Claude%20Code-plugin-D97757?style=flat-square" alt="Claude Code plugin">
+  <img src="https://img.shields.io/badge/Codex%20CLI-supported-10A37F?style=flat-square" alt="Codex CLI">
+  <img src="https://img.shields.io/badge/server-none-6E40C9?style=flat-square" alt="no server">
+  <img src="https://img.shields.io/badge/Python-stdlib%20only-3776AB?style=flat-square" alt="Python standard library only">
+  <img src="https://img.shields.io/badge/license-MIT-0A84FF?style=flat-square" alt="MIT">
+</p>
 
 **Die Claude-Code-Agenten deines Teams, im Gleichtakt: Sie sehen einander, reden miteinander und kommen sich nicht mehr in die Quere. Ohne Server: Ein privates GitHub-Repo ist der Bus.**
 
@@ -18,10 +31,18 @@ Zwei Leute mit je drei Claude-Code-Sessions bauen schnell dasselbe Feature von z
 - **Auch Codex:** `syn codex` trägt die Hooks in Codex CLI ein, und dessen Sessions erscheinen, warnen und bekommen Nachrichten wie die von Claude.
 - **Aufträge:** Die Claudes mehrerer Leute lösen ein Problem selbstständig: Sie teilen die Arbeit auf, schreiben einander, bis es gelöst ist, und melden das Ergebnis. Jeder Mensch bestätigt den Plan einmal, am Anfang.
 - **Live-Board:** eine lokale Webseite mit Sessions, Zuständen (arbeitet, wartet auf Freigabe, wartet, Fehler), Nachrichten und Verlauf.
+- **Auch ohne Board:** Mitteilungen des Systems nur für das, was dich braucht, und `syn line` für jede Statusleiste, tmux oder den Shell-Prompt.
 - **Sparsam mit Tokens:** Text für Claude nur, wenn etwas neu ist und die Session betrifft, außerhalb der Team-Repos gar keiner.
 - **Kein Server, kein Konto:** Der GitHub-Zugang ist die Zugangskontrolle. Nur die Python-Standardbibliothek.
 
 Stand: früh (0.4). Gedacht für kleine Teams, die einander vertrauen, siehe [Sicherheit](#sicherheit).
+
+## So funktioniert es
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/how-de-dark.svg">
+  <img src="docs/how-de-light.svg" alt="Annas und Bens Sessions melden sich in ihren eigenen Branch in einem privaten Raum-Repo, jeder Rechner holt die der anderen, eine Überschneidung warnt und eine Nachricht weckt die wartende Session" width="100%">
+</picture>
 
 ## Schnellstart
 
@@ -101,6 +122,11 @@ Normalerweise ist eine Nachricht vom Claude eines Kollegen nur Information: Dein
 Die Zustimmung ist eine echte Rückfrage von Claude Code, die Claude nicht selbst beantworten kann, und zählt nur im Aufruf, der gefragt hat. Aufträge laufen nur im Auto-Modus, damit die eigenen Freigaben von Claude Code die Arbeit nicht anhalten; im Auto-Modus hält ein Klassifizierer riskante Aktionen weiter zurück.
 
 ## Live-Board
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/board-dark.png">
+  <img src="docs/board-light.png" alt="Das Live-Board im Glas-Stil: Kennzahlen, was dich braucht, ein Auftrag, die Sessions des Teams" width="100%">
+</picture>
 
 `~/.synchronauts/syn ui` öffnet es im Browser. Das kostet keine Tokens.
 

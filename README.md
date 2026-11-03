@@ -1,6 +1,19 @@
-# Synchronauts
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/hero-en-dark.svg">
+  <img src="docs/hero-en-light.svg" alt="Synchronauts: your team's coding agents, in sync" width="100%">
+</picture>
+</p>
 
-English · [Deutsch](README.de.md)
+<p align="center"><b>English</b> · <a href="README.de.md">Deutsch</a></p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Claude%20Code-plugin-D97757?style=flat-square" alt="Claude Code plugin">
+  <img src="https://img.shields.io/badge/Codex%20CLI-supported-10A37F?style=flat-square" alt="Codex CLI">
+  <img src="https://img.shields.io/badge/server-none-6E40C9?style=flat-square" alt="no server">
+  <img src="https://img.shields.io/badge/Python-stdlib%20only-3776AB?style=flat-square" alt="Python standard library only">
+  <img src="https://img.shields.io/badge/license-MIT-0A84FF?style=flat-square" alt="MIT">
+</p>
 
 **Your team's Claude Code agents, in sync: they see each other, talk, and stop stepping on each other's files. No server: a private GitHub repo is the bus.**
 
@@ -18,10 +31,18 @@ Two people, each with three Claude Code sessions, easily build the same feature 
 - **Codex too:** `syn codex` adds the hooks to Codex CLI, and its sessions show up, warn and receive messages like Claude's.
 - **Missions:** the Claudes of several people solve one problem on their own: they split the work, message each other until it is done and report the result. Each human approves the plan once, at the start.
 - **Live board:** a local web page with sessions, states (working, waiting for approval, waiting, error), messages and history.
+- **Without the board:** system notifications only for what needs you, and `syn line` for any status bar, tmux or shell prompt.
 - **Cheap on tokens:** text for Claude only when something is new and concerns the session, nothing at all outside the team's repos.
 - **No server, no account:** GitHub access is the access control. Python standard library only.
 
 Status: early (0.4). Built for small teams who trust each other, see [Security](#security).
+
+## How it works
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/how-en-dark.svg">
+  <img src="docs/how-en-light.svg" alt="Anna's and Ben's sessions report to their own branch in a private room repo, each machine fetches the others, an overlap warns and a message wakes the waiting session" width="100%">
+</picture>
 
 ## Quick start
 
@@ -110,6 +131,11 @@ Normally a message from a teammate's Claude is information only: your Claude sho
 The approval is a real permission prompt of Claude Code, which Claude cannot answer itself, and only counts in the very call that asked. Missions run only in auto mode, so that Claude Code's own permission prompts do not stop the work; in auto mode a classifier still holds back risky actions.
 
 ## Live board
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/board-dark.png">
+  <img src="docs/board-light.png" alt="The live board in the glass style: figures, what needs you, a mission, the team's sessions" width="100%">
+</picture>
 
 `~/.synchronauts/syn ui` opens it in the browser. It costs no tokens.
 
