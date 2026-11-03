@@ -113,6 +113,19 @@ Die Zustimmung ist eine echte Rückfrage von Claude Code, die Claude nicht selbs
 - **Tastatur:** ⌘K öffnet eine Befehlspalette für Seiten, Einstellungen und Nachrichten an eine Person; `g o/m/h/s`, `n`, `d`, `w` (Wanddisplay für einen zweiten Bildschirm), `?`.
 - Englisch und Deutsch.
 
+## Ohne Board: Mitteilungen und eine Statuszeile
+
+Niemand muss das Board offen haben. Zwei Wege, die mit jedem Agenten und jedem Terminal gehen:
+
+- **Mitteilungen des Systems** (macOS, Windows, Linux mit `notify-send`): Der Hintergrunddienst meldet nur, was dich braucht: eine Nachricht an dich, einen Auftragsvorschlag oder sein Ergebnis, eine gefälschte Nachricht und einen echten Konflikt mit der Arbeit eines Kollegen. Nachrichten innerhalb eines Auftrags bleiben still, mehrere auf einmal kommen als eine, höchstens fünf in zehn Minuten. Sie laufen, solange eine deiner Sessions den Hintergrunddienst wach hält. `syn notify off` schaltet sie ab, `syn notify test` zeigt eine Probe.
+- **Eine Zeile für eine Statusleiste:** `syn line` gibt zum Beispiel `◉ 3 · ⚠ 1 · ✉ 2` aus: Sessions von Kollegen, die gerade arbeiten, Überschneidungen mit deinen Sessions, Nachrichten an dich, die noch keine Session gezeigt hat, und mit `⏳` eigene Sessions, die auf eine Freigabe warten. Ist nichts los, gibt sie nichts aus. Sie liest nur, was schon da ist, und ist schnell genug für jedes Neuzeichnen:
+  - Claude Code: `"statusLine": {"type": "command", "command": "~/.synchronauts/syn line"}` in `~/.claude/settings.json`, oder die Ausgabe an die eigene Statuszeile anhängen.
+  - tmux: `set -g status-right '#(~/.synchronauts/syn line)'`
+  - Shell-Prompt, Menüleisten-Werkzeuge und alles, was die Ausgabe eines Befehls zeigen kann.
+  - Codex CLI zeigt in seiner Statuszeile bisher nur eingebaute Felder.
+
+`syn state` gibt alles, was das Board bekommt, als JSON aus, für eigene Werkzeuge.
+
 ## Befehle
 
 Claude ruft sie per Bash auf, du kannst es auch. `~/.synchronauts/syn` ist ein kleines Skript, das die installierte Fassung startet; jeder Sessionstart zieht es nach.
@@ -128,6 +141,9 @@ Claude ruft sie per Bash auf, du kannst es auch. `~/.synchronauts/syn` ist ein k
 | `~/.synchronauts/syn ui` | startet das Board im Hintergrund und öffnet es (`--no-browser` nennt nur die Adresse) |
 | `~/.synchronauts/syn setup <owner/repo> [--org a,b]` | tritt einem Raum bei; `--org` legt fest, wessen Repos als Team-Repos zählen |
 | `~/.synchronauts/syn codex [--remove]` | trägt die Hooks in Codex CLI ein oder nimmt sie heraus |
+| `~/.synchronauts/syn line` | eine kurze Zeile für eine Statusleiste, leer wenn nichts los ist |
+| `~/.synchronauts/syn state` | alles, was das Board bekommt, als JSON |
+| `~/.synchronauts/syn notify [on\|off\|test]` | Mitteilungen des Systems an, aus oder als Probe |
 
 ## Was geteilt wird und was nicht
 

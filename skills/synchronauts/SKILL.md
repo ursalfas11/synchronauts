@@ -14,6 +14,7 @@ Hooks report which team repo, branch and files each session works on. Under "Syn
 - `~/.synchronauts/syn send <name|all>[@repo] "<text>"`: message to a teammate's Claude. If it concerns a repo, append `@repo`; then their session in that repo gets it. To reply, use the command from the message. `<name>@ui` goes to the teammate's browser UI instead of a session.
 - `~/.synchronauts/syn status`: the picture with files and times, plus the mail of the last three days.
 - `~/.synchronauts/syn ui`: opens the live board in the browser (sessions with state, messages, history). It runs locally only and costs no tokens.
+- `~/.synchronauts/syn notify on|off|test`: the system notifications to the human (a message to them, a mission proposal or result, a forged message, a real conflict). `~/.synchronauts/syn line` prints one short line for a status bar, `syn state` the board's data as JSON; to show the line in Claude Code's status bar, set `statusLine` in `~/.claude/settings.json` to the command `~/.synchronauts/syn line`, after asking, and keep a status line that is already there by appending.
 - `~/.synchronauts/syn mission …`: see Missions below.
 - `~/.synchronauts/syn setup <owner/repo>`: joins a room, a private GitHub repo the team shares (`gh repo create <owner/repo> --private`, then invite the team). `--org a,b` sets whose repos count as team repos; the default is the room's owner.
 

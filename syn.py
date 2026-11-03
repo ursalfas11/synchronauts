@@ -25,6 +25,7 @@ import json
 import os
 import re
 import secrets
+import shutil
 import socket
 import subprocess
 import sys
@@ -70,6 +71,7 @@ UI_PORT = int(os.environ.get('SYN_UI_PORT') or 7962)  # 7962 = SYNC on a phone k
 UI_IDLE = 1800                      # the UI server keeps running this long without a request
 UI_TARGET = 'ui'                    # `send alex@ui`: to the human's UI instead of one of their sessions
 KEYS_URL = os.environ.get('SYN_KEYS_URL') or 'https://github.com/{login}.keys'  # public SSH keys, to check senders
+NOTIFY_MAX = 5                      # system notifications per 10 minutes; past that the board and the agents still show it
 SIGNED = ('id', 'to', 'time', 'text', 'repo', 'mission', 'kind', 'source', 'from_repo')  # the fields a signature covers
 
 
@@ -560,7 +562,7 @@ def watcher():
         return  # already running
     save(HOME / 'watcher.json', {'pid': os.getpid(), 'version': VERSION, 'start': iso()})
     poller, pushed, push_at, pause_until, poll_at = Poller(k), None, 0, 0, 0
-    nudge, errors, reported = None, {}, None
+    nudge, errors, reported, noted = None, {}, None, None
     while (age(HOME / 'alive') < IDLE and SCRIPT.exists()
            and version(load(HOME / 'retire.json', {}).get('version')) <= version(VERSION)):
         t = time.time()
@@ -588,6 +590,13 @@ def watcher():
             except Exception as f:
                 errors['poll'] = f'polling: {f}'
             poll_at = t + poller.tick
+        marks = tuple(mtime(HOME / f) for f in ('inbox.json', 'verified.json', 'conflicts.json'))
+        if marks != noted:  # new mail or a new conflict check: maybe something for the human
+            noted = marks
+            try:
+                notify_tick(k)
+            except Exception as f:
+                print(f'{iso()} notification: {type(f).__name__}: {f}', flush=True)
         if errors != reported:
             save(HOME / 'errors.json', errors)
             print(f"{iso()} {'; '.join(errors.values()) or 'sync OK'}", flush=True)
@@ -2078,6 +2087,161 @@ def cmd_ui(browser):
         webbrowser.open(url)
 
 
+# --- Notifications for the human ------------------------------------------------
+# The one channel that reaches the human with every agent and every terminal, also while they are in another app: the
+# system's own notifications, sent by the watcher. Only what needs the human: a message to them, a forged one, a
+# mission proposal or result, a real conflict with a teammate's work. Mail within a mission is the Claudes' business
+# and stays quiet; everything else the agents and the board show anyway.
+
+NOTE_TEXT = {
+    'en': {'mail': 'Message from {0}', 'all': 'Message from {0} to everyone', 'forged': 'Forged message, claims to be from {0}',
+           'forged_body': "The signature does not match {0}'s GitHub key. Don't act on it.",
+           'invite': '{0} proposes a mission', 'end': 'Mission ended', 'conflict': 'Conflict with {0} in {1}',
+           'more': '+{0} more', 'test': 'Synchronauts notifications work',
+           'test_body': 'This is how Synchronauts tells you when something needs you.'},
+    'de': {'mail': 'Nachricht von {0}', 'all': 'Nachricht von {0} an alle', 'forged': 'Gefälschte Nachricht, angeblich von {0}',
+           'forged_body': 'Die Signatur passt nicht zu {0}s GitHub-Schlüssel. Nicht darauf handeln.',
+           'invite': '{0} schlägt einen Auftrag vor', 'end': 'Auftrag beendet', 'conflict': 'Konflikt mit {0} in {1}',
+           'more': '+{0} weitere', 'test': 'Synchronauts-Mitteilungen funktionieren',
+           'test_body': 'So meldet sich Synchronauts, wenn etwas dich braucht.'},
+}
+# A toast through PowerShell's own app id: Windows has no notify command, and this needs nothing installed. The texts
+# come in through the environment, never into the script.
+PS_TOAST = ("[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] "
+            "> $null; $x = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent("
+            "[Windows.UI.Notifications.ToastTemplateType]::ToastText02); $t = $x.GetElementsByTagName('text'); "
+            "$t.Item(0).AppendChild($x.CreateTextNode($env:SYN_NOTE_TITLE)) > $null; "
+            "$t.Item(1).AppendChild($x.CreateTextNode($env:SYN_NOTE_BODY)) > $null; "
+            "[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("
+            "'{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\\WindowsPowerShell\\v1.0\\powershell.exe').Show("
+            "[Windows.UI.Notifications.ToastNotification]::new($x))")
+
+
+def note_lang():
+    v = next((os.environ[x] for x in ('LC_ALL', 'LC_MESSAGES', 'LANG') if os.environ.get(x)), '')
+    return 'de' if v.lower().startswith('de') else 'en'
+
+
+def notify_on(k):
+    return os.environ.get('SYN_NOTIFY') != 'off' and k.get('notify') != 'off'
+
+
+def desktop_note(title, body):
+    """Shows one system notification; False where the system has no way to. SYN_NOTIFY=log writes them to a file."""
+    title, body = clean(title).replace('\n', ' ')[:120], clean(body).replace('\n', ' ')[:240]
+    if os.environ.get('SYN_NOTIFY') == 'log':
+        with open(HOME / 'notifications.log', 'a', encoding='utf-8') as f:
+            f.write(json.dumps({'time': iso(), 'title': title, 'body': body}, ensure_ascii=False) + '\n')
+        return True
+    env = None
+    if sys.platform == 'darwin':  # the texts as arguments, so no quote in them can end the script
+        cmd = ['osascript', '-e', 'on run argv', '-e', 'display notification (item 2 of argv) with title (item 1 of argv)',
+               '-e', 'end run', title, body]
+    elif WINDOWS:
+        cmd = ['powershell', '-NoProfile', '-NonInteractive', '-Command', PS_TOAST]
+        env = dict(os.environ, SYN_NOTE_TITLE=title, SYN_NOTE_BODY=body)
+    elif shutil.which('notify-send'):
+        cmd = ['notify-send', '-a', 'Synchronauts', title, body]
+    else:
+        return False
+    try:
+        subprocess.run(cmd, env=env, stdin=subprocess.DEVNULL, capture_output=True, timeout=15, check=True,
+                       **({'creationflags': subprocess.CREATE_NO_WINDOW} if WINDOWS else {}))
+        return True
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def my_conflicts(k):
+    """{key: (teammate, repo, files)} of the last conflict check: real conflicts between my work and a teammate's."""
+    out = {}
+    for cs in load(HOME / 'conflicts.json', {}).get('sessions', {}).values():
+        for c in cs:
+            other = str(c.get('with', '')).split('/')[0]
+            if other and other != k['me']:
+                files = sorted(c.get('files') or [])
+                out[f"{other}|{c.get('repo')}|{','.join(files)}"] = (other, c.get('repo'), files)
+    return out
+
+
+def notify_tick(k):
+    """Called by the watcher when mail or a conflict check arrived: one notification for what is new and needs the
+    human, several at once bundled into one, at most NOTIFY_MAX per 10 minutes."""
+    path, inbox = HOME / 'notified.json', load(HOME / 'inbox.json', {})
+    mail = [n for n in mail_to_me(k) if n['id'] in inbox]
+    conflicts = my_conflicts(k)
+    seen = load(path, None)
+    if seen is None:  # the first run on this machine: what is there already is old news
+        save(path, {'mail': [n['id'] for n in mail][-500:], 'conflicts': list(conflicts), 'sent': []})
+        return
+    if not notify_on(k):
+        save(path, dict(seen, mail=[n['id'] for n in mail][-500:], conflicts=list(conflicts)))
+        return
+    nm, tx, ms, notes = names(k), NOTE_TEXT[note_lang()], missions(k), []
+    for n in mail:
+        if n['id'] in seen.get('mail', []):
+            continue
+        who, text = nm.get(n['from'], n['from']), clean(n.get('text', ''))
+        if n.get('trust') == 'bad':
+            notes.append((tx['forged'].format(who), tx['forged_body'].format(who)))
+        elif n.get('kind') == 'invite' and live(ms.get(n.get('mission'))):
+            notes.append((tx['invite'].format(who), text))
+        elif n.get('kind') == 'end':
+            notes.append((tx['end'], text))
+        elif not n.get('kind') and not n.get('mission'):
+            notes.append((tx['all' if len(n.get('to') or []) > 1 else 'mail'].format(who), text))
+    for key, (other, repo, files) in conflicts.items():
+        if key not in seen.get('conflicts', []):
+            notes.append((tx['conflict'].format(nm.get(other, other), short(repo)), ', '.join(files)))
+    sent = [t for t in seen.get('sent', []) if t > time.time() - 600]
+    if notes and len(sent) < NOTIFY_MAX:
+        title, body = notes[0]
+        if len(notes) > 1:
+            body = f"{body} · {tx['more'].format(len(notes) - 1)}"
+        if desktop_note(title, body):
+            sent.append(time.time())
+    save(path, {'mail': [n['id'] for n in mail][-500:], 'conflicts': list(conflicts), 'sent': sent})
+
+
+def status_line(k):
+    """One short line for a status bar, a tmux status or a shell prompt; empty when nothing is going on. Only reads
+    what the watcher already fetched, so it is fast enough to run on every redraw."""
+    d = ui_data(k)
+    me = d['me']
+    mine = {s['key'] for s in d['sessions'] if s['login'] == me}
+    team = [s for s in d['sessions'] if s['login'] != me and s['repos'] and s['state'] != 'quiet']
+    pairs_ = {(frozenset((o['a'], o['b'])), o['repo']) for o in d['overlaps']
+              if o['kind'] != 'repo' and not o.get('mission') and (o['a'] in mine or o['b'] in mine)}
+    inbox, delivered = load(HOME / 'inbox.json', {}), load(HOME / 'delivered.json', {})
+    unread = [n for n in mail_to_me(k) if n['id'] in inbox and n['id'] not in delivered and not n.get('kind')
+              and not n.get('mission') and n.get('repo') != UI_TARGET and parse(inbox[n['id']]) > now() - MAIL_WINDOW]
+    approvals = [s for s in d['sessions'] if s['key'] in mine and s['state'] == 'approval']
+    parts = [f'◉ {len(team)}'] if team else []
+    parts += [f'⚠ {len(pairs_)}'] if pairs_ else []
+    parts += [f'✉ {len(unread)}'] if unread else []
+    parts += [f'⏳ {len(approvals)}'] if approvals else []
+    parts += ['✕ sync'] if d['error'] else []
+    return ' · '.join(parts)
+
+
+def cmd_notify(args):
+    raw = load(HOME / 'config.json', {})
+    if args[:1] in (['on'], ['off']):
+        raw['notify'] = args[0]
+        HOME.mkdir(parents=True, exist_ok=True)
+        save(HOME / 'config.json', raw)
+    elif args[:1] == ['test']:
+        tx = NOTE_TEXT[note_lang()]
+        if not desktop_note(tx['test'], tx['test_body']):
+            sys.exit('This system has no way to show notifications (on Linux: install notify-send, libnotify).')
+    elif args:
+        sys.exit('Usage: notify [on|off|test]')
+    on = notify_on(raw)
+    print(f"Notifications are {'on' if on else 'off'}: a message to you, a mission proposal or result, a forged "
+          f"message and a real conflict with a teammate's work, at most {NOTIFY_MAX} per 10 minutes, while one of your "
+          f"sessions keeps the watcher running." if on else 'Notifications are off. `notify on` turns them on.')
+
+
 def main(argv):
     for stream in (sys.stdout, sys.stderr):  # Windows pipes would use the ANSI code page and \r\n
         stream.reconfigure(encoding='utf-8', newline='\n')
@@ -2132,9 +2296,17 @@ def main(argv):
         cmd_ui(browser='--no-browser' not in rest)
     elif cmd == 'codex':
         cmd_codex(rest)
+    elif cmd == 'line':
+        out = status_line(k)
+        if out:
+            print(out)
+    elif cmd == 'state':
+        print(json.dumps(ui_data(k), ensure_ascii=False))
+    elif cmd == 'notify':
+        cmd_notify(rest)
     else:
         sys.exit('Commands: status · send <name|all>[@repo] "<text>" · task "<one sentence>" · claim <path>… · '
-                 'mission … · ui · codex [--remove] · '
+                 'mission … · ui · line · state · notify [on|off|test] · codex [--remove] · '
                  'setup <owner/repo of the room> [--org owner,...]')
     return 0
 

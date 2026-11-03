@@ -122,6 +122,19 @@ The approval is a real permission prompt of Claude Code, which Claude cannot ans
 - **Keyboard:** ⌘K opens a command palette for pages, settings and messages to a person; `g o/m/h/s`, `n`, `d`, `w` (wall display for a second screen), `?`.
 - English and German.
 
+## Without the board: notifications and a status line
+
+Nobody has to keep the board open. Two ways that work with every agent and every terminal:
+
+- **System notifications** (macOS, Windows, Linux with `notify-send`): the background service only tells you what needs you: a message to you, a mission proposal or its result, a forged message, and a real conflict with a teammate's work. Messages within a mission stay quiet, several at once come as one, at most five in ten minutes. They run while one of your sessions keeps the background service awake. `syn notify off` turns them off, `syn notify test` shows a sample.
+- **One line for a status bar:** `syn line` prints for example `◉ 3 · ⚠ 1 · ✉ 2`: teammates' sessions working right now, overlaps with your sessions, messages to you that no session has shown yet, and with `⏳` your own sessions waiting for an approval. When nothing is going on it prints nothing. It only reads what is already there, so it is fast enough for every redraw:
+  - Claude Code: `"statusLine": {"type": "command", "command": "~/.synchronauts/syn line"}` in `~/.claude/settings.json`, or append its output to your own status line.
+  - tmux: `set -g status-right '#(~/.synchronauts/syn line)'`
+  - A shell prompt, menu bar tools, anything that can show a command's output.
+  - Codex CLI's status line only shows built-in fields so far.
+
+`syn state` prints everything the board gets as JSON, for your own tools.
+
 ## Commands
 
 Claude calls these via Bash; you can too. `~/.synchronauts/syn` is a small script that starts the installed version; every session start updates it.
@@ -137,6 +150,9 @@ Claude calls these via Bash; you can too. `~/.synchronauts/syn` is a small scrip
 | `~/.synchronauts/syn ui` | starts the board in the background and opens it (`--no-browser` only prints the address) |
 | `~/.synchronauts/syn setup <owner/repo> [--org a,b]` | joins a room; `--org` sets whose repos count as team repos |
 | `~/.synchronauts/syn codex [--remove]` | adds the hooks to Codex CLI, or removes them |
+| `~/.synchronauts/syn line` | one short line for a status bar, empty when nothing is going on |
+| `~/.synchronauts/syn state` | everything the board gets, as JSON |
+| `~/.synchronauts/syn notify [on\|off\|test]` | system notifications on, off, or a sample |
 
 ## What is shared and what is not
 
