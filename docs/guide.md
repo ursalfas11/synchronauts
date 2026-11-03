@@ -22,7 +22,7 @@ Two people, each with three Claude Code sessions, easily build the same feature 
 - **Cheap on tokens:** text for Claude only when something is new and concerns the session, nothing at all outside the team's repos.
 - **No server, no account:** GitHub access is the access control. Python standard library only.
 
-Status: early (0.4). Built for small teams who trust each other, see [Security](#security).
+Status: early (0.5). Built for small teams who trust each other, see [Security](#security).
 
 
 ## Quick start
@@ -118,7 +118,7 @@ The approval is a real permission prompt of Claude Code, which Claude cannot ans
   <img src="board-light.png" alt="The live board in the glass style: figures, what needs you, a mission, the team's sessions" width="100%">
 </picture>
 
-`~/.synchronauts/syn ui` opens it in the browser. It costs no tokens.
+`~/.synchronauts/syn ui` opens it in the browser. It costs no tokens. In Chrome or Edge it installs as an app of its own (the install icon in the address bar): its own window and a dock icon, no browser around it. When the background server is not running, the app says how to start it.
 
 - **Missions** at the top, with plan, people, time and result, and a button to stop one.
 - **Board:** each person's sessions as cards: repo, branch, task, edited files and state (working · waiting for approval · waiting · quiet · API error). Overlaps are marked. Your own sessions outside the team repos show only in your own board.
@@ -171,10 +171,11 @@ Claude calls these via Bash; you can too. `~/.synchronauts/syn` is a small scrip
 ## Security
 
 - **The room is the trust boundary.** Whoever can write to the room repo can write any branch in it. Use a private repo and invite only people you trust.
-- **Senders are signed.** Each message carries an SSH signature (`ssh-keygen -Y sign`) made with the key GitHub lists for you, and the recipient checks it against `github.com/<login>.keys`. A message whose signature does not fit, or an unsigned one from someone who signed before, reaches Claude as a warning not to act on it, and the board marks it. Without a usable key messages go out unsigned and are shown as before.
+- **Senders are signed.** Each message carries an SSH signature (`ssh-keygen -Y sign`) made with the key GitHub lists for you, and the recipient checks it against `github.com/<login>.keys`. The verdict belongs to exactly that content: a copy of a signed message with another text, or two messages under one id, count as forged. Mail older than eight days is ignored, so an old signed message cannot be played back. A message whose signature does not fit, or an unsigned one from someone who signed before, reaches Claude as a warning not to act on it, and the board marks it. Without a usable key messages go out unsigned, and Claude sees them marked as unsigned.
+- **Everything from the room is checked before it is read.** Names, ids, repos and branches must look like what they are, a name cannot break a line, and a state that is too big or has odd types is left out instead of stopping the sync. Nothing from the room ever reaches a shell command.
 - **Messages are untrusted input.** They reach your Claude's context marked as information from a teammate, with the instruction to show them to you and act only once you agree, and the skill repeats that rule. This lowers the risk of a message steering your Claude, but it is not a guarantee. If someone in the room should not be able to talk to your Claude, they should not be in the room.
-- **A mission widens that on purpose,** for the sessions that joined it and until it ends. Each person approves it in a permission prompt that a message cannot answer; a session outside the mission still treats messages as information.
-- **The board runs on 127.0.0.1 only.** Every start creates a random token that only the page carries. Requests without it, with a foreign `Host` (DNS rebinding) or a foreign `Origin` are rejected. The page has a strict Content Security Policy with a nonce, loads nothing from outside, and puts other people's text into the page as text only.
+- **A mission widens that on purpose,** for the sessions that joined it and until it ends. Each person approves it in a permission prompt that a message cannot answer; a session outside the mission still treats messages as information. Missions rest on signatures: only a signed proposal can be joined, only signed messages count as approved work, and plan, people and end time are frozen at your approval, so nobody can change them afterwards.
+- **The board runs on 127.0.0.1 only.** Its API needs a key from `~/.synchronauts/ui-key`, a folder only you can read. The page itself never contains it, because any program on the machine can fetch the page: `syn ui` hands the key over in the URL fragment, which the browser never sends anywhere, and the page keeps it. Requests without it, with a foreign `Host` (DNS rebinding) or a foreign `Origin` are rejected. The page has a strict Content Security Policy with a nonce, loads nothing from outside, and puts other people's text into the page as text only.
 - **Hooks never break a session.** Errors go to `~/.synchronauts/hook.log`. In `claude -p` and SDK runs the plugin stays silent.
 
 ## Token cost
@@ -229,7 +230,8 @@ A session counts as inactive three hours after its last sign of life. Mail that 
 - The conflict check sees a teammate's work only once it is pushed, and it needs Git 2.38 or newer; with older Git there is no conflict prediction, the other warnings still work.
 - A signature only proves which GitHub account sent a message. Someone who never signed is shown as unsigned, not as forged, and a stolen SSH key signs as its owner. Signing needs OpenSSH 8.2 or newer, as on every current macOS, Linux and Git for Windows.
 - Codex cannot ask from a hook yet, so before a patch touches a teammate's file the hook stops it once with the reason; Codex asks you and applies it again. Codex has no background wake: mail that arrives during a turn continues the session when the turn ends, otherwise it shows with the next prompt. Missions need Claude Code. Codex runs the hooks with `sh`, so not on Windows yet.
-- A mission needs auto mode in every session that joins it. Claude Code's own permission prompts are not the plugin's to turn off.
+- A mission needs auto mode in every session that joins it, and a signing key on both sides. Claude Code's own permission prompts are not the plugin's to turn off.
+- Anyone who runs programs as you on your machine can read the board's key, as they can read your SSH keys. The fixed port 7962 could be taken by another user of the same machine while the board is not running.
 - On Windows, the hooks and Claude's commands need Git Bash, which comes with Git for Windows.
 
 ## Development

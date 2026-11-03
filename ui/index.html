@@ -4,7 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
-<meta name="syn-token" content="__TOKEN__">
+<meta name="theme-color" content="#111114">
+<link rel="manifest" href="/manifest.webmanifest">
 <title>Synchronauts</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='15' fill='%23000'/%3E%3Ccircle cx='16' cy='16' r='9' fill='none' stroke='%23fff' stroke-width='2.5'/%3E%3Ccircle cx='16' cy='16' r='3.5' fill='%234ade80'/%3E%3C/svg%3E">
 <script nonce="__NONCE__">
@@ -820,7 +821,19 @@ input.color { width: 32px; height: 32px; padding: 0; border: 1px solid var(--lin
 'use strict';
 // Everything that comes from other people (tasks, file names, messages) only ever reaches the DOM as a text node,
 // never as HTML: all rendering goes through h(), and no string from the server is ever parsed as markup.
-const TOKEN = document.querySelector('meta[name="syn-token"]').content;
+// The API key comes from `syn ui` in the URL fragment, which the browser never sends to a server; the page keeps it,
+// so the installed app opens without it. The server never puts it into the page: any process could read that.
+const TOKEN = (() => {
+  const m = /[#&]k=([\w-]{32,})/.exec(location.hash);
+  if (m) history.replaceState(null, '', location.pathname + location.search);
+  try {
+    if (m) localStorage.setItem('syn-key', m[1]);
+    return m ? m[1] : localStorage.getItem('syn-key') || '';
+  } catch (_) { return m ? m[1] : ''; }
+})();
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
+// a key handed to a page that is open already: take it over by loading the page anew
+addEventListener('hashchange', () => { if (/[#&]k=/.test(location.hash)) location.reload(); });
 const CMD = '~/.synchronauts/syn';
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => [...document.querySelectorAll(sel)];
@@ -850,7 +863,7 @@ const I18N = {
     'theme.light': 'light',
     'theme.dark': 'dark',
     'lang.label': 'Language',
-    'conn.restarted': 'Synchronauts was restarted. Reload the page.',
+    'conn.restarted': 'This page has no key for Synchronauts. Open it with {0}',
     'conn.down': 'The Synchronauts server is not responding. Restart it with {0}',
     'conn.reload': 'Reload',
     'stat.active': { one: 'session active', other: 'sessions active' },
@@ -1016,7 +1029,7 @@ const I18N = {
     'theme.light': 'hell',
     'theme.dark': 'dunkel',
     'lang.label': 'Sprache',
-    'conn.restarted': 'Synchronauts wurde neu gestartet. Lade die Seite neu.',
+    'conn.restarted': 'Diese Seite hat keinen Schlüssel für Synchronauts. Öffne sie mit {0}',
     'conn.down': 'Der Synchronauts-Server antwortet nicht. Neu starten mit {0}',
     'conn.reload': 'Neu laden',
     'stat.active': { one: 'Session aktiv', other: 'Sessions aktiv' },
@@ -1787,7 +1800,7 @@ function connection(kind) {
   connected = kind === 'ok';
   if (connected) { el.hidden = true; return; }
   fill(el,
-    h('span', {}, kind === 'restarted' ? t('conn.restarted') : tx('conn.down', h('code', {}, `${CMD} ui`))),
+    h('span', {}, tx(kind === 'restarted' ? 'conn.restarted' : 'conn.down', h('code', {}, `${CMD} ui`))),
     h('button', { class: 'btn small', type: 'button', onclick: () => location.reload() }, t('conn.reload')));
   el.hidden = false;
 }

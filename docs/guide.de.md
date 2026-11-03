@@ -22,7 +22,7 @@ Zwei Leute mit je drei Claude-Code-Sessions bauen schnell dasselbe Feature von z
 - **Sparsam mit Tokens:** Text für Claude nur, wenn etwas neu ist und die Session betrifft, außerhalb der Team-Repos gar keiner.
 - **Kein Server, kein Konto:** Der GitHub-Zugang ist die Zugangskontrolle. Nur die Python-Standardbibliothek.
 
-Stand: früh (0.4). Gedacht für kleine Teams, die einander vertrauen, siehe [Sicherheit](#sicherheit).
+Stand: früh (0.5). Gedacht für kleine Teams, die einander vertrauen, siehe [Sicherheit](#sicherheit).
 
 
 ## Schnellstart
@@ -109,7 +109,7 @@ Die Zustimmung ist eine echte Rückfrage von Claude Code, die Claude nicht selbs
   <img src="board-light.png" alt="Das Live-Board im Glas-Stil: Kennzahlen, was dich braucht, ein Auftrag, die Sessions des Teams" width="100%">
 </picture>
 
-`~/.synchronauts/syn ui` öffnet es im Browser. Das kostet keine Tokens.
+`~/.synchronauts/syn ui` öffnet es im Browser. Das kostet keine Tokens. In Chrome oder Edge lässt es sich als eigene App installieren (Installations-Symbol in der Adressleiste): eigenes Fenster und Dock-Symbol, ohne Browser drumherum. Läuft der Hintergrund-Server nicht, sagt die App, wie man ihn startet.
 
 - **Aufträge** oben, mit Plan, Beteiligten, Zeit und Ergebnis, und einem Knopf zum Stoppen.
 - **Board:** Je Person ihre Sessions als Karten: Repo, Branch, Vorhaben, bearbeitete Dateien und Zustand (arbeitet · wartet auf Freigabe · wartet · ruhig · API-Fehler). Überschneidungen sind markiert. Eigene Sessions außerhalb der Team-Repos zeigt nur das eigene Board.
@@ -162,10 +162,11 @@ Claude ruft sie per Bash auf, du kannst es auch. `~/.synchronauts/syn` ist ein k
 ## Sicherheit
 
 - **Der Raum ist die Vertrauensgrenze.** Wer in das Raum-Repo schreiben darf, kann jeden Branch darin schreiben. Nimm ein privates Repo und lade nur Leute ein, denen du vertraust.
-- **Absender sind signiert.** Jede Nachricht trägt eine SSH-Signatur (`ssh-keygen -Y sign`) mit dem Schlüssel, den GitHub für dich führt, und der Empfänger prüft sie gegen `github.com/<login>.keys`. Eine Nachricht, deren Signatur nicht passt, oder eine unsignierte von jemandem, der vorher signiert hat, erreicht Claude als Warnung, nicht danach zu handeln, und das Board markiert sie. Ohne nutzbaren Schlüssel gehen Nachrichten unsigniert hinaus und erscheinen wie bisher.
+- **Absender sind signiert.** Jede Nachricht trägt eine SSH-Signatur (`ssh-keygen -Y sign`) mit dem Schlüssel, den GitHub für dich führt, und der Empfänger prüft sie gegen `github.com/<login>.keys`. Eine Nachricht, deren Signatur nicht passt, oder eine unsignierte von jemandem, der vorher signiert hat, erreicht Claude als Warnung, nicht danach zu handeln, und das Board markiert sie. Das Urteil gilt genau für diesen Inhalt: Eine Kopie einer signierten Nachricht mit anderem Text oder zwei Nachrichten unter einer ID gelten als gefälscht. Post, die älter als acht Tage ist, wird ignoriert, eine alte signierte Nachricht lässt sich also nicht erneut einspielen. Ohne nutzbaren Schlüssel gehen Nachrichten unsigniert hinaus, und Claude sieht sie als unsigniert markiert.
+- **Alles aus dem Raum wird geprüft, bevor es gelesen wird.** Namen, IDs, Repos und Branches müssen aussehen wie das, was sie sind, ein Name kann keine Zeile umbrechen, und ein zu großer Zustand oder einer mit falschen Typen bleibt draußen, statt den Abgleich anzuhalten. Nichts aus dem Raum erreicht je einen Shell-Befehl.
 - **Nachrichten sind fremde Eingaben.** Sie kommen als Information eines Kollegen in den Kontext deines Claude, mit der Anweisung, sie dir zu zeigen und erst nach deinem Okay zu handeln, und der Skill wiederholt diese Regel. Das senkt das Risiko, dass eine Nachricht deinen Claude steuert, ist aber keine Garantie. Wer im Raum nicht mit deinem Claude reden können soll, gehört nicht in den Raum.
-- **Ein Auftrag weitet das bewusst aus,** für die beigetretenen Sessions und bis zu seinem Ende. Jeder bestätigt ihn in einer Rückfrage, die keine Nachricht beantworten kann; eine Session außerhalb des Auftrags behandelt Nachrichten weiter als Information.
-- **Das Board läuft nur auf 127.0.0.1.** Jeder Start erzeugt ein Zufalls-Token, das nur die Seite kennt. Anfragen ohne Token, mit fremdem `Host` (DNS-Rebinding) oder fremdem `Origin` werden abgewiesen. Die Seite hat eine strikte Content Security Policy mit Nonce, lädt nichts von außen und setzt fremde Texte nur als Text ein.
+- **Ein Auftrag weitet das bewusst aus,** für die beigetretenen Sessions und bis zu seinem Ende. Jeder bestätigt ihn in einer Rückfrage, die keine Nachricht beantworten kann; eine Session außerhalb des Auftrags behandelt Nachrichten weiter als Information. Aufträge stützen sich auf Signaturen: Nur ein signierter Vorschlag lässt sich annehmen, nur signierte Nachrichten gelten als freigegebene Arbeit, und Plan, Beteiligte und Ende werden bei deiner Zustimmung festgeschrieben, niemand kann sie danach ändern.
+- **Das Board läuft nur auf 127.0.0.1.** Seine API braucht einen Schlüssel aus `~/.synchronauts/ui-key`, einem Ordner, den nur du lesen kannst. Die Seite selbst enthält ihn nie, denn jedes Programm auf dem Rechner kann sie abrufen: `syn ui` übergibt ihn im URL-Fragment, das der Browser nirgends hinschickt, und die Seite behält ihn. Anfragen ohne Schlüssel, mit fremdem `Host` (DNS-Rebinding) oder fremdem `Origin` werden abgewiesen. Die Seite hat eine strikte Content Security Policy mit Nonce, lädt nichts von außen und setzt fremde Texte nur als Text ein.
 - **Hooks brechen nie eine Session.** Fehler landen in `~/.synchronauts/hook.log`. In `claude -p` und SDK-Läufen bleibt das Plugin still.
 
 ## Tokenverbrauch
@@ -220,7 +221,8 @@ Eine Session gilt drei Stunden nach ihrem letzten Lebenszeichen als inaktiv. Pos
 - Die Konfliktprüfung sieht die Arbeit eines Kollegen erst, wenn sie gepusht ist, und braucht Git ab 2.38; mit älterem Git gibt es keine Vorhersage, die übrigen Warnungen funktionieren weiter.
 - Eine Signatur beweist nur, von welchem GitHub-Konto eine Nachricht kommt. Wer nie signiert hat, erscheint als unsigniert, nicht als gefälscht, und ein gestohlener SSH-Schlüssel signiert als sein Besitzer. Signieren braucht OpenSSH 8.2 oder neuer, wie auf jedem aktuellen macOS, Linux und Git for Windows.
 - Codex kann aus einem Hook noch nicht fragen. Bevor ein Patch die Datei eines Kollegen ändert, hält der Hook ihn darum einmal mit dem Grund an; Codex fragt dich und wendet ihn erneut an. Codex hat kein Wecken im Hintergrund: Post, die während eines Turns ankommt, setzt die Session am Ende des Turns fort, sonst erscheint sie beim nächsten Prompt. Aufträge brauchen Claude Code. Codex startet die Hooks mit `sh`, darum noch nicht unter Windows.
-- Ein Auftrag braucht in jeder beigetretenen Session den Auto-Modus. Die eigenen Freigaben von Claude Code kann das Plugin nicht abschalten.
+- Ein Auftrag braucht in jeder beigetretenen Session den Auto-Modus und auf beiden Seiten einen Signaturschlüssel. Die eigenen Freigaben von Claude Code kann das Plugin nicht abschalten.
+- Wer auf deinem Rechner Programme als du ausführt, kann den Board-Schlüssel lesen, so wie deine SSH-Schlüssel. Den festen Port 7962 könnte ein anderer Nutzer desselben Rechners belegen, solange das Board nicht läuft.
 - Unter Windows brauchen die Hooks und Claudes Befehle Git Bash, das mit Git für Windows kommt.
 
 ## Entwicklung

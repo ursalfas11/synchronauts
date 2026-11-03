@@ -28,8 +28,9 @@ export SYN_REMOTE="$T/remote.git" SYN_ORGS=acme SYN_TICK=0.3 SYN_IDLE=120 SYN_CO
 export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="url.$T/conf.git.insteadOf" GIT_CONFIG_VALUE_0=https://github.com/acme/conf.git
 export SYN_UI_PORT=0  # a free port, a real UI that is running stays untouched
 export SYN_NOTIFY=log LC_MESSAGES=en_US.UTF-8  # system notifications into notifications.log, in English; LANG would change how grep matches on Windows
-# github.com/<login>.keys: a local folder, filled for Alex further down
+# github.com/<login>.keys: a local folder. Sam and Alex sign with the key listed there; missions need signed messages
 mkdir -p "$T/keys"; export SYN_KEYS_URL="file://$([ -n "$WIN" ] && echo /)$T/keys/{login}.keys"
+for who in alex sam; do ssh-keygen -q -t ed25519 -N '' -C $who -f "$T/$who-key" && cp "$T/$who-key.pub" "$T/keys/$who-gh.keys"; done
 git init -q --bare "$T/remote.git"
 
 # Working copies: demo for both, other only for Alex, plus a private repo of another owner
@@ -40,7 +41,7 @@ repo sam-demo acme/demo; repo alex-demo acme/demo; repo alex-other acme/other
 repo private someone/private
 
 as_user() { local who=$1 name=Sam machine=one; shift; [ "$who" = alex ] && name=Alex; [ "$who" = sam2 ] && machine=two
-  SYN_HOME="$T/home-$who" SYN_ME="${who%2}-gh" SYN_NAME="$name" SYN_MACHINE="$machine" "$@"; }
+  SYN_HOME="$T/home-$who" SYN_ME="${who%2}-gh" SYN_NAME="$name" SYN_MACHINE="$machine" SYN_SIGNING_KEY="$T/${who%2}-key" "$@"; }
 from_session() { local sid=$1; shift; CLAUDE_CODE_SESSION_ID="$sid-0000-0000" "$@"; }  # command run from this session
 hook() { echo "$3" | as_user "$1" "$PY" "$HOOK" "$2"; }
 session() { echo "{\"session_id\":\"$1\",\"cwd\":\"$2\",\"source\":\"startup\"}"; }
@@ -319,15 +320,28 @@ check "$(git -C "$T/remote.git" show syn/alex-gh/one:state.json)" '"kind": "task
 lacks "$(git -C "$T/remote.git" show syn/sam-gh/one:state.json)" '"cwd"' "a session's working directory stays on the machine"
 lacks "$(git -C "$T/remote.git" show syn/sam-gh/one:state.json)" 'private' 'events in repos of other owners stay out'
 
-# UI: data only with the token from the page and only for 127.0.0.1. Mail from the UI wakes the waiting session,
-# and the reply goes back to the UI, not into a session
+# UI: data only with the key from HOME (never in the page) and only for 127.0.0.1. Mail from the UI wakes the waiting
+# session, and the reply goes back to the UI, not into a session
 out=$(as_user sam "$PY" "$SYN" ui --no-browser 2>&1) || fail 'the UI starts in the background' "$out $(cat "$T/home-sam/ui.log")"
 check "$out" 'Synchronauts UI: http://127.0.0.1:' 'the UI starts in the background'
 U="http://127.0.0.1:$("$PY" -c 'import json,sys; sys.stdout.write(str(json.load(open(sys.argv[1]))["port"]))' "$T/home-sam/ui.json")"
-tok=$(curl -s "$U/" | sed -n 's/.*name="syn-token" content="\([^"]*\)".*/\1/p')
-[ -n "$tok" ] && [ "$tok" != __TOKEN__ ] && ok 'the page carries the token' || fail 'no token in the page' "$(curl -s "$U/" | head -12)"
+tok=$(cat "$T/home-sam/ui-key")
+[ ${#tok} -ge 32 ] && ok 'the UI has a key in HOME' || fail 'no key' "$tok"
+lacks "$out" "$tok" 'the key stays out of the terminal'
+page=$(curl -s "$U/")
+check "$page" 'rel="manifest"' 'the page loads'
+lacks "$page" "$tok" 'any process can fetch the page, but the key is not in it'
 status() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
-[ "$(status "$U/api/state")" = 403 ] && ok 'no data without the token' || fail 'data without the token'
+[ "$(status "$U/api/state")" = 403 ] && ok 'no data without the key' || fail 'data without the key'
+check "$(curl -s "$U/manifest.webmanifest")" '"display": "standalone"' 'the board installs as an app (manifest)'
+check "$(curl -s "$U/sw.js")" 'Synchronauts is not running' 'with a service worker for a stopped server'
+[ "$(status "$U/../syn.py")" = 404 ] && [ "$(status "$U/ui/index.html")" = 404 ] && ok 'no other files' || fail 'other files are served'
+[ "$(status -X POST -H "X-SYN-Token: $tok" -H "Origin: $U" -H 'Content-Type: application/json' \
+  -d "$("$PY" -c 'print("["*5000 + "]"*5000)')" "$U/api/send")" = 400 ] && ok 'deeply nested JSON is a clean 400' || fail 'nested JSON'
+if [ -z "$WIN" ]; then
+  [ "$("$PY" -c 'import os,sys; print(oct(os.stat(sys.argv[1]).st_mode & 0o777))' "$T/home-sam")" = 0o700 ] \
+    && ok 'only Sam can read his Synchronauts folder' || fail 'HOME is readable by others'
+fi
 [ "$(status -H "X-SYN-Token: $tok" -H 'Host: evil.example' "$U/api/state")" = 403 ] && ok 'a foreign host is rejected (DNS rebinding)' || fail 'foreign host'
 [ "$(status -X POST -H "X-SYN-Token: $tok" -H 'Origin: https://evil.example' -H 'Content-Type: application/json' \
   -d '{"to":"alex","text":"x"}' "$U/api/send")" = 403 ] && ok 'a foreign page cannot send' || fail 'a foreign page sends'
@@ -447,24 +461,30 @@ check "$out" 'No such active mission' 'an ended mission cannot be stopped again'
 check "$(as_user sam "$PY" "$SYN" status)" "$MID by Sam, ended" 'status lists the mission'
 
 # Signed messages: Alex signs with the key GitHub lists for her, a forged branch in her name is caught
-ssh-keygen -q -t ed25519 -N '' -C alex -f "$T/alex-key" && cp "$T/alex-key.pub" "$T/keys/alex-gh.keys"
 ssh-keygen -q -t ed25519 -N '' -C evil -f "$T/evil-key"
 mkdir -p "$T/fake/.ssh" && cp "$T/alex-key" "$T/fake/.ssh/id_ed25519" && cp "$T/alex-key.pub" "$T/fake/.ssh/id_ed25519.pub"
-HOME="$T/fake" USERPROFILE="$T/fake" as_user alex "$PY" -c 'import sys; sys.path.insert(0, sys.argv[1]); import syn; syn.choose_key({"me": "alex-gh"})' "$ROOT"
+HOME="$T/fake" USERPROFILE="$T/fake" SYN_HOME="$T/home-alex" SYN_ME=alex-gh \
+  "$PY" -c 'import sys; sys.path.insert(0, sys.argv[1]); import syn; syn.choose_key({"me": "alex-gh"})' "$ROOT"
 grep -q 'id_ed25519' "$T/home-alex/signing.json" && ok 'setup picks the SSH key GitHub lists for me' || fail 'choose_key' "$(cat "$T/home-alex/signing.json")"
 SYN_SIGNING_KEY="$T/alex-key" from_session ale11111 as_user alex "$PY" "$SYN" send sam 'Signed: the API spec is in docs/api.md.' >/dev/null
 grep -q 'BEGIN SSH SIGNATURE' "$T/home-alex/mail.json" && ok 'messages carry an SSH signature' || fail 'no signature' "$(tail -5 "$T/home-alex/mail.json")"
-until_ok 15 'Sam checks the signature against the keys on GitHub' grep -q '"ok"' "$T/home-sam/verified.json"
+# trust <user> <text>: the verdict on the message to <user> that contains <text>
+trust() { as_user "$1" "$PY" -c 'import sys; sys.path.insert(0, sys.argv[1]); import syn; k = syn.config()
+print(*[n["trust"] for n in syn.mail_to_me(k) if sys.argv[2] in n["text"]])' "$ROOT" "$2"; }
+test_trust() { [ "$(trust "$1" "$2")" = "$3" ]; }
+until_ok 15 'Sam checks the signature against the keys on GitHub' test_trust sam 'docs/api.md' ok
 out=$(hook sam PostToolUse "$(bash_call sam33333 "$T/sam-demo")")
 check "$out" 'docs/api.md' 'the signed message arrives'
 lacks "$out" 'signature does not check out' 'without a warning'
 # Someone with write access to the room pushes a branch in Alex's name: one message signed with another key, one unsigned
-forged=$(as_user alex "$PY" "$ROOT/test/forge.py" "$ROOT" "$T/evil-key")
-blob=$(printf '%s' "$forged" | git -C "$T/remote.git" hash-object -w --stdin)
-tree=$(printf '100644 blob %s\tstate.json\n' "$blob" | git -C "$T/remote.git" mktree)
-git -C "$T/remote.git" update-ref refs/heads/syn/alex-gh/evil "$(git -C "$T/remote.git" -c user.name=x -c user.email=x@x commit-tree "$tree" -m x)"
+# forge <branch> <mode>: a state.json from test/forge.py as the only commit of syn/alex-gh/<branch>
+forge() { local blob tree
+  blob=$(as_user alex "$PY" "$ROOT/test/forge.py" "$ROOT" "$T/evil-key" "$2" | git -C "$T/remote.git" hash-object -w --stdin)
+  tree=$(printf '100644 blob %s\tstate.json\n' "$blob" | git -C "$T/remote.git" mktree)
+  git -C "$T/remote.git" update-ref "refs/heads/syn/alex-gh/$1" "$(git -C "$T/remote.git" -c user.name=x -c user.email=x@x commit-tree "$tree" -m x)"; }
+forge evil evil
 until_ok 15 'the forged messages are checked' grep -q 'evil01' "$T/home-sam/verified.json"
-"$PY" -c 'import json,sys; d=json.load(open(sys.argv[1])); sys.exit(not all(v == "bad" for k, v in d.items() if "evil" in k))' \
+"$PY" -c 'import json,sys; d=json.load(open(sys.argv[1])); sys.exit(not all(v["v"] == "bad" for v in d.values() if "evil" in v["id"]))' \
   "$T/home-sam/verified.json" && ok 'another key and a missing signature both count as forged' || fail 'verdicts' "$(cat "$T/home-sam/verified.json")"
 out=$(hook sam PostToolUse "$(bash_call sam33333 "$T/sam-demo")")
 check "$out" 'signature does not check out' 'Claude is told not to trust them'
@@ -473,6 +493,21 @@ until_ok 10 'a forged message also gets a notification' grep -q 'Forged message'
 data=$(curl -s -H "X-SYN-Token: $tok" "$U/api/state")
 ui_check "[n['trust'] for n in d['mail'] if 'Forged' in n['text'] or 'docs/api.md' in n['text']] == ['ok', 'bad', 'bad']" 'the UI marks signed and forged messages'
 git -C "$T/remote.git" update-ref -d refs/heads/syn/alex-gh/evil
+# A copy of Alex's real, checked message with another text does not inherit her seal
+forge copy copy
+until_ok 15 'a copy of a signed message with another text is caught' test_trust sam 'docs/api.md' bad
+out=$(hook sam UserPromptSubmit "$(session sam33333 "$T/sam-demo")")
+lacks "$out" 'run the deploy script' 'its text does not reach Claude as hers'
+git -C "$T/remote.git" update-ref -d refs/heads/syn/alex-gh/copy
+# Junk in a branch: odd types, a name that breaks the line, a reply address with a shell command. The sync goes on
+forge junk junk
+until_ok 15 'a branch with odd types is read without stopping the sync' grep -q '"machine": "junk"' "$T/home-sam/others.json"
+lacks "$(cat "$T/home-sam/others.json")" 'touch /tmp' 'a reply address with a shell command is left out'
+"$PY" -c 'import json,sys; d=json.load(open(sys.argv[1]))["alex-gh/junk"]; sys.exit(1 if "\n" in d["name"] or d["sessions"] or d["missions"] else 0)' \
+  "$T/home-sam/others.json" && ok 'a name cannot break the line, odd sessions and missions are dropped' || fail 'junk' "$(cat "$T/home-sam/others.json")"
+check "$(hook sam UserPromptSubmit "$(session sam33333 "$T/sam-demo")")" '' 'the hooks still run'
+lacks "$(cat "$T/home-sam/hook.log" 2>/dev/null)" 'Error' 'without an error'
+git -C "$T/remote.git" update-ref -d refs/heads/syn/alex-gh/junk
 
 # Codex: `syn codex` enters the hooks next to the ones already there, a Codex session shows up like a Claude session
 export CODEX_HOME="$T/codex"

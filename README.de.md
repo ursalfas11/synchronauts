@@ -58,4 +58,4 @@ Lade dein Team ins Repo ein; jeder führt die `setup`-Zeile aus.
 
 `syn ui` öffnet es: lokal, live, ohne Tokens. Oder ganz ohne: Mitteilungen des Systems für das, was dich braucht, und `syn line` für deine Statusleiste.
 
-<p align="center"><b><a href="docs/guide.de.md">Alles im Detail →</a></b><br><sub>Früh (0.4) · für kleine Teams, die einander vertrauen · MIT</sub></p>
+<p align="center"><b><a href="docs/guide.de.md">Alles im Detail →</a></b><br><sub>Früh (0.5) · für kleine Teams, die einander vertrauen · MIT</sub></p>

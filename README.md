@@ -58,4 +58,4 @@ Invite your teammates to the repo; each of them runs the `setup` line.
 
 `syn ui` opens it: local, live, zero tokens. Or skip it: system notifications for what needs you, and `syn line` for your status bar.
 
-<p align="center"><b><a href="docs/guide.md">Everything in detail →</a></b><br><sub>Early (0.4) · for small teams that trust each other · MIT</sub></p>
+<p align="center"><b><a href="docs/guide.md">Everything in detail →</a></b><br><sub>Early (0.5) · for small teams that trust each other · MIT</sub></p>
