@@ -504,6 +504,7 @@ input.color { width: 32px; height: 32px; padding: 0; border: 1px solid var(--lin
     border-bottom: 1px solid var(--line);
   }
   .topbar .live { margin-left: auto; }
+  .topbar .live [data-live-text] { display: none; }  /* the dot is enough up there, the text is in its title */
   .tabbar {
     position: fixed; inset: auto 0 0; z-index: 20; display: grid; grid-template-columns: repeat(4, 1fr);
     padding: 6px 6px calc(6px + env(safe-area-inset-bottom)); background: color-mix(in srgb, var(--bg) 92%, transparent);
@@ -525,6 +526,70 @@ input.color { width: 32px; height: 32px; padding: 0; border: 1px solid var(--lin
   :root:not([data-motion="full"]) *, :root:not([data-motion="full"]) *::before, :root:not([data-motion="full"]) *::after { animation: none !important; transition: none !important; }
 }
 :root[data-motion="reduce"] *, :root[data-motion="reduce"] *::before, :root[data-motion="reduce"] *::after { animation: none !important; transition: none !important; }
+
+/* Narrow: a side panel, a split window, a small phone. Less chrome, more content */
+@media (max-width: 520px) {
+  .topbar { height: 48px; padding: 0 12px; gap: 8px; }
+  .topbar .logo { width: 22px; height: 22px; }
+  .topbar .wordmark { font-size: 14.5px; }
+  .topbar .icon-btn { width: 32px; height: 32px; }
+  .main { padding: 12px 12px calc(68px + env(safe-area-inset-bottom)); }
+  .page-head { margin-bottom: 12px; gap: 8px; align-items: center; }
+  .page-head h1 { font-size: 18px; }
+  .page-head p { display: none; }
+  .view.fill { height: calc(var(--vh) - 48px - 12px - 68px - env(safe-area-inset-bottom)); }
+  .block { margin-bottom: 18px; }
+  .block-title { margin-bottom: 7px; font-size: 11px; }
+  .kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin-bottom: 16px; }
+  .kpi { padding: 8px 9px; gap: 2px; }
+  .kpi-label { font-size: 10.5px; line-height: 1.25; gap: 5px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .kpi .dot { display: none; }
+  .kpi-value { font-size: 20px; order: -1; }
+  .attn-row { padding: 8px 10px; gap: 9px; font-size: 12.5px; }
+  .attn-row > svg { width: 15px; height: 15px; }
+  .mission { padding: 10px 12px 0; }
+  .mission .plan { font-size: 13px; margin: 8px 0 10px; }
+  .mission-bar { margin: 0 -12px; }
+  .person { margin-bottom: 16px; }
+  .person-head { gap: 9px; margin-bottom: 7px; }
+  .avatar { width: 28px; height: 28px; font-size: 11px; }
+  .person-name { font-size: 14px; }
+  .person-info { font-size: 11.5px; }
+  .session { --pad: 11px; gap: 8px; }
+  .task { font-size: 13px; }
+  .stream { padding: 8px 0; gap: 7px; }
+  .msg { max-width: 100%; padding: 7px 10px; }
+  .msg-text { font-size: 13px; }
+  .composer { padding: 8px 10px; gap: 6px; }
+  .composer-top { gap: 6px; flex-wrap: nowrap; }
+  .composer-top label { min-width: 0; flex: 1 1 0; gap: 4px; font-size: 11.5px; }
+  .composer-top select { min-width: 0; width: 100%; height: 28px; font-size: 12.5px; }
+  .composer textarea { min-height: 34px; font-size: 13px; }
+  .keys { display: none; }
+  .composer-foot .btn { height: 30px; padding: 0 12px; margin-left: auto; }
+  .toolbar { gap: 6px; }
+  .toolbar select { height: 30px; font-size: 12.5px; max-width: 140px; }
+  .entry { grid-template-columns: 40px 18px minmax(0, 1fr); padding: 7px 10px; font-size: 12.5px; }
+  .history .day { padding: 6px 10px; }
+  .set-row { padding: 11px 12px; gap: 8px; }
+  .set-label { font-size: 13.5px; }
+  .set-hint { font-size: 12px; }
+  .set-title { font-size: 16px; margin-bottom: 12px; }
+  .set-cat { padding: 6px 9px; font-size: 12.5px; }
+  .set-cat svg { width: 14px; height: 14px; }
+  .set-section { margin-bottom: 20px; }
+  .tabbar { padding: 4px 4px calc(4px + env(safe-area-inset-bottom)); }
+  .tabbar a { min-height: 44px; padding: 5px 0 3px; font-size: 10.5px; }
+  .tabbar a svg { width: 19px; height: 19px; }
+  .toasts { left: 10px; right: 10px; width: auto; bottom: calc(64px + env(safe-area-inset-bottom)); }
+  .palette { padding: 10px; }
+}
+/* Very narrow or low: the tab bar keeps its icons only */
+@media (max-width: 300px), (max-height: 480px) and (max-width: 860px) {
+  .tabbar a { min-height: 40px; justify-content: center; }
+  .tabbar a > span:not(.count) { display: none; }
+  .topbar .wordmark { display: none; }
+}
 </style>
 </head>
 <body>
@@ -2583,6 +2648,7 @@ function langRender() {  // everything that is not redrawn from the data: static
   for (const el of $$('[data-t]')) el.textContent = t(el.dataset.t);
   for (const el of $$('[data-t-label]')) el.setAttribute('aria-label', t(el.dataset.tLabel));
   for (const el of $$('[data-l]')) el.textContent = L(JSON.parse(el.dataset.l));
+  for (const a of $$('.tabbar a')) a.setAttribute('aria-label', t(`nav.${a.dataset.view}`));  // the label hides when it gets narrow
   for (const el of $$('[data-l-label]')) { const v = L(JSON.parse(el.dataset.lLabel)); el.setAttribute('aria-label', v); el.title = v; }
   for (const b of $$('.seg button[data-filter]')) b.setAttribute('aria-pressed', String(b.dataset.filter === mailFilter));
   $('#keys').textContent = settings.enterSends ? t('form.keys.enter') : keysHint();
