@@ -825,7 +825,8 @@ input.color { width: 32px; height: 32px; padding: 0; border: 1px solid var(--lin
 // so the installed app opens without it. The server never puts it into the page: any process could read that.
 const TOKEN = (() => {
   const m = /[#&]k=([\w-]{32,})/.exec(location.hash);
-  if (m) history.replaceState(null, '', location.pathname + location.search);
+  // only the key leaves the address; a view in the fragment (#/messages&k=…) stays
+  if (m) history.replaceState(null, '', location.pathname + location.search + location.hash.replace(/&?k=[\w-]+/, '').replace(/^#$/, ''));
   try {
     if (m) localStorage.setItem('syn-key', m[1]);
     return m ? m[1] : localStorage.getItem('syn-key') || '';
