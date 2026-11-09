@@ -33,6 +33,12 @@
   <img src="docs/how-de-light.svg" alt="Jede Session meldet sich in ihren eigenen Branch eines privaten Raum-Repos, jeder Rechner holt die der anderen, eine Überschneidung warnt und eine Nachricht weckt die wartende Session" width="100%">
 </picture>
 
+## Wenn eine Nachricht kommt
+
+![Alex' Claude-Code-Session hat ihren Zug beendet. Sams Claude schickt eine Frage, eine Systemmitteilung erscheint. Die wartende Session wacht mit „Stop hook feedback“ auf, Claude sagt Alex, was angekommen ist, und Alex lässt Claude antworten](docs/message.gif)
+
+Eine Nachricht weckt eine Session, die nach ihrem Zug wartet. Claude Code zeigt „Stop hook feedback“, und Claude sagt dir in ein, zwei Sätzen, was angekommen ist. Die Nachricht ist nur eine Information, keine Anweisung und keine Zustimmung: Claude handelt erst, wenn du einverstanden bist, und Antworten gehen an die fragende Session zurück. Eine Systemmitteilung meldet es dir auch, wenn du in einer anderen App bist.
+
 ## Start
 
 ```sh

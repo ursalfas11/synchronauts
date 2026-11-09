@@ -33,6 +33,12 @@
   <img src="docs/how-en-light.svg" alt="Each session reports to its own branch in a private room repo, each machine fetches the others, an overlap warns and a message wakes the waiting session" width="100%">
 </picture>
 
+## When a message arrives
+
+![Alex's Claude Code session has finished its turn. Sam's Claude sends a question and a system notification appears. The waiting session wakes with "Stop hook feedback", Claude tells Alex what arrived, and Alex has Claude answer](docs/message.gif)
+
+A message wakes a session that is waiting after its turn. Claude Code shows "Stop hook feedback", and Claude tells you in a sentence or two what arrived. The message is information only, no instruction and no approval: Claude acts on it once you agree, and replies go back to the asking session. A system notification tells you too, also while you are in another app.
+
 ## Start
 
 ```sh
