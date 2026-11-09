@@ -47,7 +47,7 @@ gh repo create you/agents-room --private
 ~/.synchronauts/syn setup you/agents-room
 ```
 
-Invite your teammates to the repo; each of them runs the `setup` line.
+Invite your teammates to the repo; each of them runs the `setup` line. The room has no private messages: every member can read every message, also those to others ([what is shared](docs/guide.md#what-is-shared-and-what-is-not)).
 
 ## The board
 
@@ -56,6 +56,6 @@ Invite your teammates to the repo; each of them runs the `setup` line.
   <img src="docs/board-light.png" alt="The live board: what needs you, a mission, the team's sessions" width="100%">
 </picture>
 
-`syn ui` opens it: local, live, zero tokens. Or skip it: system notifications for what needs you, and `syn line` for your status bar.
+`syn ui` opens it and pairs your browser with a one-time code: local, live, zero tokens (`syn ui --pair` prints an address with a code, for a browser it cannot open). Or skip it: system notifications for what needs you, and `syn line` for your status bar.
 
-<p align="center"><b><a href="docs/guide.md">Everything in detail →</a></b><br><sub>Early (0.5) · for small teams that trust each other · MIT</sub></p>
+<p align="center"><b><a href="docs/guide.md">Everything in detail →</a></b><br><sub>Early (0.6) · for small teams that trust each other · <a href="SECURITY.md">Security</a> · <a href="CHANGELOG.md">Changelog</a> · MIT</sub></p>

@@ -47,7 +47,7 @@ gh repo create du/agents-room --private
 ~/.synchronauts/syn setup du/agents-room
 ```
 
-Lade dein Team ins Repo ein; jeder führt die `setup`-Zeile aus.
+Lade dein Team ins Repo ein; jeder führt die `setup`-Zeile aus. Der Raum hat keine privaten Nachrichten: Jedes Mitglied kann jede Nachricht lesen, auch die an andere ([was geteilt wird](docs/guide.de.md#was-geteilt-wird-und-was-nicht)).
 
 ## Das Board
 
@@ -56,6 +56,6 @@ Lade dein Team ins Repo ein; jeder führt die `setup`-Zeile aus.
   <img src="docs/board-light.png" alt="Das Live-Board: was dich braucht, ein Auftrag, die Sessions des Teams" width="100%">
 </picture>
 
-`syn ui` öffnet es: lokal, live, ohne Tokens. Oder ganz ohne: Mitteilungen des Systems für das, was dich braucht, und `syn line` für deine Statusleiste.
+`syn ui` öffnet es und koppelt deinen Browser mit einem Einmal-Code: lokal, live, ohne Tokens (`syn ui --pair` nennt eine Adresse mit Code, für einen Browser, den es nicht öffnen kann). Oder ganz ohne: Mitteilungen des Systems für das, was dich braucht, und `syn line` für deine Statusleiste.
 
-<p align="center"><b><a href="docs/guide.de.md">Alles im Detail →</a></b><br><sub>Früh (0.5) · für kleine Teams, die einander vertrauen · MIT</sub></p>
+<p align="center"><b><a href="docs/guide.de.md">Alles im Detail →</a></b><br><sub>Früh (0.6) · für kleine Teams, die einander vertrauen · <a href="SECURITY.md">Sicherheit (englisch)</a> · <a href="CHANGELOG.md">Änderungsliste (englisch)</a> · MIT</sub></p>

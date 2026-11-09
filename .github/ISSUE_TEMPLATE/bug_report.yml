@@ -1,0 +1,41 @@
+name: Bug report
+description: Something does not work as the guide says
+labels: [bug]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Synchronauts version
+      description: The `VERSION` line in `syn.py`, or the plugin version.
+    validations:
+      required: true
+  - type: input
+    id: system
+    attributes:
+      label: Operating system, Python and Claude Code (or Codex) version
+    validations:
+      required: true
+  - type: textarea
+    id: happened
+    attributes:
+      label: What happened
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How to reproduce it
+      description: Commands or steps, as short as you can. The errors are in `~/.synchronauts/hook.log` and `watcher.log`.
+  - type: checkboxes
+    id: safe
+    attributes:
+      label: Nothing private in this report
+      options:
+        - label: I removed secrets, customer data and company names from everything I pasted.
+          required: true

@@ -1,7 +1,7 @@
 {
   "name": "synchronauts",
   "description": "Your team's Claude Code sessions see each other: who works on which repo, branch and files, early overlap warnings, messages to a teammate's Claude that wake a waiting session, and a local live board in the browser. No server: a private GitHub repo is the bus.",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "author": {
     "name": "ursalfas11",
     "url": "https://github.com/ursalfas11"

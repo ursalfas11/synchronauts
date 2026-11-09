@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
+<meta name="referrer" content="no-referrer">
 <meta name="theme-color" content="#111114">
 <link rel="manifest" href="/manifest.webmanifest">
 <title>Synchronauts</title>
@@ -328,6 +329,7 @@ button.kpi:hover { border-color: var(--line-strong); background: var(--hover); }
 .mini-avatar { width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; flex: none; font-size: 8.5px; font-weight: 800; color: #fff; background: hsl(var(--hue) 42% 46%); }
 .chip { font: 11px var(--mono); color: var(--text-2); border: 1px solid var(--line); border-radius: 5px; padding: 0 5px; }
 .chip.human { font-family: var(--sans); font-weight: 650; color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); }
+.chip.unsigned { color: var(--approval); border-color: color-mix(in srgb, var(--approval) 40%, var(--line)); }
 .seal { display: inline-grid; place-items: center; color: var(--working); }
 .seal svg { width: 14px; height: 14px; }
 .delivery { font-weight: 700; }
@@ -821,20 +823,38 @@ input.color { width: 32px; height: 32px; padding: 0; border: 1px solid var(--lin
 'use strict';
 // Everything that comes from other people (tasks, file names, messages) only ever reaches the DOM as a text node,
 // never as HTML: all rendering goes through h(), and no string from the server is ever parsed as markup.
-// The API key comes from `syn ui` in the URL fragment, which the browser never sends to a server; the page keeps it,
-// so the installed app opens without it. The server never puts it into the page: any process could read that.
-const TOKEN = (() => {
-  const m = /[#&]k=([\w-]{32,})/.exec(location.hash);
-  // only the key leaves the address; a view in the fragment (#/messages&k=…) stays
-  if (m) history.replaceState(null, '', location.pathname + location.search + location.hash.replace(/&?k=[\w-]+/, '').replace(/^#$/, ''));
+// The API key is new at every start of the server and lives there and in this tab only (sessionStorage), never in
+// the page, which any process on the machine can fetch, and never in a URL. `syn ui` hands over a one-time pairing
+// code in the URL fragment, which the browser never sends to a server; the page swaps it for the key at /api/pair.
+let TOKEN = '', pairing = '';
+try { TOKEN = sessionStorage.getItem('syn-key') || ''; localStorage.removeItem('syn-key'); } catch (_) {}  // 0.5 kept it there
+function takePairing() {  // the code leaves the address bar at once, in every case; a view in it (#/messages) stays
+  const m = /(?:^#|&)p=([\w-]*)/.exec(location.hash);
+  if (!m) return '';
+  const rest = (location.hash.slice(0, m.index) + location.hash.slice(m.index + m[0].length)).replace(/^&/, '#');
+  history.replaceState(null, '', location.pathname + location.search + rest.replace(/^#$/, ''));
+  return m[1];
+}
+async function pair(code) {  // true if the server swapped the code for its key; a wrong code leaves the key as it is
   try {
-    if (m) localStorage.setItem('syn-key', m[1]);
-    return m ? m[1] : localStorage.getItem('syn-key') || '';
-  } catch (_) { return m ? m[1] : ''; }
-})();
+    const r = await fetch('/api/pair', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code }), cache: 'no-store',
+    });
+    const key = r.status === 200 ? (await r.json()).key : '';
+    if (!key) return false;
+    TOKEN = String(key);
+    try { sessionStorage.setItem('syn-key', TOKEN); } catch (_) {}
+    return true;
+  } catch (_) { return false; }
+}
+pairing = takePairing();
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
-// a key handed to a page that is open already: take it over by loading the page anew
-addEventListener('hashchange', () => { if (/[#&]k=/.test(location.hash)) location.reload(); });
+// a code for a page that is open already (registered before the views' own listener, which then sees the address
+// without it); a working key is never given up for a code
+addEventListener('hashchange', () => {
+  const code = takePairing();
+  if (code && !(TOKEN && connected)) { pairing = code; load(); }
+});
 const CMD = '~/.synchronauts/syn';
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => [...document.querySelectorAll(sel)];
@@ -864,7 +884,7 @@ const I18N = {
     'theme.light': 'light',
     'theme.dark': 'dark',
     'lang.label': 'Language',
-    'conn.restarted': 'This page has no key for Synchronauts. Open it with {0}',
+    'conn.restarted': 'This page is not paired with Synchronauts. Open it with {0}',
     'conn.down': 'The Synchronauts server is not responding. Restart it with {0}',
     'conn.reload': 'Reload',
     'stat.active': { one: 'session active', other: 'sessions active' },
@@ -881,6 +901,7 @@ const I18N = {
     'mission.result': 'Result: {0}',
     'mission.stop': 'Stop',
     'mission.stopConfirm': 'Stop the mission for everyone? The Claudes then ask their humans again.',
+    'mission.queued': 'Stopped here. The others learn it once your SSH key signs it: touch or unlock the key.',
     'mission.left': '{0} left',
     'mission.joined': 'joined the mission',
     'mission.invitedTip': 'invited, has not joined yet',
@@ -952,6 +973,10 @@ const I18N = {
     'mail.signed': 'Signed with {0}\u2019s SSH key from GitHub',
     'mail.forged': 'Signature does not match',
     'mail.forged.tip': 'This message is not signed with a key GitHub lists for {0}. Someone else may have written it.',
+    'mail.unsigned': 'unsigned',
+    'mail.unsigned.tip': 'Not signed, or its signature could not be checked yet: anybody who can write to the room could have written it under this name.',
+    'mail.unchecked': 'not checked',
+    'mail.unchecked.tip': 'Carries a signature this board did not check (it does not check mail between others): anybody who can write to the room could have written it under this name.',
     'mail.human.tip': 'Written in the UI',
     'mail.claude': 'Claude',
     'mail.claude.tip': 'Written by Claude',
@@ -1030,7 +1055,7 @@ const I18N = {
     'theme.light': 'hell',
     'theme.dark': 'dunkel',
     'lang.label': 'Sprache',
-    'conn.restarted': 'Diese Seite hat keinen Schlüssel für Synchronauts. Öffne sie mit {0}',
+    'conn.restarted': 'Diese Seite ist nicht mit Synchronauts gekoppelt. Öffne sie mit {0}',
     'conn.down': 'Der Synchronauts-Server antwortet nicht. Neu starten mit {0}',
     'conn.reload': 'Neu laden',
     'stat.active': { one: 'Session aktiv', other: 'Sessions aktiv' },
@@ -1047,6 +1072,7 @@ const I18N = {
     'mission.result': 'Ergebnis: {0}',
     'mission.stop': 'Stoppen',
     'mission.stopConfirm': 'Den Auftrag für alle stoppen? Die Claudes fragen dann wieder ihre Menschen.',
+    'mission.queued': 'Hier gestoppt. Die anderen erfahren es, sobald dein SSH-Schlüssel es signiert: berühre oder entsperre ihn.',
     'mission.left': 'noch {0}',
     'mission.joined': 'dem Auftrag beigetreten',
     'mission.invitedTip': 'eingeladen, noch nicht beigetreten',
@@ -1118,6 +1144,10 @@ const I18N = {
     'mail.signed': 'Signiert mit {0}s SSH-Schlüssel von GitHub',
     'mail.forged': 'Signatur passt nicht',
     'mail.forged.tip': 'Diese Nachricht ist nicht mit einem Schlüssel signiert, den GitHub für {0} führt. Jemand anderes könnte sie geschrieben haben.',
+    'mail.unsigned': 'unsigniert',
+    'mail.unsigned.tip': 'Nicht signiert, oder die Signatur ließ sich noch nicht prüfen: Jeder, der in den Raum schreiben kann, könnte sie unter diesem Namen geschrieben haben.',
+    'mail.unchecked': 'nicht geprüft',
+    'mail.unchecked.tip': 'Trägt eine Signatur, die dieses Board nicht geprüft hat (Post zwischen anderen prüft es nicht): Jeder, der in den Raum schreiben kann, könnte sie unter diesem Namen geschrieben haben.',
     'mail.human.tip': 'In der UI geschrieben',
     'mail.claude': 'Claude',
     'mail.claude.tip': 'Von Claude geschrieben',
@@ -1738,7 +1768,8 @@ const person = (login) => (data && data.people.find((p) => p.login === login)) |
 const name = (login) => person(login).name || login;
 const poss = (n) => (lang === 'de' ? (/[sßxz]$/i.test(n) ? `${n}’` : `${n}s`) : (/s$/i.test(n) ? `${n}’` : `${n}’s`));
 const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
-const initials = (n) => String(n).trim().split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase() || '?';
+// a label is the name, or `Name (@login)` and `⚠ Name (@login)` where two people could be mixed up: initials of the name
+const initials = (n) => String(n).replace(/^⚠\s*/, '').replace(/\s*\(@[^)]*\)$/, '').trim().split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase() || '?';
 const loginOf = (key) => String(key || '').split('/')[0];
 const hasRepos = (s) => Object.keys(s.repos || {}).length > 0;
 const shorten = (s, n) => { s = String(s || ''); return s.length > n ? `${s.slice(0, n - 1)}…` : s; };
@@ -1773,10 +1804,19 @@ async function load() {
   busy = true;
   clearTimeout(timer);
   try {
+    if (pairing) {  // a code of `syn ui`, used once: on success a fresh key, else the state below decides
+      const code = pairing;
+      pairing = '';
+      if (await pair(code)) etag = '';
+    }
     const headers = { 'X-SYN-Token': TOKEN };
     if (etag) headers['If-None-Match'] = etag;
     const r = await fetch('/api/state', { headers, cache: 'no-store' });
-    if (r.status === 403) return connection('restarted');
+    if (r.status === 403) {  // a new server start or no pairing yet: the key is of no use, `syn ui` pairs anew
+      TOKEN = '';
+      try { sessionStorage.removeItem('syn-key'); } catch (_) {}
+      return connection('restarted');
+    }
     if (r.status !== 200 && r.status !== 304) throw new Error(`HTTP ${r.status}`);
     fetchedAt = r.headers.get('X-SYN-Fetched') || fetchedAt;
     if (r.status === 200) {
@@ -1813,7 +1853,7 @@ function notify() {
   for (const n of d.mail) {
     if (seen.mail.has(n.id)) continue;
     seen.mail.add(n.id);
-    if (first || n.from === me || !list(n.to).includes(me)) continue;
+    if (first || n.own || !list(n.to).includes(me)) continue;
     freshMail.add(n.id);
     if (!(view === 'messages' && !document.hidden)) unseenMail.add(n.id);
     if (n.trust === 'bad') {
@@ -2025,7 +2065,7 @@ function attentionRows() {
     rows.push({ kind: 'red', text: tx(o.kind === 'conflict' ? 'attn.conflict' : 'attn.file', short(o.repo), other, h('code', {}, list(o.files).join(', '))),
       action: t('attn.show'), run: () => jump(mine) });
   }
-  for (const n of d.mail.filter((x) => x.trust === 'bad' && x.from !== me && list(x.to).includes(me))) {
+  for (const n of d.mail.filter((x) => x.trust === 'bad' && !x.own && list(x.to).includes(me))) {
     rows.push({ kind: 'red', text: t('attn.forged', name(n.from)), action: t('attn.open'), run: () => go('messages') });
   }
   return rows;
@@ -2082,7 +2122,7 @@ function overviewRender() {
       const mine = visible.filter((s) => s.login === p.login), me = p.login === d.me;
       if (!mine.length && settings.hideEmpty) continue;
       const team = mine.filter(hasRepos).length;
-      const info = [team ? t('board.sessions', team) : t('board.noSession'), list(p.machines).join(', ')].filter(Boolean).join(' · ');
+      const info = [`@${p.login}`, team ? t('board.sessions', team) : t('board.noSession'), list(p.machines).join(', ')].filter(Boolean).join(' · ');
       groups.push(h('section', { class: 'person' },
         groupHead(h('span', { class: 'avatar', style: { '--hue': hue(p.login) }, 'aria-hidden': 'true' }, initials(p.name)), p.name, info,
           me ? h('span', { class: 'you' }, t('board.you')) : null),
@@ -2148,6 +2188,7 @@ async function stopMission(m) {
     });
     const a = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(a.error || t('form.error', r.status));
+    if (a.queued) toast(t('mission.title'), t('mission.queued'), 'info');  // the key has not signed the end yet
     load();
   } catch (f) {
     toast(t('mission.title'), f.message, 'red');
@@ -2272,18 +2313,25 @@ function mailRender() {
 }
 
 function msg(n) {
-  const mine = n.from === data.me, human = n.source === 'ui', toUi = n.repo === 'ui';
+  // the Human badge needs my own mail or a valid signature: n.source is a field any room member can set
+  // only this machine's own mail is mine: anybody in the room can write a branch in my login, its mail keeps its marks
+  const mine = n.own === true, human = n.source === 'ui' && (mine || n.trust === 'ok'), toUi = n.repo === 'ui';
   const target = toUi ? t('mail.ui') : n.repo || '';
   const forged = !mine && n.trust === 'bad';
+  // signed mail between two others is not checked here; any other value but ok counts as unsigned, also a new one
+  const unchecked = !mine && n.trust === 'unchecked', unsigned = !mine && !['ok', 'bad', 'unchecked'].includes(n.trust);
   return h('article', { class: `msg${mine ? ' mine' : ''}${forged ? ' forged' : ''}${freshMail.has(n.id) ? ' new' : ''}` },
     h('div', { class: 'msg-head' },
       mini(n.from),
       // Claude writes most messages: only a human author gets a badge, the author shows on hover over the name
-      h('b', { title: human ? t('mail.human.tip') : n.from_repo ? t('mail.claude.from', n.from_repo) : t('mail.claude.tip') },
+      h('b', { title: `${human ? t('mail.human.tip') : n.from_repo ? t('mail.claude.from', n.from_repo) : t('mail.claude.tip')} · @${n.from}` },
         mine ? t('mail.you') : name(n.from)), '→', h('b', {}, list(n.to).map((l) => name(l)).join(', ')),
       target ? h('span', { class: 'chip', title: toUi ? t('mail.ui.tip', `${CMD} send <name>@ui "…"`) : t('mail.session.tip') }, target) : null,
       human ? h('span', { class: 'chip human', title: t('mail.human.tip') }, t('mail.human')) : null,
       n.mission ? h('span', { class: 'chip', title: t('mail.mission.tip') }, t('mission.title')) : null,
+      unsigned ? h('span', { class: 'chip unsigned', title: t('mail.unsigned.tip') }, t('mail.unsigned')) : null,
+      // the writer of a branch decides whether a message carries a signature: "not checked" is no milder than unsigned
+      unchecked ? h('span', { class: 'chip unsigned', title: t('mail.unchecked.tip') }, t('mail.unchecked')) : null,
       settings.showSeals && !forged && n.trust === 'ok'
         ? h('span', { class: 'seal', role: 'img', title: t('mail.signed', name(n.from)), 'aria-label': t('mail.signed', name(n.from)) }, icon('SHIELD')) : null,
       h('time', { datetime: n.time, title: stamp(n.time) }, settings.msgTime === 'relative' ? ago(n.time) : hhmm(n.time)),

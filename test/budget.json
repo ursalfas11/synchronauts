@@ -1,0 +1,120 @@
+{
+  "about": "Characters of text that Synchronauts writes into Claude's context per measured flow (test/measure.py). A step may raise a ceiling only where its plan section says so, in its own step, with a reason in why.",
+  "labels": {
+    "Start in a team repo (Alex has 2 sessions)": {
+      "max": 500,
+      "why": "0.5.0 baseline, measured before any 0.6 change; no growth allowed"
+    },
+    "Start outside the team repos (notes, home)": {
+      "max": 0,
+      "why": "0.5.0 baseline, measured before any 0.6 change; no growth allowed"
+    },
+    "Prompt with nothing new": {
+      "max": 0,
+      "why": "0.5.0 baseline, measured before any 0.6 change; no growth allowed"
+    },
+    "Tool call with nothing new": {
+      "max": 0,
+      "why": "0.5.0 baseline, measured before any 0.6 change; no growth allowed"
+    },
+    "Question before the first edit of Alex's file": {
+      "max": 0,
+      "why": "0.5.0 baseline, measured before any 0.6 change; no growth allowed"
+    },
+    "First edit of Alex's file, after Sam allowed it": {
+      "max": 247,
+      "why": "0.5.0 baseline, measured before any 0.6 change; no growth allowed"
+    },
+    "Second own session in the same repo, start": {
+      "max": 641,
+      "why": "0.5.0 baseline, measured before any 0.6 change; no growth allowed"
+    },
+    "First session, next prompt": {
+      "max": 115,
+      "why": "0.5.0 baseline, measured before any 0.6 change; no growth allowed"
+    },
+    "Wake-up with one message (exit 2)": {
+      "max": 620,
+      "why": "0.5.0 baseline 611; S03 (names): every message header carries the sender's login (`@sam-gh, `), +9; no other growth allowed"
+    },
+    "Message without a repo, target session at the next prompt": {
+      "max": 547,
+      "why": "0.5.0 baseline 538 (the largest of its timing variants: whether Sam's sessions arrived before the wake-up); S03 (names): every message header carries the sender's login (`@sam-gh, `), +9; no other growth allowed"
+    },
+    "The same message, Alex's other session": {
+      "max": 246,
+      "why": "0.5.0 baseline 237; S03 (names): every message header carries the sender's login (`@sam-gh, `), also in the FYI line, +9; no other growth allowed"
+    },
+    "Skill description (in every session)": {
+      "max": 434,
+      "why": "0.5.0 baseline, measured before any 0.6 change; no growth allowed"
+    },
+    "Mission proposal, wake-up (exit 2)": {
+      "max": 635,
+      "why": "new in 0.6.0 step S01 (signed missions); the close adds that nothing of the plan comes before the yes (review of S01); S03 (names): every message header carries the sender's login (`@sam-gh, `), +9; no other growth allowed"
+    },
+    "Mission proposal, the approval prompt": {
+      "max": 247,
+      "why": "new in 0.6.0 step S01 (signed missions); S03 (names): the proposer is named with the login (`Join Sam (@sam-gh)'s mission`), +10; no other growth allowed"
+    },
+    "Mission approve inside a longer command, the refusal": {
+      "max": 132,
+      "why": "new in 0.6.0 step S04b (whole-command rule): the deny reason when `mission approve` is chained or hidden; measured 132 (the test path of syn is quoted: 130 in real use), no growth allowed"
+    },
+    "A state file of syn changed by a tool, the refusal": {
+      "max": 97,
+      "why": "new in 0.6.0 step S04b (guard of HOME): the deny reason for an edit tool or a Bash write under ~/.synchronauts; measured, no growth allowed"
+    },
+    "A secret of syn read by a command, the refusal": {
+      "max": 89,
+      "why": "new in 0.6.0 step S04b (guard of HOME): the deny reason for reading approve.key or ui-pair.json; measured, no growth allowed"
+    },
+    "The board's pairing code asked for by a command, the refusal": {
+      "max": 145,
+      "why": "new in 0.6.0 step S07 (review: `syn ui --pair` printed the pairing code to Claude): the deny reason when a Bash call runs it; measured 145 (the test path of syn is quoted: 143 in real use), no growth allowed"
+    },
+    "A command too nested for the checks of the hooks, the refusal": {
+      "max": 98,
+      "why": "new in 0.6.0 step S04b (review: a command the checks cannot read within their budget is refused, not let through); measured, no growth allowed"
+    },
+    "Mission join, the text after the yes": {
+      "max": 459,
+      "why": "new in 0.6.0 step S01 (signed missions); measured, no growth allowed"
+    },
+    "Mission join, wake-up of the proposer (exit 2)": {
+      "max": 242,
+      "why": "new in 0.6.0 step S01 (signed missions); measured, no growth allowed"
+    },
+    "Mission message, wake-up (exit 2)": {
+      "max": 479,
+      "why": "new in 0.6.0 step S01 (signed missions); S03 (names): every message header carries the sender's login (`@sam-gh, `), +10; no other growth allowed"
+    },
+    "Mission end, at the next step": {
+      "max": 208,
+      "why": "new in 0.6.0 step S01 (signed missions); S03 (names): every message header carries the sender's login (`@sam-gh, `), +10; no other growth allowed"
+    },
+    "Three messages from three senders, next prompt": {
+      "max": 968,
+      "why": "new in 0.6.0 step S01 (signed missions); S03 (names), its own budget: the login in each of the three headers, +28; no other growth allowed"
+    },
+    "Status, the mail part with signed, unsigned and forged mail": {
+      "max": 330,
+      "why": "new in 0.6.0 step S04 (plan label status_mixed_trust): `syn status` marks mail that is not ok as [unsigned] or [forged]; measured 298, ceiling 330 from the plan"
+    },
+    "Mission start with a key that may ask for a touch, the text after the yes (invite queued)": {
+      "max": 494,
+      "why": "new in 0.6.0 step S06 (keys in an ssh-agent or on a security key): the yes of a mission queues the invite for the watcher instead of signing in the hook, and says so; measured, no growth allowed"
+    },
+    "Mission join with a key that may ask for a touch, the text after the yes (queued)": {
+      "max": 475,
+      "why": "new in 0.6.0 step S06 (keys in an ssh-agent or on a security key): the yes of a mission queues the join for the watcher instead of signing in the hook, and says so; measured, no growth allowed"
+    }
+  },
+  "skill_md": {
+    "label": "Skill text (only when the skill loads)",
+    "baseline_chars": 4992,
+    "allowance_tokens": 60,
+    "max_chars": 5190,
+    "why": "0.5.0 baseline plus 60 tokens (198 characters) net for the whole 0.6 release"
+  }
+}
