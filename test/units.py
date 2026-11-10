@@ -589,6 +589,58 @@ check(not errors and all(cached.get(f'th{i}-gh', {}).get('keys') == [f'ssh-ed255
 for name in ('others.json', 'verified.json', 'inbox.json', 'signers.json', 'fetched'):
     (HOME / name).unlink(missing_ok=True)
 
+# The poller. GitHub's API lists the branches with an ETag; an answer 304 means nothing changed. After a fetch that
+# failed it asks without the ETag, so the next poll says `changed` again instead of 304 until somebody pushes. When
+# the API says no (401, 403, 5xx) git itself is asked, and the API again after a pause; 100 branches fit in one answer
+asked, replies = [], []
+
+
+class Api(BaseHTTPRequestHandler):
+    def do_GET(self):
+        asked.append((self.path, self.headers.get('If-None-Match')))
+        code = replies.pop(0) if replies else 200
+        if code == 200 and self.headers.get('If-None-Match') == '"v1"':
+            code = 304
+        if code != 200:
+            return self.send_error(code)
+        body = json.dumps([{'ref': 'refs/heads/syn/kim-gh/one', 'object': {'sha': 'a' * 40}}]).encode()
+        self.send_response(200)
+        self.send_header('ETag', '"v1"')
+        self.send_header('Content-Length', str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *args):
+        pass
+
+
+api = Local(('127.0.0.1', 0), Api)
+threading.Thread(target=api.serve_forever, daemon=True).start()
+real_gh, syn.gh = syn.gh, lambda *args, **kwargs: 'tok'
+real_tick, syn.TICK = syn.TICK, 0  # e2e.sh sets a fast one
+p = syn.Poller({'remote': 'https://github.com/acme/room.git', 'me': 'sam-gh', 'machine': 'one'})
+check(p.url.endswith('?per_page=100') and p.tick == 5, 'the poller asks for 100 branches per answer', p.url)
+p.url, listed = f'http://127.0.0.1:{api.server_address[1]}/refs', []
+p.remote = lambda: listed.append(1) or ['refs/heads/syn/kim-gh/one ' + 'b' * 40]
+first, second = p.changed(), p.changed()
+check(first and not second and asked[-1][1] == '"v1"' and not listed,
+      'the poller: a first answer is a change, the next one with its ETag is 304 and none', str(asked))
+p.forget()
+again = p.changed()
+check(again and asked[-1][1] is None, 'after a fetch that failed the next poll asks without the ETag and says changed '
+      'again', str(asked[-1]))
+replies[:] = [403]
+n = len(asked)
+fell, tick, quiet = p.changed(), p.tick, p.changed()
+check(fell and listed == [1, 1] and tick == 20 and not quiet and len(asked) == n + 1,
+      'an API that says no: git is asked instead, at its slower pace, and the API not again at once',
+      f'{fell} {listed} {tick} {quiet} {len(asked) - n}')
+p.api_at = 0
+back = p.changed()
+check(back and p.tick == 5 and len(asked) == n + 2, 'after the pause the API is asked again', f'{back} {p.tick}')
+syn.gh, syn.TICK = real_gh, real_tick
+api.shutdown()
+
 check(callable(syn.dispatch) and callable(syn.main), 'main() and dispatch() exist')
 
 print(f"\nunits: {'all green' if not failures else str(len(failures)) + ' failed: ' + ', '.join(failures)}")

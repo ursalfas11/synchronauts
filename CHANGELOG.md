@@ -208,6 +208,11 @@ This file is in English only; the README and the guide exist in English and Germ
   field `source` set to `ui` got it, and any room member can set that field.
 - Several writers of the same file at once (the board's threads, the signature checker) no longer collide on one temp
   file name: every writer has its own.
+- The watcher finds its way back after trouble with GitHub. After a fetch that failed it asked with the old ETag, got
+  "nothing changed" and left what the fetch missed missing until somebody pushed again; it now asks without the ETag.
+  When the API says no (a token that ran out or has no SSO for the owner, the rate limit, a 5xx) it asks git itself
+  with `ls-remote` and tries the API again five minutes later, instead of failing every five seconds. It asks for 100
+  branches per answer instead of GitHub's 30, so a room with more than 30 branches keeps the cheap polls.
 - `setup` no longer drops the other settings in `config.json` (for example `notify off`) when it rewrites the file.
 - A setting that takes a number (`SYN_TICK`, `SYN_IDLE`, `SYN_WAKE_MIN`, `SYN_CONFLICT_TICK`, `SYN_UI_PORT`) and gets
   something else, such as `30s`, counts as its default; before, every hook and command stopped at start.

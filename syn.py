@@ -1503,23 +1503,37 @@ def verify(n, k=None):
 
 class Poller:
     """Has another branch changed? On GitHub via REST with ETag (an answer 304 does not count against the rate
-    limit), otherwise via ls-remote."""
+    limit), otherwise via ls-remote. When the API says no (a token that ran out or has no SSO for the owner, the
+    rate limit, a 5xx), git itself may still get through: ls-remote, and the API again API_PAUSE seconds later."""
+    API_PAUSE = 300
 
     def __init__(self, k):
         gp = github_path(k['remote'])
-        self.url = f'https://api.github.com/repos/{gp[0]}/{gp[1]}/git/matching-refs/heads/{PREFIX}' if gp else ''
+        # 100 branches in one answer (GitHub's default is 30): with more, ls-remote lists them in every poll
+        self.url = (f'https://api.github.com/repos/{gp[0]}/{gp[1]}/git/matching-refs/heads/{PREFIX}?per_page=100'
+                    if gp else '')
         self.token = gh('auth', 'token') if self.url else ''
         self.own = f'refs/heads/{own_branch(k)} '
-        self.etag, self.state = '', None
-        self.tick = TICK or (5 if self.token else 20)
+        self.etag, self.state, self.api_at = '', None, 0
+
+    @property
+    def tick(self):
+        """Seconds between two polls: 5 with the API, 20 with ls-remote (a connection of git each)."""
+        return TICK or (5 if self.token and time.time() >= self.api_at else 20)
 
     def remote(self):
         return ls_remote()
 
+    def forget(self):
+        """After a fetch that failed: the next poll says `changed` again. Without the ETag too, or GitHub would answer
+        304 until somebody pushes, and what the fetch missed would stay missing."""
+        self.etag, self.state = '', None
+
     def changed(self):
         import urllib.error  # only here, so the hooks start fast
         import urllib.request
-        if self.token:
+        state = None
+        if self.token and time.time() >= self.api_at:
             headers = {'Authorization': f'Bearer {self.token}', 'Accept': 'application/vnd.github+json',
                        'User-Agent': 'synchronauts'}
             if self.etag:
@@ -1530,14 +1544,14 @@ class Poller:
                     self.etag = '' if more else r.headers.get('ETag', '')
                     state = [f"{x['ref']} {x['object']['sha']}" for x in json.load(r)]
                 if more:  # more branches than one page: a page alone could miss a change, ls-remote sees all
-                    state = self.remote()
+                    state = None
             except urllib.error.HTTPError as f:
                 if f.code == 304:
                     return False
                 if f.code == 401:
                     self.token = gh('auth', 'token')
-                raise RuntimeError(f'GitHub API answered {f.code}') from None
-        else:
+                self.etag, self.api_at = '', time.time() + self.API_PAUSE
+        if state is None:
             state = self.remote()
         state = sorted(s for s in state if not s.startswith(self.own))
         changed, self.state = state != self.state, state
@@ -1725,7 +1739,7 @@ def watch(k):
                         with Lock('git'):
                             fetch(k, poller.state)  # what the poll listed: no second round trip to the room
                     except Exception:
-                        poller.state = None  # fetch again at the next poll instead of waiting for the next change
+                        poller.forget()  # fetch again at the next poll instead of waiting for the next change
                         raise
                     checker.poke()  # its check of the new mail touches `fetched` when done
                 owed = True  # the poll is done: `fetched` follows below, or with the check of the mail it fetched
