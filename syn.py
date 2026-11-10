@@ -3194,14 +3194,19 @@ def code_texts(seg):
     return [w['text'] for w in words] + stdin_texts(seg), any(w['dyn'] for w in words)
 
 
-# a shell command in code: os.system('..'), subprocess.run('..', shell=True), execSync, system(..) in perl, awk, ruby
+# a shell command in code: os.system('..'), subprocess.run('..', shell=True), execSync, system(..) in perl, awk, ruby.
+# In the string a backslash only ever starts an escape: read either way (`.` too), a row of them without a closing
+# quote took a time that doubled with every backslash, past the time limit of the hook
 SHELL_CALL = re.compile(r"""\b(?:os\.system|os\.popen|subprocess\.(?:run|call|check_call|check_output|getoutput|"""
                         r"""getstatusoutput|Popen)|execSync|exec|system|qx)\s*\(\s*(?:[rbuRBU]{1,2})?(['"`])"""
-                        r"""((?:\\.|(?!\1).){0,4000})\1""", re.S)
+                        r"""((?:\\.|(?!\1)[^\\]){0,4000})\1""", re.S)
 # the same with a list of words: subprocess.run(['cp', 'a', 'b']), os.execvp('cp', [...]), spawnSync('cp', [...])
 SHELL_LIST = re.compile(r"""\b(?:subprocess\.(?:run|call|check_call|check_output|Popen)|os\.exec\w*|os\.spawn\w*|"""
                         r"""execFileSync|execFile|spawnSync|spawn)\s*\(\s*(?:(['"])[^'"]{0,400}\1\s*,\s*)?"""
                         r"""\[([^\[\]]{0,4000})\]""")
+
+
+SHELL_WORD = re.compile(r"""(['"])((?:\\.|(?!\1)[^\\])*)\1""", re.S)  # one quoted word of such a list
 
 
 def shell_calls(code):
@@ -3210,7 +3215,7 @@ def shell_calls(code):
     code = code[:SCRIPT_MAX]
     out = [m.group(2) for m in SHELL_CALL.finditer(code)]
     for m in SHELL_LIST.finditer(code):
-        out.append(' '.join(sh_quote(x) for _, x in re.findall(r"""(['"])((?:\\.|(?!\1).)*)\1""", m.group(2))))
+        out.append(' '.join(sh_quote(x) for _, x in SHELL_WORD.findall(m.group(2))))
     return out
 
 
@@ -3709,6 +3714,14 @@ def expand(pattern, st, limit):
     return out
 
 
+def dots_after_glob(t):
+    """Whether a `..` follows a part of the path with a glob in it: where that leads, only the run knows. Part by part,
+    in one pass (as one pattern it took a time that grew with the square of the length)."""
+    parts = re.split(r'[/\\]', t)
+    first = next((i for i, x in enumerate(parts) if MAGIC.search(x)), len(parts))
+    return '..' in parts[first + 1:]
+
+
 def word_targets(w, cwd, tree=False):
     """The paths a word names, as targets {'p': absolute path or glob pattern, 'glob', 'tree'} (tree: a folder taken
     with all inside, rm -r); each word of a plain {a,b} counts. None if only the run knows them: a variable, a command
@@ -3724,7 +3737,7 @@ def word_targets(w, cwd, tree=False):
         if cwd is None and not os.path.isabs(t):
             return None
         glob = bool(w['glob'] and MAGIC.search(t))
-        if glob and re.search(r'[*?[][^/\\]*[/\\](?:.*[/\\])?\.\.(?:[/\\]|$)', t):
+        if glob and dots_after_glob(t):
             return None
         out.append({'p': os.path.join(cwd or '', t), 'glob': glob, 'tree': tree})
     return out

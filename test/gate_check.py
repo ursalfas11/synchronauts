@@ -556,6 +556,27 @@ for command in (f'echo x > {H}/missions.json', 'echo hello'):
 check('"deny"' in answers[0] and syn.UNREADABLE in answers[0] and answers[1] == '',
       'a PreToolUse hook that fails refuses a call that may touch HOME and lets the rest run', str(answers))
 
+# The time of a check grows with the length of the command, not faster. A row of backslashes in a string of code
+# without its closing quote doubled it with every backslash, and a long word with globs before a `/` took the square
+# of its length: past the time limit of the hook, which then lets the call run. Both are read at once now, and read
+# as before
+slow = ["python3 -c 'system(\"" + '\\' * 80 + "'", "python3 -c 'subprocess.run([\"" + '\\' * 80 + "])'",
+        'cat ' + '*' * 60000 + '/' + 'a' * 60000 + f' {H}/hook.log']
+took = []
+for c in slow:
+    at, st = time.monotonic(), syn.reader()
+    syn.checked(lambda: syn.gate_hidden(c, str(REPO), 0, st) or syn.state_touch(c, str(REPO), st), c)  # noqa: B023
+    took.append(round(time.monotonic() - at, 2))
+check(max(took) < 1, 'backslashes without a closing quote and a long word of globs are checked within a second',
+      str(took))
+calls = syn.shell_calls('os.system("cp a \\"b c\\" d"); subprocess.run([\'mv\', "x \\" y", \'z\'])\n'
+                        "system('echo \\\\'); system('open\\')")
+check(calls == ['cp a \\"b c\\" d', 'echo \\\\', ' '.join(syn.sh_quote(x) for x in ('mv', 'x \\" y', 'z'))],
+      'shell_calls: an escaped quote stays in its string, a string that ends in a backslash is none', str(calls))
+dots = [syn.dots_after_glob(x) for x in ('a*/../b', '*/b/..', 'a?\\..\\b', 'a/../b*', 'a*b', '../a*', 'a*/..b')]
+check(dots == [True, True, True, False, False, False, False], 'a `..` after a part with a glob is found, part by part',
+      str(dots))
+
 if failures:
     sys.exit(1)
 print('gate: all green')

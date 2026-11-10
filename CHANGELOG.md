@@ -14,6 +14,10 @@ This file is in English only; the README and the guide exist in English and Germ
   messages count only as signed messages from the people of the mission. A branch in the room can no longer change or
   end a mission, fake that somebody joined, or put a mission in someone else's name. `state.json` no longer carries
   `missions`.
+- A command can no longer slow the check of the hooks down until Claude Code's time limit lets it run unchecked. A row
+  of backslashes in a string of code without its closing quote (`python3 -c 'system("\\\\…'`) doubled the time with
+  every backslash, and a long word of globs before a `/` took the square of its length. Both are read in a time that
+  grows with the length only.
 - Only a valid signed proposal gets the instruction "Do what the proposal says" (tell the human the plan and run the
   approve command), which now adds that nothing the plan asks for comes before the yes. An unsigned, forged, expired,
   foreign or 0.5-style proposal is shown as information that cannot be joined, and only a signed message of the
