@@ -6,7 +6,7 @@ body:
     id: version
     attributes:
       label: Synchronauts version
-      description: The `VERSION` line in `syn.py`, or the plugin version.
+      description: What `~/.synchronauts/syn --version` prints.
     validations:
       required: true
   - type: input

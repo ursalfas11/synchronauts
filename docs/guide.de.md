@@ -167,6 +167,7 @@ Claude ruft sie per Bash auf, du kannst es auch. `~/.synchronauts/syn` ist ein k
 | `~/.synchronauts/syn line` | eine kurze Zeile für eine Statusleiste, leer wenn nichts los ist |
 | `~/.synchronauts/syn state` | alles, was das Board bekommt, als JSON |
 | `~/.synchronauts/syn notify [on\|off\|test]` | Mitteilungen des Systems an, aus oder als Probe |
+| `~/.synchronauts/syn --version` | die installierte Version; `--help` listet die Kommandos |
 
 ## Was geteilt wird und was nicht
 

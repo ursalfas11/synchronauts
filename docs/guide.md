@@ -165,6 +165,7 @@ Claude calls these via Bash; you can too. `~/.synchronauts/syn` is a small scrip
 | `~/.synchronauts/syn line` | one short line for a status bar, empty when nothing is going on |
 | `~/.synchronauts/syn state` | everything the board gets, as JSON |
 | `~/.synchronauts/syn notify [on\|off\|test]` | system notifications on, off, or a sample |
+| `~/.synchronauts/syn --version` | the installed version; `--help` lists the commands |
 
 ## What is shared and what is not
 

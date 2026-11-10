@@ -6444,6 +6444,12 @@ def main(argv):
         # a lone surrogate (JSON may carry one in a path) is written as \udcxx, never stops the output
         stream.reconfigure(encoding='utf-8', errors='backslashreplace', newline='\n')
     cmd, rest = (argv[0], argv[1:]) if argv else ('status', [])
+    if cmd in ('--version', '-V', 'version'):  # before anything is read or written: it also answers on a broken setup
+        print(f'synchronauts {VERSION}')
+        return 0
+    if cmd in ('--help', '-h', 'help'):
+        print(HELP)
+        return 0
     private_home()
     if cmd == 'hook':
         event = {}
@@ -6461,6 +6467,25 @@ def main(argv):
             print(f'{iso()} {cmd} stopped: {type(error).__name__}: {error}', flush=True)
         return 0
     return dispatch(cmd, rest)
+
+
+HELP = f"""synchronauts {VERSION}: your team's agents see each other, talk, and stay off each other's files.
+
+  status                             who works where, your own sessions, mail of the last 3 days
+  task "<one sentence>"              what this session works on
+  send <name|all>[@repo] "<text>"    a message to a teammate's Claude; <name>@ui goes to their board
+  claim [<path>...]                  claim files for this session; alone it lists, --release frees
+  mission propose|approve|end ...    several people's Claudes solve one problem, each human says yes once
+  ui [--pair] [--no-browser]         the board in the browser
+  line                               one short line for a status bar
+  state                              everything the board gets, as JSON
+  notify [on|off|test]               system notifications
+  rooms [--refresh]                  the id of the room
+  codex [--remove]                   the hooks for Codex CLI
+  setup <owner/repo> [--org a,b]     join a room, a private GitHub repo the team shares
+  --version, --help
+
+Guide: https://github.com/ursalfas11/synchronauts/blob/main/docs/guide.md"""
 
 
 def dispatch(cmd, rest):
@@ -6517,7 +6542,7 @@ def dispatch(cmd, rest):
     else:
         sys.exit('Commands: status · send <name|all>[@repo] "<text>" · task "<one sentence>" · claim <path>… · '
                  'mission … · ui [--pair] · line · state · notify [on|off|test] · rooms [--refresh] · '
-                 'codex [--remove] · setup <owner/repo of the room> [--org owner,...]')
+                 'codex [--remove] · setup <owner/repo of the room> [--org owner,...] · --help · --version')
     return 0
 
 

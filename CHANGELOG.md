@@ -167,6 +167,8 @@ This file is in English only; the README and the guide exist in English and Germ
 - Development: `test/measure.py --check test/budget.json` fails when a hook text grows beyond its budget; the end-to-end
   test checks the documents (versions, English and German in step, links, settings, no company data, no hidden or
   direction character written as such in any file) and can run in two shards (`SHARD=a|b`).
+- `syn --version` prints the installed version and `syn --help` the commands with a line each, both with exit code
+  0 and without touching `~/.synchronauts`. The bug report form asks for the version that way.
 
 ### Changed
 

@@ -197,6 +197,11 @@ EOF
 fi
 out=$(as_user sam "$PY" "$SYN" bogus 2>&1) && fail 'an unknown command went through' "$out" \
   || check "$out" 'Commands: status' 'an unknown command prints the list of commands'
+# --version and --help answer with exit code 0, before anything under HOME is read or made
+out=$(SYN_HOME="$T/home-none" "$PY" "$SYN" --version | crlf_safe) && [ "$out" = "synchronauts $(sed -n "s/^VERSION = '\(.*\)'/\1/p" "$SYN")" ] && [ ! -e "$T/home-none" ] \
+  && ok '--version prints the version and touches nothing' || fail '--version' "$out"
+out=$(SYN_HOME="$T/home-none" "$PY" "$SYN" --help | crlf_safe) && [ ! -e "$T/home-none" ] || fail '--help failed' "$out"
+check "$out" 'setup <owner/repo>' '--help lists the commands'
 fi
 
 # Foundation: folder modes, temp files, the keys limits and the pure helpers (units.py)
