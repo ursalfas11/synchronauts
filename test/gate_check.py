@@ -370,6 +370,34 @@ free = [f'ls {H}', f'cat {H}/hook.log', 'echo x > out.txt', f'tail -5 {H}/watche
         'docker run -v "$PWD":/src alpine true', 'cd new-folder && echo x > y', 'git -C sub commit -m x']
 check(not [c for c in free if syn.state_touch(c, str(REPO))], 'listing HOME, reading its logs, a text that names a '
       'secret, the launcher and writing elsewhere pass', str([c for c in free if syn.state_touch(c, str(REPO))]))
+# what no check sees: a file only the run names, a program run through a variable, a program the checks do not know
+unseen = [f'cat {H}/$(echo approve).key', f'a=app; cat {H}/${{a}}rove.key', f'cd {H} && cat $(echo approve.key)',
+          f'cat < {H}/$(echo approve.key)', f'head -c 99 "{H}/$X"', f'cd {H}; cat $F']
+check(not [c for c in unseen if syn.state_touch(c, str(REPO)) != syn.UNSEEN_REFUSAL],
+      'a read under HOME whose file only the run names (a variable, a $(..)) is refused, and the refusal says how',
+      str([c for c in unseen if syn.state_touch(c, str(REPO)) != syn.UNSEEN_REFUSAL]))
+hidden = [f'git grep -O"sh -c x" . {H}', f'git grep --open-files-in-pager=cat x {H}', f'git grep -nOcat x {H}',
+          f'GIT_PAGER="cp {H}/approve.key /tmp/k" git log', f'export GIT_EXTERNAL_DIFF="cat {H}/approve.key"; git diff',
+          f'PAGER="sh -c \'cat {H}/approve.key\'" git log', f'env GIT_SSH_COMMAND="cat {H}/approve.key" git fetch',
+          f'GIT_CONFIG_GLOBAL={H}/x git status', f'BASH_ENV={H}/x bash -c true',
+          f'LESSOPEN="|cat {H}/approve.key" less x',
+          f'sed -n "w {H}/config.json" in', f'patch {H}/x', f'yq -i .a=1 {H}/config.json', f'sudo patch {H}/x',
+          f'ruby -e "File.write(\\"{H}/x\\",1)"', f'php -r "file_put_contents(\'{H}/x\', 1);"',
+          f'vim -c wq {H}/missions.json', f'ed {H}/missions.json', f'socat - {H}/approve.key',
+          f'open -a TextEdit {H}/x']
+check(not [c for c in hidden if not syn.state_touch(c, str(REPO))], 'git grep with a pager of its own, a pager, editor '
+      'or helper set in a variable, and a program whose way with files no check knows (sed, patch, yq, ruby, php, an '
+      'editor) are refused when they name HOME', str([c for c in hidden if not syn.state_touch(c, str(REPO))]))
+free = [f'tail -n $N {H}/hook.log', f'N=5; tail -n $N {H}/hook.log', f'F={H}/hook.log; cat $F', f'wc -l {H}/hook.log',
+        f'for f in {H}/*.log; do wc -l "$f"; done', f'jq . {H}/config.json', f'stat {H}/missions.json', f'du -sh {H}',
+        f'test -f {H}/config.json && echo yes', f'[ -d {H} ] && echo y', f'SYN_HOME={H} python3 syn.py status',
+        f'env SYN_HOME={H} bash test/e2e.sh', f'echo {H}/$X', f'git commit -m "see {H}/$X"', 'GIT_PAGER=cat git log',
+        'PAGER=cat git diff', 'EDITOR=true git commit --amend', 'GIT_EDITOR=true git rebase --continue',
+        'sed -n 1,5p README.md', 'ruby -e "puts 1"', 'patch -p1 < fix.diff', 'cat "$F"', 'cd "$D" && cat x',
+        'for f in *.md; do cat "$f"; done', 'git grep -n foo', 'git grep -n -e Other', 'npm test', 'make -C sub']
+check(not [c for c in free if syn.state_touch(c, str(REPO))], 'a number from a variable, a path a variable holds in '
+      'full, plain readers of the state, the launcher with SYN_HOME, a pager or an editor in a command that does not '
+      'name HOME, and other programs elsewhere pass', str([c for c in free if syn.state_touch(c, str(REPO))]))
 check(syn.state_touch(f'echo x > {H}/missions.json', str(REPO)) == 'Synchronauts: synchronauts state is managed by '
       f"syn commands only ({syn.shown(HOME / 'missions.json')})."
       and 'is a secret of synchronauts' in syn.state_touch(f'cat {H}/approve.key', str(REPO)), 'the refusals say why')
@@ -416,6 +444,22 @@ check(tool('Read', file_path=f'{H}/approve.key') and tool('Read', file_path=f'{H
                                                                                   glob='**/*.key')
       and tool('Glob', pattern='**/*.{key,txt}', path=str(TMP)),
       'Read, Grep and Glob of the secrets are refused, also by a pattern with {a,b} or **/')
+above = [dict(pattern='x'), dict(pattern='[0-9a-f]{64}'), dict(pattern='x', glob='!*.py'),
+         dict(pattern='x', type='json'),
+         dict(pattern='x', glob='*.py *.key'), dict(pattern='x', glob='*.py,*.json'), dict(pattern='x', type='all'),
+         dict(pattern='x', output_mode='files_with_matches'), dict(pattern='x', glob='*.py !*.md')]
+check(not [a for a in above if tool('Grep', path=str(TMP), **a) != syn.GREP_REFUSAL],
+      'a Grep from a folder above HOME is refused whatever its pattern, unless a glob or a type keeps it from the '
+      'secrets; a glob with !, a type that has .json and one glob of several that names a secret do not',
+      str([a for a in above if tool('Grep', path=str(TMP), **a) != syn.GREP_REFUSAL]))
+check(tool('Grep', pattern='x', path=str(TMP), type='py') is None and tool('Grep', pattern='x', path=str(REPO)) is None
+      and tool('Grep', pattern='[0-9a-f]{64}', path=str(TMP), glob='*.py *.md') is None
+      and tool('Grep', pattern='x', path=str(TMP), glob='src/**/*.{ts,tsx}') is None,
+      'a Grep from above with a type or with globs for other files, and a Grep next to HOME pass')
+check(sorted(set(syn.braced('*.{a,b{c,d}}'))) == ['*.a', '*.bc', '*.bd'] and syn.braced('{a,b}' * 7) == ['*' * 7]
+      and tool('Grep', pattern='x', path=str(TMP), glob='*.{ts,k{ey,x}}') == syn.GREP_REFUSAL
+      and tool('Grep', pattern='x', path=str(TMP), glob='{a,b}' * 7) == syn.GREP_REFUSAL,
+      'braces in a glob are read as what they stand for, nested ones too; too many of them count as *')
 try:
     odd = [tool('Grep', pattern='x', path=str(TMP), glob='[z-a]*'), tool('Glob', pattern='[z-a]*/x', path=H)]
 except Exception as error:  # re.error on Python 3.9
