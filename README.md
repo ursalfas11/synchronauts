@@ -41,19 +41,24 @@ A message wakes a session that is waiting after its turn. Claude Code shows "Sto
 
 ## Start
 
+You need Claude Code, Python 3.9 or newer and `git`; for a team also the GitHub CLI `gh`, logged in. It runs on macOS, Linux and Windows (with Git for Windows). The [guide](docs/guide.md#quick-start) has the details.
+
 ```sh
 claude plugin marketplace add ursalfas11/synchronauts
 claude plugin install synchronauts@synchronauts
 ```
 
-Alone, that's it: your own sessions and worktrees see each other. For a team, one private repo is the room:
+Then restart Claude Code. Alone, that's it: your own sessions and worktrees see each other, and nothing leaves the machine. For a team, one private repo is the room:
 
 ```sh
 gh repo create you/agents-room --private
+gh api -X PUT repos/you/agents-room/collaborators/<login> -f permission=push
 ~/.synchronauts/syn setup you/agents-room
 ```
 
-Invite your teammates to the repo; each of them runs the `setup` line. The room has no private messages: every member can read every message, also those to others ([what is shared](docs/guide.md#what-is-shared-and-what-is-not)).
+The second line invites a teammate. Everybody runs the `setup` line, or tells Claude: "set up Synchronauts with the room you/agents-room". The command `~/.synchronauts/syn` exists once a session has started with the plugin.
+
+**What the room sees:** your GitHub login and first name, and for each session the repo, the branch, the paths of edited files and its task in one sentence. Never prompts, code or file contents. The room has no private messages: every member can read every message, also those to others, so keep secrets out of them ([what is shared](docs/guide.md#what-is-shared-and-what-is-not)). Messages are signed with an SSH key that GitHub lists for you; without one they go out unsigned.
 
 ## The board
 
@@ -62,6 +67,8 @@ Invite your teammates to the repo; each of them runs the `setup` line. The room 
   <img src="docs/board-light.png" alt="The live board: what needs you, a mission, the team's sessions" width="100%">
 </picture>
 
-`syn ui` opens it and pairs your browser with a one-time code: local, live, zero tokens (`syn ui --pair` prints an address with a code, for a browser it cannot open). Or skip it: system notifications for what needs you, and `syn line` for your status bar.
+`~/.synchronauts/syn ui` opens it and pairs your browser with a one-time code: local, live, zero tokens (`syn ui --pair` prints an address with a code, for a browser it cannot open). Or skip it: system notifications for what needs you, and `~/.synchronauts/syn line` for your status bar.
 
 <p align="center"><b><a href="docs/guide.md">Everything in detail →</a></b><br><sub>Early (0.6) · for small teams that trust each other · <a href="SECURITY.md">Security</a> · <a href="CHANGELOG.md">Changelog</a> · MIT</sub></p>
+
+<p align="center"><sub>An independent project, not affiliated with Anthropic or OpenAI. Claude and Codex are trademarks of their owners.</sub></p>

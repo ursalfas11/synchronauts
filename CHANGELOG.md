@@ -176,6 +176,10 @@ This file is in English only; the README and the guide exist in English and Germ
 
 ### Changed
 
+- The README's Start section works as written: it names what you need, says to restart Claude Code and that
+  `~/.synchronauts/syn` exists once a session has started, shows the line that invites a teammate, and says in three
+  sentences what the room sees. Commands carry their full path, and a line says that the project is not affiliated
+  with Anthropic or OpenAI.
 - **Breaking:** the board's key is no longer in `~/.synchronauts/ui-key` (`syn ui` deletes the file) or in an address
   (`#k=`); a script that read it to call the board's API stops working. Use `syn state` for the board's data, and
   `syn ui` or `syn ui --pair` to pair a browser.
