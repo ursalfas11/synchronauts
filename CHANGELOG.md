@@ -210,6 +210,11 @@ This file is in English only; the README and the guide exist in English and Germ
   cannot show. A text now loses such a character, a message that holds one is left out, a branch that still holds one
   is left out alone, and a stamp of someone else counts only between the years 2000 and 2100.
 - Temp files of a writer that was killed half way are removed at the next session start.
+- A real signed message no longer shows as forged because the signature could not be checked. An `ssh-keygen` that
+  does not start or does not end in time (a machine under load) gives no verdict, and neither does one that says no
+  to a known good signature too (older than OpenSSH 8.2): the message shows as unsigned and is checked again a
+  minute later, and the board and `status` say that this machine checks no signatures. Before, such a message was
+  kept as forged for eight days.
 - Without a room, a session start no longer waits 5 seconds and `status` 8 seconds for a fresh poll of the watcher,
   which never runs without a room.
 - Checking the signatures of new mail no longer holds up the sync. The watcher checks them in a thread of its own,

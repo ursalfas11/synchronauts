@@ -889,7 +889,7 @@ def check_mail(k, wait=False):
             for s, n in sorted(by_seal.items(), key=lambda x: not x[1].get('sig')):
                 v = ('unsigned' if n.get('sig') and n['from'] in down and id_owner(n['id']) == n['from']
                      else verify(n, k))
-                if v == 'unsigned' and n.get('sig'):  # signed, but the keys could not be fetched: no verdict to keep
+                if v == 'unsigned' and n.get('sig'):  # signed, but it could not be checked: no verdict to keep
                     down.add(n['from'])
                     pending += 1
                 else:
@@ -1425,31 +1425,68 @@ def sign(n, k, quick=None):
     return None
 
 
+# A signature made once, with a key that was thrown away: what an ssh-keygen that works says yes to (can_verify)
+PROBE_KEY = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFQHTgcHzN43ZfI831MSluFNwWf5drKxspYScw4yzIKR'
+PROBE_SIG = ('-----BEGIN SSH SIGNATURE-----\n'
+             'U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgVAdOBwfM3jdl8jzfUxKW4U3BZ/\n'
+             'l2srGylhJzDjLMgpEAAAAMc3luY2hyb25hdXRzAAAAAAAAAAZzaGE1MTIAAABTAAAAC3Nz\n'
+             'aC1lZDI1NTE5AAAAQHuFGzJg7Fy65FYt0x43HW0VyrW7swSlW5JmH+PUy4iO6MfsRTReSW\n'
+             'zRDVgN4wtERRn8WixK9c1KXDE7Um+BRws=\n'
+             '-----END SSH SIGNATURE-----')
+PROBE = []  # the answer of can_verify(), once it has one
+
+
+def check_signature(who, keys, sig, data):
+    """ssh-keygen's answer to: does sig sign data, in the namespace synchronauts, with one of who's keys? None if it
+    could not start or did not end in time."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        allowed, file = Path(d, 'allowed'), Path(d, 'sig')
+        allowed.write_text(''.join(f'{who} namespaces="synchronauts" {x}\n' for x in keys), encoding='utf-8')
+        file.write_text(str(sig) + '\n', encoding='ascii', errors='replace')
+        return ssh_keygen('-Y', 'verify', '-f', str(allowed), '-I', who, '-n', 'synchronauts', '-s', str(file),
+                          data=data)
+
+
+def can_verify():
+    """Whether the ssh-keygen of this machine checks signatures: it says yes to PROBE_SIG, which is good. False with
+    an OpenSSH older than 8.2 (no `-Y verify`) or one that is broken; None if it could not be asked now. Asked once
+    per process, and only after ssh-keygen said no to a signature."""
+    if not PROBE:
+        r = check_signature('probe', [PROBE_KEY], PROBE_SIG, b'synchronauts')
+        if r is None:
+            return None
+        PROBE.append(r.returncode == 0)
+    return PROBE[0]
+
+
 def verify(n, k=None):
     """'ok' if the signature fits a key GitHub lists for the sender, the id names the sender (as post() writes every
     id) and the room id the message carries is this room's (or an earlier id of it); 'bad' if not or if a sender who
     signed before sends unsigned, under the login in any case (someone else wrote it into the room), otherwise
-    'unsigned'. k: the room's config."""
+    'unsigned'. A signature that could not be checked is no verdict ('unsigned', and check_mail() asks again): the
+    keys could not be fetched, ssh-keygen did not start or did not end in time, or the ssh-keygen of this machine
+    checks no signature at all (can_verify). k: the room's config."""
     k = config() if k is None else k
     signers = set(load(HOME / 'signers.json', []))
     if not n.get('sig'):
         return 'bad' if login_key(n['from']) in {login_key(x) for x in signers} else 'unsigned'
     if id_owner(n.get('id')) != n['from']:  # signed under somebody else's id: a copy meant to push the real one out
         return 'bad'
-    import tempfile
+    if PROBE == [False]:  # this machine checks no signature: no verdict, and no ssh-keygen run per message
+        return 'unsigned'
+    refused = False  # ssh-keygen ran and said no
     for fresh in (False, True):  # a new key on GitHub: look again once
         keys = github_keys(n['from'], fresh)
         if keys is None:  # GitHub cannot be asked: no verdict
             return 'unsigned'
         if not keys:
             continue
-        with tempfile.TemporaryDirectory() as d:
-            allowed, sig = Path(d, 'allowed'), Path(d, 'sig')
-            allowed.write_text(''.join(f'{n["from"]} namespaces="synchronauts" {x}\n' for x in keys), encoding='utf-8')
-            sig.write_text(str(n['sig']) + '\n', encoding='ascii', errors='replace')
-            r = ssh_keygen('-Y', 'verify', '-f', str(allowed), '-I', n['from'], '-n', 'synchronauts', '-s', str(sig),
-                           data=payload(n, n['from']))
-        if r and r.returncode == 0:
+        r = check_signature(n['from'], keys, n['sig'], payload(n, n['from']))
+        if r is None:  # ssh-keygen did not start or did not end in time (a machine under load): no verdict
+            return 'unsigned'
+        refused = True
+        if r.returncode == 0:
             if n['from'] not in signers:
                 with Lock('keys'):  # another process may add a signer meanwhile: read anew, add, write
                     save(HOME / 'signers.json', sorted(set(load(HOME / 'signers.json', [])) | {n['from']}))
@@ -1457,7 +1494,9 @@ def verify(n, k=None):
                 note_room_mismatch(n['from'], n['room'])  # a replay from another room, or the remotes differ
                 return 'bad'
             return 'ok'
-    return 'bad'
+    # a no of an ssh-keygen that says no to a good signature too (older than OpenSSH 8.2, broken) is no verdict: real
+    # mail would show as forged. What the no says is not read, a forger chooses that text: the probe decides
+    return 'unsigned' if refused and can_verify() is False else 'bad'
 
 
 # --- Watcher ------------------------------------------------------------------
@@ -1573,6 +1612,9 @@ class Checker:
         except Exception as f:  # noqa: BLE001
             errors.append(f'verifying: {f}')
             retry = True
+        if PROBE == [False]:
+            errors.append('verifying: the ssh-keygen of this machine checks no signatures (OpenSSH 8.2 or newer does), '
+                          'signed mail shows as unsigned')
         self.again, self.error = recheck, '; '.join(errors)
         self.retry = time.time() + 60 if retry or recheck else 0
 

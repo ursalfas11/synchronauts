@@ -327,6 +327,26 @@ check([n['trust'] for n in syn.mail_to_me(k)] == ['bad', 'unsigned', 'bad']
       'otherwise unsigned until its check', str([n['trust'] for n in syn.mail_to_me(k)]))
 check(syn.check_mail(k) == 0 and [n['trust'] for n in syn.mail_to_me(k)] == ['bad', 'bad', 'bad'],
       'and the check finds both forged')
+# A signature that could not be checked is no verdict, never a forgery: an ssh-keygen that does not start or does not
+# end in time, and one that says no to a good signature too (older than OpenSSH 8.2). What a working one refuses is
+# forged as before. The probe is asked once, and only after a no
+real_keygen = syn.ssh_keygen
+real_note = {**notes[0], 'from': 'kim-gh'}
+del syn.PROBE[:]  # the forged copies above asked it
+syn.ssh_keygen = lambda *args, **kwargs: None
+check(syn.verify(real_note, k) == 'unsigned' and syn.PROBE == [],
+      'an ssh-keygen that does not answer: a real signed message gets no verdict, it is not forged')
+syn.ssh_keygen = lambda *args, **kwargs: subprocess.CompletedProcess(args, 1, b'', b'unknown option -- Y')
+check(syn.verify(real_note, k) == 'unsigned' and syn.PROBE == [False],
+      'an ssh-keygen that checks no signature at all: no verdict either', str(syn.PROBE))
+c = syn.Checker(k)
+c._go()
+check('checks no signatures' in c.error, 'and the watcher reports it', c.error)
+del syn.PROBE[:]
+syn.ssh_keygen = real_keygen
+check(syn.verify(real_note, k) == 'ok' and syn.PROBE == [], 'a good signature does not ask the probe')
+check(syn.verify({**signed_copy, 'from': 'kim-gh'}, k) == 'bad' and syn.PROBE == [True],
+      'an ssh-keygen that works says no: forged, as before', str(syn.PROBE))
 # `fetched` is touched last, once the mail is checked: not by a pass that read others.json before a newer fetch
 (HOME / 'fetched').unlink(missing_ok=True)
 real_verify = syn.verify
