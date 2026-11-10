@@ -576,6 +576,22 @@ check(calls == ['cp a \\"b c\\" d', 'echo \\\\', ' '.join(syn.sh_quote(x) for x 
 dots = [syn.dots_after_glob(x) for x in ('a*/../b', '*/b/..', 'a?\\..\\b', 'a/../b*', 'a*b', '../a*', 'a*/..b')]
 check(dots == [True, True, True, False, False, False, False], 'a `..` after a part with a glob is found, part by part',
       str(dots))
+# The session a syn command works for comes from a variable Claude Code (or Codex) sets. A command that sets it would
+# send as another session of the same human, one that joined a mission: refused, however it is set. Reading it and
+# naming it as data pass
+V = 'CLAUDE_CODE_SESSION_ID'
+sets = [f'{V}=sam99999 {L} send alex hi', f'export {V}=sam99999; {L} send alex hi', f'env {V}=sam99999 {L} send alex hi',
+        f'{V}=sam99999; export {V}', f'CODEX_THREAD_ID=sam99999 {L} mission end x', f'declare -x {V}=sam99999',
+        f"bash -c '{V}=sam99999 {L} send alex hi'", f"eval '{V}=sam99999 {L} send alex hi'",
+        f'read {V} < id.txt', f'printf -v {V} %s sam99999', f': "${{{V}:=sam99999}}"', f'CLAUDE_CODE_""SESSION_ID=x {L} task t',
+        f'python3 -c "import os; os.environ[\'{V}\'] = \'sam99999\'; os.system(\'syn send alex hi\')"',
+        f'echo "$({V}=sam99999 {L} status)"']
+free = [f'echo ${V}', f'echo "${{{V}}}"', f'grep -rn {V} syn.py', f'git log -S {V}', f'echo "set {V} by hand"',
+        f'{L} send alex "the variable {V} names the session"', f'test -n "${V}" && echo yes', f'{L} status']
+wrong = [c for c in sets if not syn.sid_set(c, str(REPO))] + [c for c in free if syn.sid_set(c, str(REPO))]
+check(not wrong, f'{len(sets)} ways to set the session of a syn command are found; reading and naming it pass', str(wrong))
+check(syn.risky(f'x {V} y') and syn.risky('CODEX_THREAD_ID=1') and not syn.risky('echo hello'),
+      'and a check that fails refuses a command that names it')
 
 if failures:
     sys.exit(1)

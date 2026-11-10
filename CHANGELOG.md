@@ -22,6 +22,10 @@ This file is in English only; the README and the guide exist in English and Germ
   approve command), which now adds that nothing the plan asks for comes before the yes. An unsigned, forged, expired,
   foreign or 0.5-style proposal is shown as information that cannot be joined, and only a signed message of the
   mission's people ends it or counts as work.
+- A command can no longer pick the session a `syn` command works for. `syn send`, `task`, `claim` and `mission end`
+  take it from `CLAUDE_CODE_SESSION_ID` (Codex: `CODEX_THREAD_ID`), so `CLAUDE_CODE_SESSION_ID=<id> syn send …` wrote
+  as another session of the same human, with the mission mark of a session that joined one. The hooks now refuse a
+  Bash command that sets either variable; reading it, or naming it as text, passes.
 - A signed message names the room it was written for (new signed field `room`), on all mission mail; plain mail carries
   no room, so 0.5 peers still verify it. A copy played back in another room is shown as forged, and mission mail
   without a room does not count. The room id is the same for the https, ssh and scp form of one repo (on Azure DevOps too), an

@@ -2481,10 +2481,10 @@ def refuse(reason):
 
 def risky(text):
     """True if a command or the input of a tool may touch the gate or HOME: it names `mission` or `approve`, HOME or
-    one of its SECRETS, or `ui` with `--pair` (the pairing code)."""
+    one of its SECRETS, `ui` with `--pair` (the pairing code), or a variable syn takes its session from."""
     text = flat(text)
     return (any(p.search(text) for p in GATE_WORDS) or home_marks(text) or any(s in text.casefold() for s in SECRETS)
-            or mentions_pair(text))
+            or mentions_pair(text) or any(v in text for v in SID_VARS))
 
 
 def fail_closed(e):
@@ -3976,6 +3976,41 @@ def gate_hidden(command, cwd, depth=0, st=None):
     return any(mentions_gate(flat(t)) for t in st['opaque'][start:]) or runs and mentions_gate(flat(' '.join(data)))
 
 
+# The variables a syn command takes its session from (current_session): Claude Code and Codex set them. A command
+# that sets one would send, claim or end a mission as another session of the same human, one that joined a mission.
+# SID_SET finds the name where it may be set: not as $NAME or ${NAME}, which only read it; ${NAME:=x} sets it
+SID_VARS = ('CLAUDE_CODE_SESSION_ID', 'CODEX_THREAD_ID')
+SID_SET = re.compile(r'(?<![\w$])(?<!\$\{)(?:%s)(?!\w)|\$\{(?:%s):?=' % (('|'.join(SID_VARS),) * 2))
+SID_REFUSAL = ('Synchronauts: a command must not set CLAUDE_CODE_SESSION_ID or CODEX_THREAD_ID; syn takes the session '
+               'it works for from it.')
+
+
+def names_sid(text):
+    return bool(SID_SET.search(re.sub(r'["\'\\`]', '', text)))
+
+
+def sid_set(command, cwd, st=None):
+    """True if a Bash command may set a variable of SID_VARS: as an assignment, or named by a program that executes
+    (export, env, read, an interpreter's code). INERT programs take the name as data (grep for it passes), and so
+    does a syn command (a message may name it); a part too deep or too long to read counts if it names one."""
+    if not names_sid(command):
+        return False
+    st = reader() if st is None else st
+    start = len(st['opaque'])
+    for seg, _ in sh_walk(command, cwd, 0, st):
+        words = seg['words'][seg['at']:]
+        if any(names_sid(w['src']) for w in seg['words'][:seg['at']]):
+            return True
+        data = seg['name'] in INERT and not tool_runs_code(seg['name'], words)
+        if seg['name'] == 'printf' and any(w['text'].startswith('-v') for w in words[1:2]):
+            data = False  # printf -v NAME sets it
+        if not seg['name'] or data:
+            continue
+        if syn_args(seg) is None and any(names_sid(t) for t in [w['src'] for w in words] + stdin_texts(seg)):
+            return True
+    return any(names_sid(t) for t in st['opaque'][start:])
+
+
 def gate_refusal(command):
     m = re.search(r'\bapprove\s+(' + ID_RE + ')', flat(command))
     return (f"Synchronauts: `mission approve` must be the whole command. Run exactly "
@@ -5074,13 +5109,14 @@ def ask_first(k, sid, e, agent):
 
 
 def pre_bash(k, sid, e, agent):
-    """PreToolUse before Bash: the gate of missions first (approval), then the guard of HOME (state_touch). Both read
-    the command with one reader, within one budget; a command they cannot read is refused (checked)."""
+    """PreToolUse before Bash: the gate of missions first (approval), then the guard of HOME (state_touch) and of the
+    session a syn command works for (sid_set). All read the command with one reader, within one budget; a command
+    they cannot read is refused (checked)."""
     st = reader()
     if approval(k, sid, e, agent, st):
         return 0
-    command = tool_command(e)
-    reason = checked(lambda: state_touch(command, str(e.get('cwd') or '.'), st), command)
+    command, cwd = tool_command(e), str(e.get('cwd') or '.')
+    reason = checked(lambda: state_touch(command, cwd, st) or sid_set(command, cwd, st) and SID_REFUSAL, command)
     if reason:
         refuse(reason)
     return 0
@@ -5111,7 +5147,7 @@ def pre_tool_unattended(e):
             reason = 'Synchronauts: a mission needs the yes of a human, and this run has none.'
         else:
             reason = checked(lambda: (gate_hidden(command, cwd, 0, st) and gate_refusal(command))
-                             or state_touch(command, cwd, st), command)
+                             or state_touch(command, cwd, st) or sid_set(command, cwd, st) and SID_REFUSAL, command)
     if reason:
         refuse(reason)
     return 0
