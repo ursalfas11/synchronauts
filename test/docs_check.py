@@ -78,12 +78,12 @@ check(all(n == max_hours for n in numbers.values()), f'the longest mission is {m
 
 # --- Files -----------------------------------------------------------------------------------------------------------
 
-needed = ['SECURITY.md', 'CONTRIBUTING.md', 'CHANGELOG.md', '.github/dependabot.yml',
+needed = ['SECURITY.md', 'CONTRIBUTING.md', 'CODE_OF_CONDUCT.md', 'CHANGELOG.md', '.github/dependabot.yml',
           '.github/ISSUE_TEMPLATE/bug_report.yml', '.github/ISSUE_TEMPLATE/feature_request.yml',
           '.github/ISSUE_TEMPLATE/config.yml', '.github/pull_request_template.md', '.github/workflows/test.yml',
           'test/budget.json', 'test/measure.py']
 missing = [rel for rel in needed if not (ROOT / rel).is_file()]
-check(not missing, 'the repo files exist (security, contributing, changelog, templates, dependabot, budget)', str(missing))
+check(not missing, 'the repo files exist (security, contributing, code of conduct, changelog, templates, dependabot, budget)', str(missing))
 if not missing:
     check(re.search(r'package-ecosystem:\s*["\']?github-actions["\']?', text('.github/dependabot.yml')),
           'dependabot watches the GitHub actions')

@@ -2,6 +2,9 @@
 
 Thank you for helping. Synchronauts is small on purpose: one script, no dependencies, no server.
 
+Questions go to the [discussions](https://github.com/ursalfas11/synchronauts/discussions), and the
+[code of conduct](CODE_OF_CONDUCT.md) holds everywhere the project is spoken for.
+
 ## Run the tests
 
 ```sh

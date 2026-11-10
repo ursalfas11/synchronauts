@@ -168,6 +168,7 @@ This file is in English only; the README and the guide exist in English and Germ
   and pull request templates, Dependabot for the GitHub actions.
 - Guide: a Settings section with every `SYN_*` variable (EN and DE), and the statement that the room has no private
   messages: every room member can read every message, also those addressed to someone else.
+- A code of conduct (`CODE_OF_CONDUCT.md`), and a place for questions: the issue form links to the discussions.
 - Development: `test/measure.py --check test/budget.json` fails when a hook text grows beyond its budget; the end-to-end
   test checks the documents (versions, English and German in step, links, settings, no company data, no hidden or
   direction character written as such in any file) and can run in two shards (`SHARD=a|b`).
