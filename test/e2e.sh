@@ -1333,6 +1333,20 @@ check "$(hook sam PreToolUse "$(tool_call Grep path "$T/home-sam")")" '"permissi
 [ -z "$(hook sam PreToolUse "$(tool_call Glob pattern "$T/sam-demo/*.md")")" ] && ok 'a Glob in the repository prints nothing' || fail 'a Glob in the repository printed something'
 check "$(gate toolu_w "$T/sam-demo" "echo '{}' > $T/home-sam/missions.json")" 'synchronauts state is managed' 'a Bash redirect into HOME is refused'
 check "$(gate toolu_w "$T/sam-demo" "cat $T/home-sam/approve.key")" 'approve.key is a secret' 'and so is cat of approve.key'
+# A run without a human (`claude -p`, the SDK) stays out of the picture, but the guards hold there too: a session cannot
+# start such a run to read the secret, rewrite the state or approve a mission
+sdk() { CLAUDE_CODE_ENTRYPOINT=sdk-cli hook sam "$@"; }
+check "$(sdk PreToolUse "$(tool_call Read file_path "$T/home-sam/approve.key")")" 'approve.key is a secret' 'a run without a human: a Read of approve.key is refused too'
+check "$(sdk PreToolUse "$(tool_call Write file_path "$T/home-sam/missions.json")")" 'synchronauts state is managed' 'and a Write to missions.json'
+check "$(sdk PreToolUse "$(callc sdk00001 "$T/sam-demo" toolu_s auto "cat $T/home-sam/approve.key")")" 'approve.key is a secret' 'and cat of approve.key'
+check "$(sdk PreToolUse "$(callc sdk00001 "$T/sam-demo" toolu_s auto "echo '{}' > $T/home-sam/missions.json")")" 'synchronauts state is managed' 'and a Bash redirect into HOME'
+check "$(sdk PreToolUse "$(callc sdk00001 "$T/sam-demo" toolu_s auto "$G")")" 'needs the yes of a human' 'mission approve is refused there: nobody can say yes'
+check "$(sdk PreToolUse "$(callc sdk00001 "$T/sam-demo" toolu_s auto "bash -c '$G'")")" 'must be the whole command' 'and so is the gate hidden in bash -c'
+[ -z "$(sdk PreToolUse "$(callc sdk00001 "$T/sam-demo" toolu_s auto 'echo hello')")$(sdk PreToolUse "$(tool_call Edit file_path "$T/sam-demo/README.md")")" ] \
+  && ok 'any other call of such a run passes without a word' || fail 'a run without a human got an answer to a harmless call'
+[ -z "$(sdk SessionStart "$(session sdk00001 "$T/sam-demo")")$(sdk PostToolUse "$(edit sdk00001 "$T/sam-demo" "$T/sam-demo/README.md")")" ] \
+  && ! grep -q sdk00001 "$T/home-sam/status.json" && [ ! -e "$T/home-sam/sessions/sdk00001.json" ] \
+  && ok 'and it reports no session' || fail 'a run without a human showed up as a session' "$(cat "$T/home-sam/status.json")"
 # `syn ui --pair` prints the board's pairing code, whose key lets a page write as the human: for the human's terminal only
 out=$(gate toolu_w "$T/sam-demo" "$T/home-sam/syn ui --pair")
 check "$out" '"permissionDecision": "deny"' 'syn ui --pair is refused to Claude'

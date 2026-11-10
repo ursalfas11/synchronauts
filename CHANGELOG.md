@@ -131,6 +131,10 @@ This file is in English only; the README and the guide exist in English and Germ
   without details (`ui.log` gets the request, the kind of failure and where, no values), the server's own refusals (a
   broken request, another method) are short JSON instead of an HTML page that repeated the request, the `Server`
   header no longer names the Python version, and the page sends no `Referer`.
+- The guards of `~/.synchronauts` and of the mission gate also hold in runs without a human (`claude -p`, the SDK).
+  Before, every hook was off there, so a session could start `claude -p` and have it read `approve.key` or rewrite the
+  state. Such a run still reports nothing and gets no notices; `mission approve` is refused in it, since nobody can
+  say yes.
 
 ### Added
 

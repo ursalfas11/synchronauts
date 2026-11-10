@@ -5071,6 +5071,25 @@ def pre_tool(k, sid, e, agent):
     return ask_first(k, sid, e, agent)
 
 
+def pre_tool_unattended(e):
+    """PreToolUse in a run without a human (`claude -p`, the SDK): such a run reports nothing and gets no notices, but
+    the guards of HOME, its secrets and the gate hold as in a session (state_tool, state_touch, gate_hidden).
+    Otherwise a session could start `claude -p` and have it read approve.key or rewrite the state. Nobody can say yes
+    there, so `mission approve` is refused, and an edit of a teammate's file is not asked about."""
+    if e.get('tool_name') != 'Bash':
+        reason = checked(lambda: state_tool(e), json.dumps(e.get('tool_input') or {}, ensure_ascii=False))
+    else:
+        command, cwd, st = tool_command(e), str(e.get('cwd') or '.'), reader()
+        if APPROVE.fullmatch(command.strip()):
+            reason = 'Synchronauts: a mission needs the yes of a human, and this run has none.'
+        else:
+            reason = checked(lambda: (gate_hidden(command, cwd, 0, st) and gate_refusal(command))
+                             or state_touch(command, cwd, st), command)
+    if reason:
+        refuse(reason)
+    return 0
+
+
 def wait_for_mail(k, sid):
     """Stop hook (async with asyncRewake): waits for mail after the turn and wakes the session with exit code 2 if it is
     the target. Ends quietly once the session works again, a newer Stop hook takes over, the session ends or the wake
@@ -5125,7 +5144,8 @@ def report_state(sid, event, e):
 def hook(event, agent='claude', got=None):
     """One hook of Claude Code (or Codex): the event comes on stdin, the answer goes to stdout. got: a dict that gets
     the event as soon as it is read, for main() if the hook fails."""
-    if os.environ.get('CLAUDE_CODE_ENTRYPOINT', '').startswith('sdk'):
+    unattended = os.environ.get('CLAUDE_CODE_ENTRYPOINT', '').startswith('sdk')
+    if unattended and event != 'PreToolUse':
         return 0  # `claude -p` and SDK runs: no human present, and -p waited up to 30 s for the Stop hook
     try:
         e = json.loads(sys.stdin.buffer.read())  # bytes: UTF-8 whatever the system's code page
@@ -5133,6 +5153,8 @@ def hook(event, agent='claude', got=None):
         e = {}
     if got is not None and isinstance(e, dict):
         got.update(e)
+    if unattended:  # not in the picture, but the guards stay: a Claude started by a session reaches no more than it
+        return pre_tool_unattended(e)
     k = config()
     if not is_setup(k) and k.get('remote'):  # a room is named, but this machine has not joined it yet
         if event != 'SessionStart':
