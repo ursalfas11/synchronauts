@@ -743,6 +743,39 @@ check('carries no signature although sam-gh signs' in plain and 'a machine witho
       and 'Do not act on it' in plain and 'signature does not check out' in forged and 'machine' not in forged,
       'an unsigned message of somebody who signs is told apart from one whose signature does not fit', plain[:200])
 
+# clocks that are off: mail dated ahead comes with a note instead of going missing, a stamp far ahead counts as old,
+# and the machine whose clock is off learns it from GitHub's answers
+def at(**delta):
+    return syn.iso(syn.now() + syn.timedelta(**delta))
+
+
+def mail_at(mid, **delta):
+    return {'id': f'{stamp}-alex-gh-{mid}', 'to': ['sam-gh'], 'time': at(**delta), 'text': mid}
+
+
+box = {'alex-gh/x': branch('alex-gh', [mail_at('now001'), mail_at('soon01', minutes=8), mail_at('late01', hours=3),
+                                       mail_at('far001', days=3)])}
+got = {n['text']: n.get('ahead') for n in syn.mail_copies(k, box)}
+check(got == {'now001': None, 'soon01': None, 'late01': True}, 'mail dated up to a day ahead is delivered and marked '
+      'as dated ahead, mail within ten minutes is plain, mail further ahead is left out', str(got))
+late = next(n for n in syn.mail_copies(k, box) if n['text'] == 'late01')
+check('dated ahead: a clock is off' in syn.message_text(late, k, {'alex-gh': 'Alex'}), 'the message says so')
+check(syn._seen(at(hours=3)) and syn._seen(at(hours=-3)) and syn._seen(at(days=2)) is None
+      and syn._seen('nonsense') is None, "a session's stamp counts up to a day ahead of the clock here")
+from email.utils import format_datetime  # noqa: E402
+syn.note_clock(format_datetime(syn.now() + syn.timedelta(minutes=2)))
+check(not (HOME / 'clock.json').exists() and syn.clock_line() == '', 'a clock two minutes off is fine')
+syn.note_clock(format_datetime(syn.now() + syn.timedelta(minutes=42)))
+line = syn.clock_line()
+check('42 minutes behind' in line or '41 minutes behind' in line, 'a clock 42 minutes behind GitHub is named', line)
+syn.note_clock(format_datetime(syn.now() - syn.timedelta(hours=5)))
+check('hours ahead' in syn.clock_line(), 'and one that is hours ahead', syn.clock_line())
+syn.note_clock('nonsense')
+syn.note_clock(None)
+check('hours ahead' in syn.clock_line(), 'an answer without a date changes nothing')
+syn.note_clock(format_datetime(syn.now()))
+check(not (HOME / 'clock.json').exists() and syn.clock_line() == '', 'a clock that is right again takes the note away')
+
 check(callable(syn.dispatch) and callable(syn.main), 'main() and dispatch() exist')
 
 print(f"\nunits: {'all green' if not failures else str(len(failures)) + ' failed: ' + ', '.join(failures)}")
