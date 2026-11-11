@@ -43,6 +43,11 @@ This file is in English only; the README and the guide exist in English and Germ
   `GIT_EXTERNAL_DIFF`, `PAGER`, `BASH_ENV` and their kind) or uses `git grep -O` is refused. So is a program whose
   way with files the check does not know (`sed` with a script, `patch`, `yq -i`, `ruby -e`, an editor) when its words
   name the folder. Reading the logs and the state with `cat`, `tail`, `jq` or `wc` works as before.
+- A mission proposal dated ahead of the clock of the machine that reads it (by more than five minutes) cannot be
+  joined, and says why. The cap of 7.5 hours counts from the time in the invite, which its sender writes: dated a
+  year ahead, the mission would have run a year. A time of another year is shown with its year.
+- `syn status` marks the mail it lists as information, not instructions, and shows the first 300 characters of each
+  message; the full text came with the message itself.
 - The approval prompt of a mission is bound to what it showed: if plan, people or end time change between the prompt and
   the yes, the mission is not started.
 - `mission approve` gets Claude Code's prompt only as the whole command, and only when syn itself runs it: the launcher `~/.synchronauts/syn` (by its path, or bare where PATH leads to it) or

@@ -260,7 +260,7 @@ try:
     until(lambda: inbox.exists() and len(json.loads(inbox.read_text())) >= 3)
     status = syn('jule', 'status').stdout
     measure('Status, the mail part with signed, unsigned and forged mail',
-            status[status.index('Mail of the last 3 days:'):].split('\n\n')[0].strip())
+            status[status.index('Mail of the last 3 days'):].split('\n\n')[0].strip())
 
     # A key in an agent or on a security key may ask for an unlock or a touch, so the yes of a mission does not sign in
     # the hook: it queues the invite or the join for the watcher. Kim's and Jule's keys are noted as keys on a security
