@@ -48,15 +48,11 @@ claude plugin marketplace add ursalfas11/synchronauts
 claude plugin install synchronauts@synchronauts
 ```
 
-Danach Claude Code neu starten. Allein war's das schon: Deine eigenen Sessions und Worktrees sehen einander, und nichts verlässt den Rechner. Fürs Team ist ein privates Repo der Raum:
+Danach Claude Code neu starten. Allein war's das schon: Deine eigenen Sessions und Worktrees sehen einander, und nichts verlässt den Rechner. Fürs Team sagst du zu Claude:
 
-```sh
-gh repo create du/agents-room --private
-gh api -X PUT repos/du/agents-room/collaborators/<login> -f permission=push
-~/.synchronauts/syn setup du/agents-room
-```
+> Richte Synchronauts mit dem Raum du/agents-room ein und lade alex ein.
 
-Die zweite Zeile lädt jemanden aus dem Team ein. Alle führen die `setup`-Zeile aus oder sagen zu Claude: „Richte Synchronauts mit dem Raum du/agents-room ein“. Das Kommando `~/.synchronauts/syn` gibt es, sobald eine Session mit dem Plugin gestartet ist.
+Das führt einen Befehl aus, `~/.synchronauts/syn setup du/agents-room --invite alex`: Er legt den Raum an (ein privates Repo deines Kontos), falls es ihn noch nicht gibt, tritt ihm bei und lädt Alex ein. Alex installiert das Plugin und sagt „Richte Synchronauts mit dem Raum du/agents-room ein“. Führt GitHub keinen SSH-Schlüssel von dir, sagt Setup das: `~/.synchronauts/syn key` legt einen an, der nur signiert.
 
 **Was der Raum sieht:** deinen GitHub-Login und Vornamen, dazu je Session das Repo, den Branch, die Pfade bearbeiteter Dateien und ihr Vorhaben in einem Satz. Nie Prompts, Code oder Dateiinhalte. Der Raum hat keine privaten Nachrichten: Jedes Mitglied kann jede Nachricht lesen, auch die an andere, also gehören keine Geheimnisse hinein ([was geteilt wird](docs/guide.de.md#was-geteilt-wird-und-was-nicht)). Nachrichten werden mit einem SSH-Schlüssel signiert, den GitHub für dich führt; ohne einen gehen sie unsigniert raus.
 

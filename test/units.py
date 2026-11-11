@@ -663,6 +663,78 @@ far = syn.clock(syn.iso(syn.now() + syn.timedelta(days=400)))
 check(re.search(r' \d{4} \d\d:\d\d$', far) and not re.search(r'\d{4}', syn.clock(syn.iso(syn.now() - syn.timedelta(minutes=1)))[:-5]),
       'a time of another year shows its year, one of now does not', far)
 
+# the easy start: setup makes a room of my own account, invites, and GitHub's keys for signing only count
+asked, answers = [], {}
+real_run = syn.gh_run
+
+
+def fake_run(*args, timeout=30):
+    asked.append(args)
+    key = next((a for a in args if a.startswith(('repos/', 'users/'))), args[:2])
+    return answers.get(key, (False, 'gh: Not Found (HTTP 404)'))
+
+
+syn.gh_run = fake_run
+url = 'https://github.com/sam-gh/room.git'
+answers[('repo', 'create')] = (True, '')
+made = syn.make_room(url, 'sam-gh')
+check(made == 'made' and asked[-1][:4] == ('repo', 'create', 'sam-gh/room', '--private'),
+      'make_room makes a private repo for a room of my own account that GitHub does not know', f'{made} {asked[-1:]}')
+n = len(asked)
+check(syn.make_room('https://github.com/acme/room.git', 'sam-gh') is None and len(asked) == n + 1
+      and syn.make_room('/tmp/room.git', 'sam-gh') is None,
+      'a room of somebody else or of an organization, and one that is not on GitHub, are not made')
+answers['repos/sam-gh/room'] = (True, 'false')
+public = syn.make_room(url, 'sam-gh')
+answers['repos/sam-gh/room'] = (True, 'true')
+check(public == 'public' and syn.make_room(url, 'sam-gh') is None, 'a room that is there is left alone; a public one '
+      'is named', str(public))
+answers['repos/sam-gh/room'] = (False, 'gh does not answer')
+check(syn.make_room(url, 'sam-gh') is None and asked[-1][0] == 'api', 'while GitHub cannot be asked, nothing is made')
+del answers['repos/sam-gh/room']
+answers[('repo', 'create')] = (False, 'GraphQL: Name already exists on this account')
+try:
+    syn.make_room(url, 'sam-gh')
+    raised = ''
+except RuntimeError as error:
+    raised = str(error)
+check('cannot create the room: GraphQL: Name already exists' in raised, 'a room GitHub does not make says why', raised)
+answers['repos/sam-gh/room/collaborators/alex-gh'] = (True, '')
+got = syn.invite(url, ['alex-gh', 'kim-gh', 'not a login', '../x'])
+check(got[0] == ('alex-gh', None) and got[1] == ('kim-gh', 'gh: Not Found (HTTP 404)')
+      and got[2][1] == got[3][1] == 'not a GitHub login'
+      and [a[3] for a in asked if a[:3] == ('api', '-X', 'PUT')] == [f'repos/sam-gh/room/collaborators/{x}'
+                                                                      for x in ('alex-gh', 'kim-gh')],
+      'invite asks GitHub for each login, says why one fails, and never for a word that is no login', str(got))
+
+lines = 'ssh-ed25519 AAAAsign one\n\nnot a key\nssh-ed25519 ' + 'A' * 5000 + '\necdsa-sha2-nistp256 AAAAtwo'
+answers['users/sig-gh/ssh_signing_keys'] = (True, lines)
+check(syn.signing_keys('sig-gh') == ['ssh-ed25519 AAAAsign one', 'ecdsa-sha2-nistp256 AAAAtwo']
+      and syn.signing_keys('late-gh') is None,
+      'signing_keys reads the keys GitHub lists for signing only, drops what is no key, and is None when gh fails')
+(keys / 'sig-gh.keys').write_text('ssh-ed25519 AAAAlogin\nssh-ed25519 AAAAsign one\n', encoding='utf-8')
+(keys / 'late-gh.keys').write_text('ssh-ed25519 AAAAlogin\n', encoding='utf-8')
+place, real_place = os.environ.pop('SYN_KEYS_URL', None), syn.KEYS_GITHUB
+syn.KEYS_GITHUB = keys.as_uri() + '/{login}.keys'
+both = syn.github_keys('sig-gh', fresh=True)
+check(both == ['ssh-ed25519 AAAAlogin', 'ssh-ed25519 AAAAsign one', 'ecdsa-sha2-nistp256 AAAAtwo'],
+      'on GitHub the keys of a login are the ones that log in and the ones for signing only, each once', str(both))
+check(syn.github_keys('late-gh', fresh=True) is None, 'while the list for signing cannot be asked, the keys count as '
+      'not asked: mail signed with such a key must not show as forged')
+answers['users/late-gh/ssh_signing_keys'] = (True, '')
+check(syn.github_keys('late-gh', fresh=True) == ['ssh-ed25519 AAAAlogin'], 'and with an empty list they are the ones '
+      'that log in')
+os.environ['SYN_KEYS_URL'], syn.KEYS_GITHUB = keys.as_uri() + '/{login}.keys', real_place
+n = len(asked)
+check(syn.github_keys('sig-gh', fresh=True) == ['ssh-ed25519 AAAAlogin', 'ssh-ed25519 AAAAsign one'] and len(asked) == n,
+      'another keys URL (SYN_KEYS_URL) is asked alone')
+syn.gh_run = real_run
+if place is None:
+    os.environ.pop('SYN_KEYS_URL')
+else:
+    os.environ['SYN_KEYS_URL'] = place
+check('signing-key' in syn.SECRETS and syn.OWN_KEY == HOME / 'signing-key', 'the key of syn key is one of the secrets')
+
 check(callable(syn.dispatch) and callable(syn.main), 'main() and dispatch() exist')
 
 print(f"\nunits: {'all green' if not failures else str(len(failures)) + ' failed: ' + ', '.join(failures)}")
