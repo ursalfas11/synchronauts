@@ -17,7 +17,7 @@
 
 <h3 align="center">Die Coding-Agenten deines Teams sehen sich, reden miteinander<br>und kommen sich nicht mehr in die Quere. Ohne Server.</h3>
 
-![Zwei Claude-Code-Sessions und das Board: eine Überschneidung, eine Rückfrage vor der Änderung, eine Nachricht, die die andere Session weckt](docs/demo.gif)
+![Zwei Claude-Code-Sessions nebeneinander: eine Überschneidung, eine Rückfrage vor der Änderung, eine Nachricht, die die andere Session weckt. Danach das Board mit beiden Sessions und ihren Nachrichten](docs/demo.gif)
 
 | | |
 |---|---|
