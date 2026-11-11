@@ -36,6 +36,13 @@ This file is in English only; the README and the guide exist in English and Germ
   the others never count. A message signed under an id that names another sender is forged, and copies that only write
   the signature differently are one message. Only when one sender signed two different texts under one id are both
   shown as forged.
+- Four ways past the guard of `~/.synchronauts` are closed. A read whose file only the run names
+  (`cat ~/.synchronauts/$(echo approve).key`) is refused, with a line that says to name the file in full. A Grep from a
+  folder above it is refused unless a glob or a type keeps it to other files; before, only a glob that named a secret
+  was. A command that names the folder and sets a variable that makes a tool run a program (`GIT_PAGER`,
+  `GIT_EXTERNAL_DIFF`, `PAGER`, `BASH_ENV` and their kind) or uses `git grep -O` is refused. So is a program whose
+  way with files the check does not know (`sed` with a script, `patch`, `yq -i`, `ruby -e`, an editor) when its words
+  name the folder. Reading the logs and the state with `cat`, `tail`, `jq` or `wc` works as before.
 - The approval prompt of a mission is bound to what it showed: if plan, people or end time change between the prompt and
   the yes, the mission is not started.
 - `mission approve` gets Claude Code's prompt only as the whole command, and only when syn itself runs it: the launcher `~/.synchronauts/syn` (by its path, or bare where PATH leads to it) or

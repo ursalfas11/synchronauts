@@ -3853,9 +3853,23 @@ def tool_runs_code(name, words):
         if name == 'gh':
             return sub not in GH_DATA
         return sub in ('config', 'bisect', 'submodule', 'filter-branch', 'difftool', 'mergetool') or any(
-            t in ('-x', '--exec') or t.startswith(('--exec=', '--extcmd', '--upload-pack', '--receive-pack'))
-            for t in texts[i + 1:])
+            t in ('-x', '--exec') or t.startswith(('--exec=', '--extcmd', '--upload-pack', '--receive-pack',
+                                                    '--open-files-in-pager'))
+            or sub == 'grep' and re.match(r'-[A-Za-z]*O', t) for t in texts[i + 1:])
     return False
+
+
+# Variables that make a tool run a program of the caller's choice: a pager, an editor, a diff or ssh helper, a config
+# from somewhere else, code an interpreter loads at start. A command that sets one runs code, whatever its tools are
+CODE_ENV = re.compile(r'(?:GIT_(?:EXTERNAL_DIFF|PAGER|EDITOR|SEQUENCE_EDITOR|SSH|SSH_COMMAND|ASKPASS|PROXY_COMMAND|'
+                      r'EXEC_PATH|TEMPLATE_DIR|CONFIG\w*)|GH_(?:PAGER|EDITOR|BROWSER)|PAGER|MANPAGER|EDITOR|VISUAL|'
+                      r'BROWSER|SSH_ASKPASS|LESSOPEN|LESSCLOSE|BASH_ENV|ENV|PROMPT_COMMAND|PYTHONSTARTUP|PYTHONPATH|'
+                      r'NODE_OPTIONS|PERL5OPT|RUBYOPT|LD_PRELOAD|DYLD_INSERT_LIBRARIES)')
+
+
+def sets_code_env(st):
+    """True if the command sets a variable of CODE_ENV, in any way sh_vars() sees (an assignment, export, env)."""
+    return any(CODE_ENV.fullmatch(name) for name in st['vars'][0])
 
 
 def ran_files(seg):
@@ -3973,6 +3987,7 @@ def gate_hidden(command, cwd, depth=0, st=None):
         if any(script_hides_gate(f, here, shell or f is words[0], depth, st) for f in files
                if not f['dyn'] or f.get('alts')):
             return True
+    runs = runs or sets_code_env(st)  # GIT_PAGER='syn mission approve ..' git log
     return any(mentions_gate(flat(t)) for t in st['opaque'][start:]) or runs and mentions_gate(flat(' '.join(data)))
 
 
@@ -4705,6 +4720,40 @@ def names_secret(seg, st):
     return None
 
 
+# Programs whose way with the paths in their words the checks know: plain readers, the writers of segment_writes(),
+# shells and wrappers (their commands are walked), the interpreters whose code code_writes() reads, shell builtins
+READS_ONLY = INERT | frozenset('stat file du wc cut tr nl tac jq xxd hexdump od strings md5 md5sum shasum sha1sum '
+                               'sha256sum sha512sum cksum realpath readlink basename dirname cmp comm column zcat '
+                               'test [ [[ cd pushd popd true false : exit return wait sleep type which hash export '
+                               'declare typeset local readonly unset set read shopt setopt let'.split())
+WRITES_KNOWN = frozenset('tee cp install ln link mv rsync scp rm rmdir unlink shred touch truncate mkdir chmod chown '
+                         'chgrp dd sort uniq curl wget tar bsdtar unzip git docker podman nerdctl python py pypy node '
+                         'nodejs deno bun perl awk gawk mawk nawk'.split())
+PATHS_KNOWN = READS_ONLY | WRITES_KNOWN | SHELLS | frozenset(('eval', 'source', '.', '$'))
+UNSEEN_REFUSAL = ('Synchronauts: the hooks cannot see which file under ~/.synchronauts this command reads; name the '
+                  'file in full, without a variable or a $(..) in its path.')
+
+
+def unseen_touch(seg, here, words, home, marked):
+    """Why a part of a command must not run although no path in it is known to be the state or a secret, or None.
+    Its program is none the checks know (PATHS_KNOWN) and its words name HOME: patch, yq -i, ruby -e and sed with a
+    `w` in its script write where no check looks. Or a word that only the run knows (a variable, a $(..)) names HOME
+    itself, or the part runs in HOME or (in a command that names HOME) in a folder only the run knows: which file
+    it reads there, a secret or a log, nobody can tell before. Words of echo, printf, git and gh are text, unless
+    git hands them to a program (tool_runs_code)."""
+    name = seg['name']
+    runs = name in INERT and tool_runs_code(name, seg['words'][seg['at']:])  # git grep -O<program>, find -exec
+    if not name or name in SAYS and not runs or syn_args(seg) is not None:
+        return None
+    if (runs and name in SAYS or name not in PATHS_KNOWN) and home_marks(flat(' '.join(w['src'] for w in words))):
+        return state_refusal(HOME)
+    there = here is None and marked or here is not None and (canon(here) == home or inside(canon(here), home))
+    reads = words + [r['word'] for r in seg['redirs'] if r['word'] and r['op'] in ('<', '<>')]
+    if any(w['dyn'] and not w.get('alts') and (there or home_marks(flat(w['src']))) for w in reads):
+        return UNSEEN_REFUSAL
+    return None
+
+
 def state_touch(cmd, cwd, st=None):
     """Why a Bash command must not run, or None: it writes under HOME (a path, a glob that can name it, a folder above
     it that rm -r or mv takes along), writes where only the run shows while it names HOME, runs in it or may get there
@@ -4723,7 +4772,7 @@ def state_touch(cmd, cwd, st=None):
             hit = t
             break
     marked = home_marks(flat(cmd)) or st.get('inhome')  # it names HOME, or it runs there
-    if hit or unknown and marked:
+    if hit or (unknown or sets_code_env(st)) and marked:  # a pager or a helper it sets may write there as well
         return state_refusal(HOME if not hit or hit['glob'] or inside(home, canon(hit['p'])) else hit['p'])
     if pair_hidden(cmd, cwd, st):
         return pair_refusal()
@@ -4732,6 +4781,9 @@ def state_touch(cmd, cwd, st=None):
     fed = False
     for seg, here in sh_walk(cmd, cwd, 0, st):
         words = [] if seg['name'] in DATA else seg['words'][seg['at'] + 1:]
+        reason = unseen_touch(seg, here, words, home, marked)
+        if reason:
+            return reason
         for w in words + [r['word'] for r in seg['redirs'] if r['word'] and r['op'] not in ('<<', '<<-')]:
             spend(st)
             for t in [x for t in word_targets(w, here) or [] for x in landed(t, st) or [t]]:  # through a made link
@@ -4757,9 +4809,48 @@ def state_touch(cmd, cwd, st=None):
     return secret_refusal(HOME / named) if named and marked else None
 
 
+GREP_REFUSAL = ('Synchronauts: a search from this folder would read the secrets under ~/.synchronauts; search a '
+                'folder further down, or name the files with a glob ("*.py") or a type.')
+# ripgrep's types whose globs name one of the SECRETS (ui-pair.json), and `all`; a type it does not know fails
+GREP_TYPES = frozenset('json jsonl all'.split())
+
+
+def grep_spares_secrets(ti):
+    """True if a Grep from a folder above HOME leaves the SECRETS out: a glob limits it to files none of them is, or
+    a type does. The pattern says nothing: a search that is refused only when it matches a secret tells with each
+    refusal one more bit of it. A glob with ! limits nothing, and of several (space or comma) each must spare them."""
+    globs, depth, word = [], 0, ''
+    for ch in str(ti.get('glob') or '').casefold() + ' ':
+        depth += (ch == '{') - (ch == '}' and depth > 0)
+        if ch.isspace() or ch == ',' and not depth:
+            globs += [word] if word else []
+            word = ''
+        else:
+            word += ch
+    kind = str(ti.get('type') or '').casefold()
+    if any(g.startswith('!') for g in globs) or not globs and (not kind or kind in GREP_TYPES):
+        return False
+    return not any(seg_match(s, re.split(r'[/\\]', x)[-1], True) for g in globs for x in braced(g) for s in SECRETS)
+
+
+def braced(glob, limit=64):
+    """The globs that one with {a,b} stands for; if they are more than `limit`, the one with * for each {..}."""
+    out = [glob]
+    while len(out) <= limit:
+        step = []
+        for g in out:
+            m = re.search(r'\{([^{}]*)\}', g)
+            step += [g[:m.start()] + alt + g[m.end():] for alt in m.group(1).split(',')] if m else [g]
+        if step == out:
+            return out
+        out = step
+    return [unbrace(glob)]
+
+
 def state_tool(e):
     """Why an edit or read tool must not touch its path, or None: an edit of anything under HOME, a Read, Grep or Glob
-    of one of the SECRETS, a Grep in HOME, a Grep from a folder above it or a Glob whose pattern names a secret."""
+    of one of the SECRETS, a Grep in HOME, a Grep from a folder above it that no glob and no type keeps away from
+    them (grep_spares_secrets), or a Glob whose pattern names a secret."""
     tool, ti, cwd = e.get('tool_name'), e.get('tool_input') or {}, str(e.get('cwd') or '.')
     home = canon(str(HOME))
     for p in edited_paths(e):
@@ -4773,10 +4864,10 @@ def state_tool(e):
                                                            or ti.get('path') or cwd))))
     if where in secret:
         return secret_refusal(secret[where])
-    if tool == 'Grep' and (where == home or inside(home, where) and any(
-            seg_match(s, re.split(r'[/\\]', unbrace(str(ti.get('glob') or '')).casefold())[-1], True)
-            for s in SECRETS)):
+    if tool == 'Grep' and where == home:
         return secret_refusal(HOME)
+    if tool == 'Grep' and inside(home, where) and not grep_spares_secrets(ti):
+        return GREP_REFUSAL
     if tool == 'Glob':
         pattern = canon_glob(os.path.join(where, unbrace(str(ti.get('pattern') or ''))))
         hit = next((s for s in secret if glob_reaches(pattern, s)), None)
