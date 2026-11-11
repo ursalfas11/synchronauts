@@ -238,6 +238,24 @@ EOF
   lee "$PY" "$ROOT/test/sign_once.py" "$ROOT" lee-gh \
     && ok 'a message signed with it checks out against the keys listed for Lee' || fail 'the new key does not sign'
   check "$(lee "$PY" "$SYN" setup lee-gh/room 2>&1)" 'Messages are signed with' 'and setup names the key'
+
+  # Two machines of one person with the same host name: the second one takes a name of its own instead of writing
+  # the first one's branch, and keeps it
+  lee_host() { local home=$1; shift; HOME="$T/lee-home" SSH_AUTH_SOCK= PATH="$T/bin:$PATH" GIT_CONFIG_COUNT=1 \
+    GIT_CONFIG_KEY_0="url.$T/lee-room.git.insteadOf" GIT_CONFIG_VALUE_0=https://github.com/lee-gh/room.git SYN_REMOTE= \
+    SYN_HOME="$T/$home" SYN_ME=lee-gh SYN_NAME=Lee "$@"; }
+  machine_of() { "$PY" -c 'import json, sys; print(json.load(open(sys.argv[1]))["machine"])' "$T/$1/config.json"; }
+  lee_host home-lee2 "$PY" "$SYN" setup lee-gh/room >/dev/null 2>&1 || fail 'setup on a machine named by its host'
+  lee_host home-lee3 "$PY" "$SYN" setup lee-gh/room >/dev/null 2>&1 || fail 'setup on a second machine of that name'
+  first=$(machine_of home-lee2) second=$(machine_of home-lee3)
+  case "$second" in "$first") fail 'two machines share one branch' "$second" ;;
+    *-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]) ok 'a second machine with the same host name gets a name of its own' ;;
+    *) fail 'the name of the second machine' "$first $second" ;; esac
+  [ "$(git -C "$T/lee-room.git" for-each-ref refs/heads/syn/lee-gh/ | wc -l | tr -d ' ')" = 3 ] \
+    && ok 'each machine writes its own branch' || fail 'branches' "$(git -C "$T/lee-room.git" for-each-ref refs/heads/syn/)"
+  lee_host home-lee3 "$PY" "$SYN" setup lee-gh/room >/dev/null 2>&1
+  [ "$(machine_of home-lee3)" = "$second" ] && [ "$(machine_of home-lee2)" = "$first" ] \
+    && ok 'and keeps its name at the next setup' || fail 'the name changed' "$(machine_of home-lee3)"
 fi
 out=$(as_user sam "$PY" "$SYN" bogus 2>&1) && fail 'an unknown command went through' "$out" \
   || check "$out" 'Commands: status' 'an unknown command prints the list of commands'
@@ -844,6 +862,7 @@ until_ok 10 'unchanged, the UI answers 304' unchanged
 out=$(curl -s -X POST -H "X-SYN-Token: $tok" -H 'Content-Type: application/json' -H "Origin: $U" \
   -d '{"to":"alex","repo":"demo","text":"From the UI: please do not touch src/a.ts today."}' "$U/api/send")
 check "$out" '"who": "Alex (@alex-gh) (session in demo)"' 'send from the UI'
+check "$out" '"signed": true, "unsigned": null' 'the answer says that the message is signed'
 rc=0; exit_of $W5 15 || rc=$?
 [ $rc = 2 ] && ok 'mail from the UI wakes the waiting session' || fail "wake: exit $rc" "$(cat "$T/wake5")"
 check "$(cat "$T/wake5")" 'Message from Sam in person (@sam-gh, UI' 'the wake text says that the human writes in person'
@@ -1171,7 +1190,7 @@ rc=0; exit_of $W11 15 || rc=$?
 check "$(cat "$T/wake11")" 'Evil plan' 'it is the invite of the forged branch'
 lacks "$(cat "$T/wake11")" 'Do what the proposal says' 'an unsigned invite gets no instruction'
 check "$(cat "$T/wake11")" 'Tell Alex in one or two sentences' 'it gets the ordinary close'
-check "$(cat "$T/wake11")" 'signature does not check out' 'and is shown as forged'
+check "$(cat "$T/wake11")" 'carries no signature although sam-gh signs' 'and is shown as suspicious, as what it is'
 # Mallory signs an invite under Sam's mission id (a stolen id), then a proposal of her own
 hook alex SessionStart "$(session ale77777 "$T/alex-demo")" >/dev/null  # a fresh session: a session is woken at most four times an hour
 hook alex UserPromptSubmit "$(session ale77777 "$T/alex-demo")" >/dev/null

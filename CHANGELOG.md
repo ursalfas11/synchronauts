@@ -232,6 +232,15 @@ This file is in English only; the README and the guide exist in English and Germ
 
 ### Fixed
 
+- Two machines of one person with the same host name no longer write the same branch. Each push is forced, so they
+  overwrote each other every few seconds without an error. A machine name that setup takes from the host name now gets
+  a short random ending when the room has a branch of that name already; the name is kept in `config.json`.
+- The board says when a message went out unsigned, and why (no key on this machine, a security key nobody touched, an
+  agent that is gone); it only said "Ready". `syn send` says it too on a machine without any key.
+- An unsigned message from somebody who signs is still shown as suspicious, and now says what it is: no signature at
+  all, which a forger leaves out and a second machine without a key does too (`syn key` there mends it). Before, the
+  text spoke of a signature that does not check out.
+
 - `hooks/hooks.json` routes Claude Code's Read, Grep and Glob to PreToolUse, so that the refusal of reads of
   `approve.key`, `ui-pair.json` and `ui-key` really happens (before, only a test that called the hook directly saw
   it). A read of any other path passes at once and prints nothing; PostToolUse is unchanged.
