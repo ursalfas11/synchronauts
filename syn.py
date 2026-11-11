@@ -331,6 +331,18 @@ def gh(*args):
         return ''
 
 
+def gh_run(*args, timeout=30):
+    """gh with these words: (True, what it printed) or (False, what it complained about, at most 600 characters)."""
+    try:
+        r = subprocess.run(['gh', *args], stdin=subprocess.DEVNULL, capture_output=True, encoding='utf-8',
+                           errors='replace', timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return False, 'gh does not answer'
+    except OSError:
+        return False, 'gh is not installed'
+    return (True, r.stdout.strip()) if r.returncode == 0 else (False, (r.stderr.strip() or 'gh failed')[:600])
+
+
 # --- Setup and Git ------------------------------------------------------------
 
 def github_path(url):
@@ -392,6 +404,37 @@ def accept_invitation(remote):
     for i in ids:
         gh('api', '-X', 'PATCH', f'user/repository_invitations/{i}')
     return bool(ids)
+
+
+def make_room(remote, me):
+    """Makes the room if it is not there and mine to make (a repo of my own account): private and empty. What it
+    found: 'made', 'public' (it is there and everybody can read it) or None. A room of an organization or of
+    somebody else is theirs to make."""
+    gp = github_path(remote)
+    if not gp:
+        return None
+    ok, out = gh_run('api', f'repos/{gp[0]}/{gp[1]}', '--jq', '.private')
+    if ok:
+        return 'public' if out == 'false' else None
+    if 'HTTP 404' not in out or gp[0].lower() != str(me or '').lower():
+        return None  # no answer, or not mine: setup says what is wrong with it
+    ok, out = gh_run('repo', 'create', f'{gp[0]}/{gp[1]}', '--private', '--description', 'Synchronauts room')
+    if not ok:
+        raise RuntimeError(f'cannot create the room: {one_line(out, 200)}')
+    return 'made'
+
+
+def invite(remote, logins):
+    """Invites the logins to the room, with the right to push (each writes its own branch): [(login, None or why
+    not)]."""
+    gp, out = github_path(remote), []
+    for login in logins:
+        if not gp or not fits(LOGIN_RE, login):
+            out.append((login, 'not a GitHub login' if gp else 'the room is not on GitHub'))
+            continue
+        ok, why = gh_run('api', '-X', 'PUT', f'repos/{gp[0]}/{gp[1]}/collaborators/{login}', '-f', 'permission=push')
+        out.append((login, None if ok else one_line(why, 200)))
+    return out
 
 
 def setup(k, derive=True, agents=True):
@@ -1109,6 +1152,7 @@ def note_room_mismatch(login, room):
 # watcher signs.
 
 SIGN_FILES = ('id_ed25519', 'id_ecdsa', 'id_rsa')  # key files in ~/.ssh, in this order
+OWN_KEY = HOME / 'signing-key'                      # the key `syn key` makes: for signing only, it logs in nowhere
 SK_FILES = ('id_ed25519_sk', 'id_ecdsa_sk')         # keys on a security key: a touch for every signature
 # seconds a key in an agent or on a security key may take to sign: a touch, an unlock, a click
 SIGN_WAIT = setting('SYN_SIGN_WAIT', 30.0, low=1, high=300)
@@ -1260,8 +1304,9 @@ def keys_url(k=None):
 
 
 def github_keys(login, fresh=False, ttl=86400, url=None):
-    """The public SSH keys the keys URL publishes for the login, cached for ttl seconds: a list (empty if there are
-    none, also when the place answers 404: it knows no such login), None if the place cannot be asked. At most
+    """The public SSH keys the keys URL publishes for the login, on GitHub with the ones it lists for signing only
+    (signing_keys), cached for ttl seconds: a list (empty if there are none, also when the place answers 404: it
+    knows no such login), None if the place cannot be asked. At most
     MAX_KEYS lines, none longer than MAX_KEY_LINE: the place is not ours and must not feed unbounded text into the
     signature check."""
     import urllib.error
@@ -1275,6 +1320,11 @@ def github_keys(login, fresh=False, ttl=86400, url=None):
         with urllib.request.urlopen(req, timeout=10) as r:
             lines = [x.strip() for x in r.read(200_000).decode('utf-8', 'replace').splitlines()[:MAX_KEYS]]
             keys = [x for x in lines if re.match(r'(ssh-|ecdsa-|sk-)', x) and len(x) <= MAX_KEY_LINE]
+        if not url and keys_url() == KEYS_GITHUB:  # GitHub keeps the keys for signing only in another list
+            more = signing_keys(login)
+            if more is None:
+                return c.get('keys')
+            keys = (keys + [x for x in more if x not in keys])[:MAX_KEYS]
     except urllib.error.HTTPError as f:
         if f.code != 404:  # busy, down, rate limited: ask again later
             return c.get('keys')
@@ -1289,12 +1339,21 @@ def github_keys(login, fresh=False, ttl=86400, url=None):
     return keys
 
 
+def signing_keys(login):
+    """The keys GitHub lists for the login for signing only (its keys URL has the ones that log in), asked through gh:
+    a list, or None if gh cannot ask."""
+    ok, out = gh_run('api', f'users/{login}/ssh_signing_keys', '--jq', '.[].key', timeout=15)
+    if not ok:
+        return None
+    lines = [x.strip() for x in out.splitlines()[:MAX_KEYS]]
+    return [x for x in lines if re.match(r'(ssh-|ecdsa-|sk-)', x) and len(x) <= MAX_KEY_LINE]
+
+
 def key_file(mine, sk=False):
-    """The first key file in ~/.ssh (SIGN_FILES, then SK_FILES) whose public key (<name>.pub) is one of mine, as a
-    path, else None: one on a security key if sk, otherwise a plain one. The kind comes from the key (key_kind), so a
-    security key saved as id_ed25519 counts as one."""
-    for name in SIGN_FILES + SK_FILES:
-        key = Path.home() / '.ssh' / name
+    """The first key file in ~/.ssh (SIGN_FILES, then SK_FILES), then the key `syn key` made (OWN_KEY), whose public
+    key (<name>.pub) is one of mine, as a path, else None: one on a security key if sk, otherwise a plain one. The
+    kind comes from the key (key_kind), so a security key saved as id_ed25519 counts as one."""
+    for key in [Path.home() / '.ssh' / name for name in SIGN_FILES + SK_FILES] + [OWN_KEY]:
         try:
             if (key.exists() and Path(f'{key}.pub').read_text(encoding='utf-8', errors='replace').split()[1] in mine
                     and (key_kind(str(key)) == 'sk') == sk):
@@ -2733,7 +2792,7 @@ GIT_PLACES = ('GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR', 'GIT_OBJECT_DIRECTOR
 SYSTEM_BINS = ('/bin/', '/usr/bin/', '/usr/local/bin/', '/opt/homebrew/bin/', '/sbin/', '/usr/sbin/')
 GH_DATA = frozenset('pr issue repo release gist label search api browse run workflow status'.split())
 WRITE_REDIRS = ('>', '>>', '>|', '&>', '&>>', '<>', '>&')
-SECRETS = ('approve.key', 'ui-pair.json', 'ui-key')  # files under HOME that only syn reads
+SECRETS = ('approve.key', 'ui-pair.json', 'ui-key', 'signing-key')  # files under HOME that only syn reads
 # `syn ui --pair` as words (mentions_pair): each on its own, as GATE_WORDS, so a long text costs one pass, not one per `ui`
 PAIR_WORDS = (re.compile(r'(?<![\w-])ui(?![\w-])'), re.compile(r'(?<![\w-])--pair(?![\w-])'))
 SH_OPS = ('&&', '||', ';;', ';&', '|&', ';', '|', '&', '(', ')')
@@ -5810,6 +5869,62 @@ def cmd_claim(k, args):
               f"their human before editing it; the claim ends with this session or `claim --release`.")
 
 
+def key_line():
+    """What setup says about signing: with which key, or what is missing and the one command that mends it."""
+    key = signing().get('key')
+    if key:
+        return f'Messages are signed with {shown(key)}.'
+    return (f'Not signed yet: GitHub lists no SSH key of this machine for you, so teammates see your messages as '
+            f'unsigned and missions do not work. `{CMD} key` makes a key for signing only and adds it to your GitHub '
+            f'account.')
+
+
+def cmd_key(k):
+    """A key of this machine for signing only: made as OWN_KEY (no passphrase, so the hooks sign without a prompt;
+    the hooks keep Claude's tools away from it like from the other SECRETS) and added to the GitHub account as a
+    signing key, which logs in nowhere. Does nothing if a key is in use already."""
+    if not k.get('me'):
+        k['me'] = gh('api', 'user', '--jq', '.login')
+    if not k.get('me'):
+        sys.exit('Cannot find your GitHub login: run `gh auth login` first.')
+    choose_key(k)
+    if signing().get('key'):
+        print(key_line())
+        return 0
+    pub = Path(f'{OWN_KEY}.pub')
+    if not (OWN_KEY.exists() and pub.exists()):
+        private_dir(HOME)
+        for old in (OWN_KEY, pub):
+            old.unlink(missing_ok=True)
+        machine = k.get('machine') or re.sub(r'[^A-Za-z0-9-]', '', socket.gethostname().split('.')[0])[:30]
+        try:
+            r = subprocess.run(['ssh-keygen', '-q', '-t', 'ed25519', '-N', '', '-C', f'synchronauts-{machine}', '-f',
+                                str(OWN_KEY)], stdin=subprocess.DEVNULL, capture_output=True, encoding='utf-8',
+                               errors='replace', timeout=30)
+            failed = r.stderr.strip() if r.returncode else ''
+        except (OSError, subprocess.TimeoutExpired) as error:
+            failed = str(error)
+        if failed or not OWN_KEY.exists():
+            sys.exit(f'ssh-keygen made no key: {one_line(failed)}')
+        private_chmod(OWN_KEY)
+    title = f"Synchronauts ({k.get('machine') or 'this machine'})"
+    ok, why = gh_run('ssh-key', 'add', str(pub), '--type', 'signing', '--title', title)
+    # gh names the missing permission; an API that hides what the token may not see answers 404 or 403 instead
+    if not ok and ('admin:ssh_signing_key' in why or 'scope' in why.lower() or 'HTTP 40' in why):
+        sys.exit(f'GitHub wants your yes for this once, in the browser. Run this in your own terminal, then `{CMD} key` '
+                 f'again:\n  gh auth refresh -h github.com -s admin:ssh_signing_key')
+    if not ok:
+        sys.exit(f'GitHub did not take the key: {one_line(why, 300)}')
+    choose_key(k)
+    if signing().get('key'):
+        print(f'{key_line()} The key can sign, it cannot log in anywhere.')
+    else:
+        print(f'GitHub has the key ({shown(pub)}) but does not list it yet; the background service looks again and '
+              f'signs from then on.')
+    ensure_watcher()
+    return 0
+
+
 def cmd_status(k):
     alive()
     ensure_watcher()
@@ -6617,7 +6732,9 @@ HELP = f"""synchronauts {VERSION}: your team's agents see each other, talk, and 
   notify [on|off|test]               system notifications
   rooms [--refresh]                  the id of the room
   codex [--remove]                   the hooks for Codex CLI
-  setup <owner/repo> [--org a,b]     join a room, a private GitHub repo the team shares
+  setup <owner/repo> [--org a,b]     join a room, a private GitHub repo the team shares; makes it if it is yours
+        [--invite login,...]         and not there yet, and invites teammates
+  key                                a key of this machine for signing only, added to your GitHub account
   --version, --help
 
 Guide: https://github.com/ursalfas11/synchronauts/blob/main/docs/guide.md"""
@@ -6630,22 +6747,45 @@ def dispatch(cmd, rest):
     COMMAND = True  # a command may wait for a key in an agent or on a security key: sign() says so
     k = config()
     if cmd == 'setup':
-        args = list(rest)
+        args, people = list(rest), []
         if '--org' in args:
             i = args.index('--org')
             k['orgs'] = ','.join(args[i + 1:i + 2])
             del args[i:i + 2]
+        while '--invite' in args:  # logins, with or without @, in one word or several
+            i = args.index('--invite')
+            people += [x.lstrip('@') for x in ','.join(args[i + 1:i + 2]).split(',') if x.strip('@')]
+            del args[i:i + 2]
         if args:
             k['remote'] = room_url(args[0])
+        usage = 'Usage: setup <owner/repo of the room> [--invite login,...] [--org owner,...]'
         try:
+            if not k.get('me') and k.get('remote'):
+                k['me'] = gh('api', 'user', '--jq', '.login')
+            found = make_room(k['remote'], k.get('me')) if github_path(k.get('remote')) else None
             accepted = setup(k)
         except (RuntimeError, OSError, subprocess.TimeoutExpired) as error:
-            sys.exit(f'Setup failed: {error}. Usage: setup <owner/repo of the room> [--org owner,...]')
+            sys.exit(f'Setup failed: {error}. {usage}')
+        room = '/'.join(github_path(k['remote']) or (k['remote'],))
+        if found == 'made':
+            print(f'Made the room {room}, a private repo.')
+        if found == 'public':
+            print(f'⚠️ {room} is a public repo: everybody can read what the sessions report and every message. '
+                  f'A room should be private.')
         if accepted:
-            print(f"Accepted the invitation to {'/'.join(github_path(k['remote']))}.")
+            print(f"Accepted the invitation to {room}.")
         print(f"Set up: {k['name']} ({k['me']}) on {k['machine']}, room {k['remote']}, branch {own_branch(k)}. "
               f"Team repos are those owned by {', '.join(orgs(k))}.")
+        join = f'install the plugin, restart Claude Code and run `{CMD} setup {room}`'
+        for login, why in invite(k['remote'], people):
+            print(f'Invited {login}: they {join}.' if not why else f'Could not invite {login}: {why}')
+        if not people:
+            print(f'Teammates join the same way: invite them with `{CMD} setup {room} --invite <login>`, then they '
+                  f'{join}.')
+        print(key_line())
         return 0
+    if cmd == 'key':
+        return cmd_key(k)
     if not is_setup(k):
         if cmd in ('send', 'mission'):
             sys.exit(f'Talking to teammates needs a room: {CMD} setup <owner/repo of the room>')
@@ -6677,7 +6817,8 @@ def dispatch(cmd, rest):
     else:
         sys.exit('Commands: status · send <name|all>[@repo] "<text>" · task "<one sentence>" · claim <path>… · '
                  'mission … · ui [--pair] · line · state · notify [on|off|test] · rooms [--refresh] · '
-                 'codex [--remove] · setup <owner/repo of the room> [--org owner,...] · --help · --version')
+                 'codex [--remove] · setup <owner/repo of the room> [--invite login,...] [--org owner,...] · key · --help · '
+                 '--version')
     return 0
 
 

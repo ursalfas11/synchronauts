@@ -247,7 +247,7 @@ writes = [f'echo x > {H}/missions.json', f'cd {H} && echo x > sessions/sam12345.
           f"python3 -c \"import os; os.open('{H}/missions.json', os.O_WRONLY)\"",
           f"python3 -c \"import os; os.chdir('{H}'); open('missions.json', 'w')\"", f'cp -r . {TMP.as_posix()}',
           f'mv x/* {TMP.as_posix()}/']
-reads = [f'cat {H}/approve.key', f'cp {H}/appr*.key /tmp/k', f'cd {H} && cat approve.key', f'k=approve.key; cat {H}/$k',
+reads = [f'cat {H}/approve.key', f'cat {H}/signing-key', f'cp {H}/signing-key /tmp/k', f'cp {H}/appr*.key /tmp/k', f'cd {H} && cat approve.key', f'k=approve.key; cat {H}/$k',
          f'cat < {H}/approve.key', f"python3 -c \"print(open('{H}/approve.key').read())\"", f'cat {H}/ui-pair.json',
          'cat "$SYN_HOME/approve.key"', 'cat ~/.synchronauts/approve.key', f'grep . {H}/*', f'cat {H}/approve.{{key,x}}',
          f'cat {H}/approve.k{{e,x}}y', f'grep -r token {H}', f'rg token {H}', f'cp -r {H} /tmp/stolen',

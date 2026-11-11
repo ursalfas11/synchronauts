@@ -194,6 +194,50 @@ EOF
     SYN_MACHINE=one SYN_SIGNING_KEY="$T/kim-key" "$PY" "$SYN" setup acme/room 2>&1) || fail 'setup with an open invitation' "$out"
   check "$out" 'Accepted the invitation to acme/room' 'setup accepts an open invitation to the room'
   check "$(git -C "$T/room.git" for-each-ref refs/heads/syn/)" 'syn/kim-gh/one' 'and then joins the room'
+
+  # The easy start: setup makes a room of my own account, invites, and says what signing needs; `syn key` makes a key
+  # for signing only and hands it to GitHub, which wants a yes in the browser first. Lee has no key and no ~/.ssh
+  cat > "$T/bin/gh" <<EOF
+#!/bin/sh
+case "\$*" in
+  'api repos/lee-gh/room --jq .private') [ -d "$T/lee-room.git" ] && echo true || { echo 'gh: Not Found (HTTP 404)' >&2; exit 1; } ;;
+  'repo create lee-gh/room --private --description Synchronauts room') git init -q --bare "$T/lee-room.git" ;;
+  'api -X PUT repos/lee-gh/room/collaborators/alex-gh -f permission=push') echo alex-gh >> "$T/lee-invited" ;;
+  'api -X PUT repos/lee-gh/room/collaborators/'*) echo 'gh: Not Found (HTTP 404)' >&2; exit 1 ;;
+  'ssh-key add '*' --type signing --title Synchronauts (one)')
+    [ -e "$T/lee-scope" ] || { echo 'This API operation needs the "admin:ssh_signing_key" scope. To request it, run:  gh auth refresh -h github.com -s admin:ssh_signing_key' >&2; exit 1; }
+    cat "\$3" >> "$T/keys/lee-gh.keys" ;;
+  *) exit 1 ;;
+esac
+EOF
+  mkdir "$T/lee-home"
+  lee() { HOME="$T/lee-home" SSH_AUTH_SOCK= PATH="$T/bin:$PATH" GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="url.$T/lee-room.git.insteadOf" \
+    GIT_CONFIG_VALUE_0=https://github.com/lee-gh/room.git SYN_REMOTE= SYN_HOME="$T/home-lee" SYN_ME=lee-gh SYN_NAME=Lee SYN_MACHINE=one "$@"; }
+  out=$(lee "$PY" "$SYN" setup lee-gh/room --invite alex-gh,@nobody-gh 2>&1) || fail 'setup of a room that is not there yet' "$out"
+  check "$out" 'Made the room lee-gh/room, a private repo' 'setup makes a room of my own account that is not there yet'
+  check "$(git -C "$T/lee-room.git" for-each-ref refs/heads/syn/)" 'syn/lee-gh/one' 'and joins it'
+  check "$out" 'Invited alex-gh: they install the plugin' '--invite invites a teammate and says how they join'
+  [ "$(cat "$T/lee-invited")" = alex-gh ] && ok 'with the right to push, once' || fail 'invite' "$(cat "$T/lee-invited" 2>&1)"
+  check "$out" 'Could not invite nobody-gh: gh: Not Found' 'a login GitHub does not know is named with the reason'
+  check "$out" 'Not signed yet' 'without a key setup says that messages go out unsigned'
+  check "$out" 'key` makes a key for signing only' 'and names the one command that mends it'
+  out=$(lee "$PY" "$SYN" setup lee-gh/room 2>&1) || fail 'setup again' "$out"
+  case "$out" in *'Made the room'*) fail 'setup made the room twice' "$out" ;; *) ok 'a room that is there is not made again' ;; esac
+  check "$out" 'invite them with' 'without --invite setup says how to invite'
+  out=$(lee "$PY" "$SYN" key 2>&1) && fail 'key without the scope went through' "$out" \
+    || check "$out" 'gh auth refresh -h github.com -s admin:ssh_signing_key' 'syn key names the one yes GitHub wants in the browser'
+  [ -s "$T/home-lee/signing-key" ] && [ -s "$T/home-lee/signing-key.pub" ] && ok 'the key is made in HOME' || fail 'no key' "$(ls "$T/home-lee")"
+  [ "$(stat -c %a "$T/home-lee/signing-key" 2>/dev/null || stat -f %Lp "$T/home-lee/signing-key")" = 600 ] && ok 'with mode 0600' || fail 'key mode'
+  before=$(cat "$T/home-lee/signing-key.pub"); : > "$T/lee-scope"
+  out=$(lee "$PY" "$SYN" key 2>&1) || fail 'key with the scope' "$out"
+  check "$out" 'Messages are signed with' 'after the yes, syn key adds the key and signs with it'
+  check "$out" 'it cannot log in anywhere' 'and says what the key can do'
+  [ "$(cat "$T/home-lee/signing-key.pub")" = "$before" ] && ok 'the key made before is the one added' || fail 'a second key was made'
+  out=$(lee "$PY" "$SYN" key 2>&1) || fail 'key again' "$out"
+  [ "$(wc -l < "$T/keys/lee-gh.keys" | tr -d ' ')" = 1 ] && check "$out" 'Messages are signed with' 'syn key again changes nothing' || fail 'key added twice' "$(cat "$T/keys/lee-gh.keys")"
+  lee "$PY" "$ROOT/test/sign_once.py" "$ROOT" lee-gh \
+    && ok 'a message signed with it checks out against the keys listed for Lee' || fail 'the new key does not sign'
+  check "$(lee "$PY" "$SYN" setup lee-gh/room 2>&1)" 'Messages are signed with' 'and setup names the key'
 fi
 out=$(as_user sam "$PY" "$SYN" bogus 2>&1) && fail 'an unknown command went through' "$out" \
   || check "$out" 'Commands: status' 'an unknown command prints the list of commands'

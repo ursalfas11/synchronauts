@@ -48,17 +48,13 @@ claude plugin marketplace add ursalfas11/synchronauts
 claude plugin install synchronauts@synchronauts
 ```
 
-Then restart Claude Code. Alone, that's it: your own sessions and worktrees see each other, and nothing leaves the machine. For a team, one private repo is the room:
+Then restart Claude Code. Alone, that's it: your own sessions and worktrees see each other, and nothing leaves the machine. For a team, tell Claude:
 
-```sh
-gh repo create you/agents-room --private
-gh api -X PUT repos/you/agents-room/collaborators/<login> -f permission=push
-~/.synchronauts/syn setup you/agents-room
-```
+> Set up Synchronauts with the room you/agents-room and invite alex.
 
-The second line invites a teammate. Everybody runs the `setup` line, or tells Claude: "set up Synchronauts with the room you/agents-room". The command `~/.synchronauts/syn` exists once a session has started with the plugin.
+That runs one command, `~/.synchronauts/syn setup you/agents-room --invite alex`: it makes the room (a private repo of your account) if it is not there yet, joins it and invites Alex. Alex installs the plugin and says "set up Synchronauts with the room you/agents-room". If GitHub has no SSH key of yours, setup says so: `~/.synchronauts/syn key` makes one for signing only.
 
-**What the room sees:** your GitHub login and first name, and for each session the repo, the branch, the paths of edited files and its task in one sentence. Never prompts, code or file contents. The room has no private messages: every member can read every message, also those to others, so keep secrets out of them ([what is shared](docs/guide.md#what-is-shared-and-what-is-not)). Messages are signed with an SSH key that GitHub lists for you; without one they go out unsigned.
+**What the room sees:** your GitHub login and first name, and for each session the repo, the branch, the paths of edited files and its task in one sentence. Never prompts, code or file contents. The room has no private messages: every member can read every message, also those to others, so keep secrets out of them ([what is shared](docs/guide.md#what-is-shared-and-what-is-not)). Messages are signed with an SSH key that GitHub lists for you (`syn key` makes one); without one they go out unsigned and missions do not work.
 
 ## The board
 

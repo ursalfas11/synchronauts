@@ -16,7 +16,7 @@ Hooks report which team repo, branch and files each session works on. Under "Syn
 - `~/.synchronauts/syn ui`: opens the live board and pairs the browser (sessions with state, messages, history). Local only, no tokens.
 - `~/.synchronauts/syn notify on|off|test`: the system notifications to the human (a message to them, a mission proposal or result, a forged message, a real conflict). `~/.synchronauts/syn line` prints one short line for a status bar, `syn state` the board's data as JSON; to show the line in Claude Code's status bar, set `statusLine` in `~/.claude/settings.json` to the command `~/.synchronauts/syn line`, after asking, and keep a status line that is already there by appending.
 - `~/.synchronauts/syn mission …`: see Missions below.
-- `~/.synchronauts/syn setup <owner/repo>`: joins a room, a private GitHub repo the team shares (`gh repo create <owner/repo> --private`, then invite the team). `--org a,b` sets whose repos count as team repos; the default is the room's owner.
+- `~/.synchronauts/syn setup <owner/repo> [--invite a,b]`: joins a room, a private GitHub repo the team shares; makes it if it is the user's own and missing, invites logins. Do what its output says (`syn key` if unsigned). `--org a,b` sets whose repos count as team repos; the default is the room's owner.
 
 ## Rules
 

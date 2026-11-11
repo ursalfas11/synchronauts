@@ -158,6 +158,14 @@ This file is in English only; the README and the guide exist in English and Germ
 
 ### Added
 
+- One sentence sets a team up. `syn setup <owner/repo> --invite <login>` makes the room if it is a repo of your own
+  account and not there yet, joins it, invites the teammates and says how they join; before, the room and each
+  invitation were `gh` lines of their own. A room that is public is named with a warning.
+- `syn key` makes a key of this machine for signing only (`~/.synchronauts/signing-key`) and adds it to your GitHub
+  account as a signing key, which can sign and cannot log in. Setup now says when no key signs ("Not signed yet") and
+  names that command; before, a machine without an SSH key on GitHub sent unsigned without a word. Keys that GitHub
+  lists for signing only count like the ones that log in, for your own messages and for checking others'. The hooks
+  keep Claude's tools away from the new key file like from the other secrets.
 - `syn rooms [--refresh]` prints the room id that signed mission mail carries and finds it out again after the repo was
   renamed or moved.
 - `syn ui --pair` prints the board's address with a one-time pairing code, for a browser that `syn ui` cannot open (on

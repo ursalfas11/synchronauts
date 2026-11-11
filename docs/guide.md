@@ -40,20 +40,29 @@ Then restart Claude Code.
 
 **On your own, that's it.** Without a room, your sessions and worktrees on this machine see each other: who works where, overlaps between them, the board. Nothing leaves the machine, and every Git repo counts.
 
-**2. Create a room** (for a team) (one person): the room is an empty private repo the team shares. For example, Alice creates it and invites Bob:
+**2. Create a room** (for a team) (one person): the room is a private repo the team shares. Alice tells Claude "set up Synchronauts with the room alice/agents-room and invite bob", or runs:
 
 ```
-gh repo create alice/agents-room --private
-gh api -X PUT repos/alice/agents-room/collaborators/bob -f permission=push
+~/.synchronauts/syn setup alice/agents-room --invite bob
 ```
 
-**3. Join the room** (everyone):
+Setup makes the room if it is a repo of Alice's own account and not there yet (a room of an organization she creates herself: `gh repo create acme/agents-room --private`), joins it and invites Bob with the right to push. `--invite` takes several logins, separated by commas, and works again later for whoever comes next.
+
+**3. Join the room** (everyone else):
 
 ```
 ~/.synchronauts/syn setup alice/agents-room
 ```
 
-Or just tell Claude: "set up Synchronauts with the room alice/agents-room". If Bob has not accepted the invitation yet, setup accepts it. The short command `~/.synchronauts/syn` exists after the first session start with the plugin; on Windows it runs in Git Bash.
+Or just tell Claude: "set up Synchronauts with the room alice/agents-room". If Bob has not accepted the invitation yet, setup accepts it.
+
+**4. A key for signing** (whoever setup tells): messages are signed with an SSH key that GitHub lists for you. If you have one in `~/.ssh` and on GitHub, there is nothing to do. If not, setup says "Not signed yet", and
+
+```
+~/.synchronauts/syn key
+```
+
+makes a key for this machine (`~/.synchronauts/signing-key`) and adds it to your GitHub account as a signing key: it can sign, it cannot log in anywhere. The first time, GitHub wants your yes in the browser: `syn key` then names the line to run (`gh auth refresh -h github.com -s admin:ssh_signing_key`), after which you run it again. Without a key everything else works, but teammates see your messages as unsigned and missions cannot start. The short command `~/.synchronauts/syn` exists after the first session start with the plugin; on Windows it runs in Git Bash.
 
 **Codex CLI** (optional, macOS and Linux): `~/.synchronauts/syn codex` adds the hooks to `~/.codex/hooks.json`, next to any that are there. Open `/hooks` in Codex once and trust them. `syn codex --remove` takes them out again.
 
@@ -159,7 +168,8 @@ Claude calls these via Bash; you can too. `~/.synchronauts/syn` is a small scrip
 | `~/.synchronauts/syn claim <path>…` | claims files or folders for this session, other sessions ask before editing them; `claim` lists, `claim --release [path…]` frees |
 | `~/.synchronauts/syn status` | the picture with files and times, your own sessions, mail of the last 3 days |
 | `~/.synchronauts/syn ui` | starts the board in the background, opens it and pairs the browser (`--pair` prints an address with a one-time code instead, `--no-browser` only the address) |
-| `~/.synchronauts/syn setup <owner/repo> [--org a,b]` | joins a room; `--org` sets whose repos count as team repos |
+| `~/.synchronauts/syn setup <owner/repo> [--invite a,b] [--org a,b]` | joins a room, and makes it if it is a repo of your own account that is not there yet; `--invite` invites GitHub logins; `--org` sets whose repos count as team repos |
+| `~/.synchronauts/syn key` | makes a key of this machine for signing only and adds it to your GitHub account |
 | `~/.synchronauts/syn rooms [--refresh]` | the room's id that signed mission mail carries; `--refresh` finds it out again after the repo was renamed or moved |
 | `~/.synchronauts/syn codex [--remove]` | adds the hooks to Codex CLI, or removes them |
 | `~/.synchronauts/syn line` | one short line for a status bar, empty when nothing is going on |
@@ -237,7 +247,7 @@ One watcher per machine runs in the background. It pushes the own state when it 
 
 **Conflict check:** at most once a minute the hooks start a short background pass. For each of your sessions it takes a snapshot of the working tree, uncommitted and new files included, written with `git add` into a copy of the index, so the repo's index, branches and files stay untouched. It merges that with the work of every other session in the same repo using `git merge-tree` (Git 2.38 or newer) and notes the files that would conflict. Other worktrees on this machine count with their working tree; teammates and your other machines with the commit they last pushed, which the pass fetches from `origin` if needed. Only commit hashes are shared, never code.
 
-**Signatures:** setup picks a key whose public key GitHub lists for you, and looks again once a day, every hour while GitHub cannot be asked: first a key file, the first of `~/.ssh/id_ed25519`, `id_ecdsa` and `id_rsa` (one with a passphrase signs through `ssh-agent`); then a key that only an ssh-agent holds, such as 1Password or Secretive, in the agent that `SSH_AUTH_SOCK` names or that `~/.ssh/config` sets as `IdentityAgent` for github.com; then a key on a security key, `~/.ssh/id_ed25519_sk` or `id_ecdsa_sk`, which asks for a touch for every message. `SYN_SIGNING_KEY` names another key, also as the `.pub` file of a key in an agent. The watcher checks each new message before any hook sees it (a copy that somebody changes later under the id of a message you have counts as unsigned at best until it is checked) and caches the senders' keys for a day; a signature that does not fit makes it ask GitHub once more, in case of a new key. It checks in a thread of its own, so a slow answer about the keys holds up neither your own messages nor the sync; a hook that waits for fresh mail waits three seconds at most for its check. If GitHub cannot be asked, a signed message reaches Claude as unsigned, and the watcher checks it again a minute later. A login GitHub does not know (404) has no keys, so mail signed under it counts as forged.
+**Signatures:** setup picks a key whose public key GitHub lists for you (among the keys that log in or the ones for signing only; after the key files in `~/.ssh` also the one `syn key` made, `~/.synchronauts/signing-key`), and looks again once a day, every hour while GitHub cannot be asked: first a key file, the first of `~/.ssh/id_ed25519`, `id_ecdsa` and `id_rsa` (one with a passphrase signs through `ssh-agent`); then a key that only an ssh-agent holds, such as 1Password or Secretive, in the agent that `SSH_AUTH_SOCK` names or that `~/.ssh/config` sets as `IdentityAgent` for github.com; then a key on a security key, `~/.ssh/id_ed25519_sk` or `id_ecdsa_sk`, which asks for a touch for every message. `SYN_SIGNING_KEY` names another key, also as the `.pub` file of a key in an agent. The watcher checks each new message before any hook sees it (a copy that somebody changes later under the id of a message you have counts as unsigned at best until it is checked) and caches the senders' keys for a day; a signature that does not fit makes it ask GitHub once more, in case of a new key. It checks in a thread of its own, so a slow answer about the keys holds up neither your own messages nor the sync; a hook that waits for fresh mail waits three seconds at most for its check. If GitHub cannot be asked, a signed message reaches Claude as unsigned, and the watcher checks it again a minute later. A login GitHub does not know (404) has no keys, so mail signed under it counts as forged.
 
 **A key that asks first:** a key in an agent or on a security key may wait for an unlock, a click or a touch. A command then prints "Waiting for your SSH key" and waits up to 30 seconds (`SYN_SIGN_WAIT`); a message whose key does not sign in time goes out unsigned, and the command says so. A hook has only seconds, so no hook waits for a key: in a hook only a key file signs, read without asking any agent, and with any other key the invite or the join that the yes of a mission sends waits in `~/.synchronauts/outbox` until the watcher has signed it; Claude is told so. `mission end` and the Stop button on the board end the mission on your machine at once and put the end into the outbox before they ask the key; it leaves the outbox once it is signed and posted. If the key does not sign it in time, the command or the board says so; an end whose command was interrupted or killed while it waited for the key (Ctrl-C, a closed terminal) waits there as well. The watcher asks the key again a few seconds after each try, until it signs. It drops what waits once it no longer fits (the invite or the join of a mission that has ended, anything of a mission past its end time), at the latest after 24 hours, with a line in its log and in `outbox/dropped.log`.
 
@@ -256,7 +266,7 @@ A session counts as inactive three hours after its last sign of life. Mail that 
 - The question before an edit only knows files that a teammate's session has already edited, with up to 20 seconds of delay. It asks, it does not lock: you can always allow the edit.
 - Files and claims whose name does not look like a path inside a repo (a `:`, a quote, more than four spaces, over 240 characters, a `~` or `-` at the start) are not shared: teammates do not see such a file, and their sessions do not ask before editing it; `syn claim` refuses such a name and says why. Their own such files and claims do not show for you either.
 - The conflict check sees a teammate's work only once it is pushed, and it needs Git 2.38 or newer; with older Git there is no conflict prediction, the other warnings still work.
-- A signature only proves which GitHub account sent a message. Someone who never signed is shown as unsigned, not as forged, and a stolen SSH key signs as its owner. Signing needs OpenSSH 8.2 or newer, as on every current macOS, Linux and Git for Windows.
+- A signature only proves which GitHub account sent a message. Someone who never signed is shown as unsigned, not as forged, and a stolen SSH key signs as its owner. The key that `syn key` makes has no passphrase, so that the hooks can sign without asking: a program that runs as you can sign with it, and GitHub shows a commit signed with it as verified. Signing needs OpenSSH 8.2 or newer, as on every current macOS, Linux and Git for Windows.
 - A key on a security key needs a touch for every message, and a key in 1Password or Secretive may ask for an unlock or a click, also for the invite of a mission that the watcher signs later: until somebody touches or unlocks it, the invite waits, and the key keeps asking, as the watcher tries again. A security key that needs a PIN (`verify-required`) cannot sign, as there is no terminal to ask for it. On Windows the agent is the one that `ssh-add` finds.
 - Codex cannot ask from a hook yet, so before a patch touches a teammate's file the hook stops it once with the reason; Codex asks you and applies it again. Codex has no background wake: mail that arrives during a turn continues the session when the turn ends, otherwise it shows with the next prompt. Missions need Claude Code. Codex runs the hooks with `sh`, so not on Windows yet.
 - Missions need 0.6 on every side: a 0.6 proposal is shown as forged by a 0.5 peer, and a 0.5 proposal can only be read as information by 0.6.
