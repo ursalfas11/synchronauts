@@ -80,6 +80,7 @@ MAX_CREW = 20                       # people in one mission, the proposer includ
 MAX_TEXT = 1500                     # characters per message; `send` rejects longer ones instead of cutting silently
 STATUS_TEXT = 300                   # characters of a message that `syn status` shows; the message itself came in full
 CLOCK_SKEW = timedelta(minutes=5)   # an invite dated further ahead of the clock here proposes nothing
+CLOCK_OFF = 300                     # seconds the clock here may differ from GitHub's before syn says so
 EDIT_TOOLS = ('Edit', 'Write', 'MultiEdit', 'NotebookEdit')
 CONFLICT_TICK = setting('SYN_CONFLICT_TICK', 60.0)  # seconds between two conflict checks
 EVENTS_KEEP = timedelta(hours=24)   # an event stays in the UI's history this long
@@ -592,6 +593,14 @@ def _stamp(x):
     return x if isinstance(x, str) and len(x) <= 40 and 2000 <= parse(x).year <= 2100 else None
 
 
+def _seen(x):
+    """A stamp of somebody else's session (last, start, state_since) if it is a time up to a day ahead of the clock
+    here, otherwise None (counts as long ago): a `last` far ahead would keep a session active, and its overlap
+    warnings coming, for as long as it says."""
+    x = _stamp(x)
+    return x if x and parse(x) <= now() + timedelta(days=1) else None
+
+
 def _texts(xs, n=MAX_FILES):
     return [one_line(x, 300) for x in xs[:n] if isinstance(x, str)] if isinstance(xs, list) else []
 
@@ -650,14 +659,14 @@ def tidy_sessions(d):
         if not fits(ID_RE, sid) or not isinstance(s, dict):
             continue
         repos = {repo: {'files': paths(r.get('files')), 'claims': paths(r.get('claims'), True),
-                        'last': _stamp(r.get('last')),
+                        'last': _seen(r.get('last')),
                         **({'branch': r['branch']} if fits(BRANCH_RE, r.get('branch')) else {}),
                         **({'tip': r['tip']} if fits(SHA_RE, r.get('tip')) else {})}
                  for repo, r in _items(s.get('repos'), 20) if fits(REPO_RE, repo) and isinstance(r, dict)}
         sessions[sid] = {'repos': repos, 'task': one_line(s['task']) if isinstance(s.get('task'), str) else '',
                          'state': s['state'] if s.get('state') in STATES else None,
                          'agent': s['agent'] if fits(ID_RE, s.get('agent')) else None,
-                         **{f: _stamp(s.get(f)) for f in ('last', 'start', 'state_since')}}
+                         **{f: _seen(s.get(f)) for f in ('last', 'start', 'state_since')}}
     return sessions
 
 
@@ -733,18 +742,20 @@ def trust_view(n, login, checked, me, sealed=None, signers=()):
 def mail_copies(k, others_=None, mine=True):
     """Every message in the others' branches with `from` (the owner of the branch), `trust` (trust_view) and `seal`.
     mine: only those to me. Several copies can share an id; one_per_id() picks. Mail older than it can be in a branch
-    is left out, so an old signed message cannot come back."""
+    is left out, so an old signed message cannot come back. Mail dated ahead of the clock here (the sender's clock, or
+    this one, is off) comes with `ahead`, up to a day; further ahead it is left out."""
     others_ = load(HOME / 'others.json', {}) if others_ is None else others_
     checked, signers, out = load(HOME / 'verified.json', {}), load(HOME / 'signers.json', []), []
     signers = {login_key(x) for x in signers if isinstance(x, str)} if isinstance(signers, list) else set()
-    oldest, newest = now() - MAIL_KEEP - timedelta(days=1), now() + timedelta(minutes=10)
+    oldest, soon = now() - MAIL_KEEP - timedelta(days=1), now() + timedelta(minutes=10)
+    newest = now() + timedelta(days=1)
     for d in others_.values():
         for n in d.get('mail') or []:
             if mine and k['me'] not in (n.get('to') or []) or not oldest < parse(n.get('time')) < newest:
                 continue
             s = seal(n, d['login'])
             out.append({**n, 'from': d['login'], 'trust': trust_view(n, d['login'], checked, k['me'], s, signers),
-                        'seal': s})
+                        'seal': s, **({'ahead': True} if parse(n.get('time')) > soon else {})})
     return out
 
 
@@ -1608,12 +1619,14 @@ class Poller:
                 headers['If-None-Match'] = self.etag
             try:
                 with urllib.request.urlopen(urllib.request.Request(self.url, headers=headers), timeout=15) as r:
+                    note_clock(r.headers.get('Date'))
                     more = 'rel="next"' in r.headers.get('Link', '')
                     self.etag = '' if more else r.headers.get('ETag', '')
                     state = [f"{x['ref']} {x['object']['sha']}" for x in json.load(r)]
                 if more:  # more branches than one page: a page alone could miss a change, ls-remote sees all
                     state = None
             except urllib.error.HTTPError as f:
+                note_clock(f.headers.get('Date') if f.headers else None)
                 if f.code == 304:
                     return False
                 if f.code == 401:
@@ -1624,6 +1637,35 @@ class Poller:
         state = sorted(s for s in state if not s.startswith(self.own))
         changed, self.state = state != self.state, state
         return changed
+
+
+def note_clock(date):
+    """Notes in HOME/clock.json how far the clock here is off, from the Date header of an answer of GitHub: only
+    beyond CLOCK_OFF, and the file goes when the clock is right again. Mail carries the sender's time: with a clock
+    that far off, teammates leave it out or see it dated ahead, and a mission proposal cannot be joined."""
+    try:
+        from email.utils import parsedate_to_datetime
+        off = int((parsedate_to_datetime(date) - now()).total_seconds())
+    except (TypeError, ValueError, OverflowError):
+        return
+    path = HOME / 'clock.json'
+    try:
+        if abs(off) <= CLOCK_OFF:
+            path.unlink(missing_ok=True)
+        elif abs(load(path, {}).get('off', 0) - off) > 60:  # not a write with every poll
+            save(path, {'off': off, 'time': iso()})
+    except OSError:
+        pass
+
+
+def clock_line():
+    """A line for the human if the clock of this machine is off (note_clock), else ''."""
+    off = load(HOME / 'clock.json', {}).get('off')
+    if not isinstance(off, int) or abs(off) <= CLOCK_OFF:
+        return ''
+    span = f'{abs(off) // 60} minutes' if abs(off) < 7200 else f'{abs(off) // 3600} hours'
+    return (f"⚠️ The clock of this machine is {span} {'behind' if off > 0 else 'ahead'}: teammates may not get your "
+            f"messages, and a mission you propose cannot be joined. Set the clock.")
 
 
 def key_due():
@@ -2334,6 +2376,7 @@ def message_text(n, k, nm, shown=False, ms=None, m=None):
     origin = (f"@{n['from']}, " + ('UI, ' if ui else f"from {n['from_repo']}, " if n.get('from_repo') else '')
               + clock(n.get('time')))
     origin += ', unsigned' if n.get('trust') == 'unsigned' else ''
+    origin += ', dated ahead: a clock is off' if n.get('ahead') else ''
     quote = '\n'.join('> ' + z for z in clean(n.get('text', '')).splitlines())
     if n.get('trust') == 'bad':
         why = (f"its signature does not check out against {n['from']}'s keys on GitHub: someone else may have written "
@@ -5785,6 +5828,7 @@ def cmd_send(k, to, text):
     if not n.get('sig') and can_sign(k):
         unsigned = (f'{why[:1].upper()}{why[1:]}, so it went out unsigned: teammates who know your signature see it '
                     f'as forged.')
+    unsigned = '\n'.join(x for x in (unsigned, clock_line()) if x)
     end = time.time() + 20
     while time.time() < end:
         if n['id'] in load(HOME / 'pushed.json', []):
@@ -5941,6 +5985,8 @@ def cmd_status(k):
     await_fetch(8)
     if error_text():
         print(f'(Sync is failing: {error_text()}; showing the last known state)')
+    if clock_line():
+        print(clock_line())
     if not k.get('solo'):
         print('Active in the team:')
         print('\n'.join(line(who, s, full=True) for who, _, s, _ in others(k, own=False))

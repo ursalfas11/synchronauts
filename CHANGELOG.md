@@ -232,6 +232,11 @@ This file is in English only; the README and the guide exist in English and Germ
 
 ### Fixed
 
+- A clock that is off no longer makes mail vanish without a word. Mail dated up to a day ahead of the clock here is
+  delivered with the note "dated ahead: a clock is off"; before, anything more than ten minutes ahead was left out.
+  The machine whose clock is off learns it: the background service compares the clock with the time of GitHub's
+  answers, and `syn send` and `syn status` say when it is more than five minutes off. A session stamp more than a day
+  ahead counts as old, so a branch with a time in the far future no longer keeps a session active for good.
 - Two machines of one person with the same host name no longer write the same branch. Each push is forced, so they
   overwrote each other every few seconds without an error. A machine name that setup takes from the host name now gets
   a short random ending when the room has a branch of that name already; the name is kept in `config.json`.
