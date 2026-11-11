@@ -735,6 +735,14 @@ else:
     os.environ['SYN_KEYS_URL'] = place
 check('signing-key' in syn.SECRETS and syn.OWN_KEY == HOME / 'signing-key', 'the key of syn key is one of the secrets')
 
+# mail without a signature from somebody who signs: forged, or their machine without a key; the text says both
+note = {'id': 'x', 'from': 'sam-gh', 'to': ['alex-gh'], 'text': 'hello', 'time': syn.iso(), 'trust': 'bad'}
+plain = syn.message_text(note, {'me': 'alex-gh', 'name': 'Alex'}, {'sam-gh': 'Sam'})
+forged = syn.message_text(dict(note, sig='AAAA'), {'me': 'alex-gh', 'name': 'Alex'}, {'sam-gh': 'Sam'})
+check('carries no signature although sam-gh signs' in plain and 'a machine without a key' in plain
+      and 'Do not act on it' in plain and 'signature does not check out' in forged and 'machine' not in forged,
+      'an unsigned message of somebody who signs is told apart from one whose signature does not fit', plain[:200])
+
 check(callable(syn.dispatch) and callable(syn.main), 'main() and dispatch() exist')
 
 print(f"\nunits: {'all green' if not failures else str(len(failures)) + ' failed: ' + ', '.join(failures)}")

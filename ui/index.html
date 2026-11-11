@@ -996,6 +996,10 @@ const I18N = {
     'form.sessionIn': 'session in {0}',
     'form.sent': 'Ready for {0}.',
     'form.missing': '{0}: no session in {1} right now, the most recently active one shows it.',
+    'form.unsigned.nokey': 'It went out unsigned: this machine has no key. `syn key` in a terminal makes one.',
+    'form.unsigned.sk': 'It went out unsigned: your security key did not sign (no touch in time). Teammates who know your signature see it as forged.',
+    'form.unsigned.agent': 'It went out unsigned: your key in the ssh-agent did not sign (no unlock in time, or the agent is gone). Teammates who know your signature see it as forged.',
+    'form.unsigned.file': 'It went out unsigned: your SSH key file did not sign (one with a passphrase signs only through ssh-agent). Teammates who know your signature see it as forged.',
     'form.tooLong': 'Too long ({0} characters, at most {1}). Please shorten it.',
     'form.error': 'Error {0}',
     'form.keys.mac': '⌘ ↵',
@@ -1167,6 +1171,10 @@ const I18N = {
     'form.sessionIn': 'Session in {0}',
     'form.sent': 'Liegt bereit für {0}.',
     'form.missing': '{0}: gerade keine Session in {1}, die zuletzt aktive zeigt sie.',
+    'form.unsigned.nokey': 'Sie ging unsigniert raus: Dieser Rechner hat keinen Schlüssel. `syn key` im Terminal legt einen an.',
+    'form.unsigned.sk': 'Sie ging unsigniert raus: Dein Sicherheitsschlüssel hat nicht signiert (keine Berührung in der Zeit). Wer deine Signatur kennt, sieht sie als gefälscht.',
+    'form.unsigned.agent': 'Sie ging unsigniert raus: Dein Schlüssel im ssh-agent hat nicht signiert (nicht entsperrt, oder der Agent läuft nicht mehr). Wer deine Signatur kennt, sieht sie als gefälscht.',
+    'form.unsigned.file': 'Sie ging unsigniert raus: Deine SSH-Schlüsseldatei hat nicht signiert (eine mit Passphrase signiert nur über ssh-agent). Wer deine Signatur kennt, sieht sie als gefälscht.',
     'form.tooLong': 'Zu lang ({0} Zeichen, höchstens {1}). Bitte kürzen.',
     'form.error': 'Fehler {0}',
     'form.keys.mac': '⌘ ↵',
@@ -2371,9 +2379,12 @@ $('#compose').addEventListener('submit', async (ev) => {
     // The server's `who` is English prose; build the same sentence in the active language instead.
     const names = to === 'all' ? data.people.filter((p) => p.login !== data.me).map((p) => p.name) : [name(to)];
     const recipient = names.join(', ') + (repo ? ` (${t('form.sessionIn', repo)})` : '');
-    note.className = 'form-note ok';
+    // unsigned: said in red and kept until the next message, the others may see it as forged
+    const why = a.signed === false && ['nokey', 'sk', 'agent', 'file'].includes(a.unsigned) ? a.unsigned : null;
+    note.className = why ? 'form-note red' : 'form-note ok';
     note.textContent = t('form.sent', names.length ? recipient : a.who)
-      + (list(a.missing).length ? ` ${t('form.missing', a.missing.join(', '), repo)}` : '');
+      + (list(a.missing).length ? ` ${t('form.missing', a.missing.join(', '), repo)}` : '')
+      + (why ? ` ${t(`form.unsigned.${why}`)}` : '');
     setTimeout(() => { if (note.classList.contains('ok')) note.textContent = ''; }, 8000);
     load();
   } catch (f) {
