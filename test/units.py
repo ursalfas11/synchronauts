@@ -641,6 +641,28 @@ check(back and p.tick == 5 and len(asked) == n + 2, 'after the pause the API is 
 syn.gh, syn.TICK = real_gh, real_tick
 api.shutdown()
 
+# an invite dated ahead of the clock here proposes nothing: its cap of 7.5 hours counts from a time the sender wrote
+def invite(minutes, hours=2.0):
+    t = syn.now() + syn.timedelta(minutes=minutes)
+    return {'id': 'n1', 'kind': 'invite', 'trust': 'ok', 'from': 'sam-gh', 'mission': 'sam-gh-abc123', 'text': 'plan',
+            'crew': ['sam-gh', 'alex-gh'], 'time': syn.iso(t), 'until': syn.iso(t + syn.timedelta(hours=hours)), 'to': ['alex-gh']}
+
+
+me = {'me': 'alex-gh', 'name': 'Alex', 'solo': True}
+room_ok, syn.of_room = syn.of_room, lambda n, k: True
+got = [syn.mission_of(invite(m, h), me) for m, h in ((0, 2), (3, 2), (-600, 2), (60, 2), (60 * 24 * 364, 2), (0, 40))]
+check(got[0] and got[1] and got[2] and not got[3] and not got[4]
+      and syn.parse(got[5]['until']) <= syn.now() + syn.timedelta(hours=syn.MISSION_MAX_HOURS, seconds=5),
+      'an invite dated an hour or a year ahead proposes no mission, one of now, three minutes ahead or of the past '
+      'does, and no end lies more than 7.5 hours after the clock here', str([bool(x) for x in got]))
+text = syn.message_text(invite(60 * 24 * 364), me, {})
+check('cannot be joined: it is dated ahead of the clock of this machine' in text and 'mission approve' not in text,
+      'such an invite is shown as information that says why', text[:200])
+syn.of_room = room_ok
+far = syn.clock(syn.iso(syn.now() + syn.timedelta(days=400)))
+check(re.search(r' \d{4} \d\d:\d\d$', far) and not re.search(r'\d{4}', syn.clock(syn.iso(syn.now() - syn.timedelta(minutes=1)))[:-5]),
+      'a time of another year shows its year, one of now does not', far)
+
 check(callable(syn.dispatch) and callable(syn.main), 'main() and dispatch() exist')
 
 print(f"\nunits: {'all green' if not failures else str(len(failures)) + ' failed: ' + ', '.join(failures)}")
