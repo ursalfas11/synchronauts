@@ -86,10 +86,19 @@ modes_ok() { "$PY" -c 'import os,sys; sys.exit(any(os.stat(p).st_mode & 0o777 !=
 bash_cmd() { "$PY" -c 'import json,sys; sys.stdout.write(json.dumps({"session_id": sys.argv[1], "cwd": sys.argv[2], "tool_name": "Bash", "tool_input": {"command": sys.argv[3]}}) + "\n")' "$@" | crlf_safe; }
 # callc <sid> <cwd> <tool_use_id> <permission_mode> <command>: a Bash call with an id and a permission mode
 callc() { "$PY" -c 'import json,sys; sys.stdout.write(json.dumps({"session_id": sys.argv[1], "cwd": sys.argv[2], "tool_name": "Bash", "tool_use_id": sys.argv[3], "permission_mode": sys.argv[4], "tool_input": {"command": sys.argv[5]}}) + "\n")' "$@" | crlf_safe; }
+# A key that no cached list holds is asked for at most once in ten minutes, and the message has no verdict until then
+# (sign_check.py): forge makes the last question to the keys URL, in every home folder, look 700 seconds old, as if
+# the forgery came later. A real clock is not waited for
+age_keys() { "$PY" -c 'import glob, json, os, sys
+for p in glob.glob(os.path.join(sys.argv[1], "home*", "keys.json")):
+    d = json.load(open(p))
+    for c in d.values():
+        c.update({f: c[f] - 700 for f in ("time", "asked") if f in c})
+    json.dump(d, open(p, "w"))' "$T"; }
 # forge <branch> <mode> [login] [extra]: a state.json from test/forge.py as the only commit of syn/<login>/<branch>; the
 # environment overrides of forge.py (FORGE_NAME, MID, FORGE_KEY, TO) pass through, and FORGE_REMOTE names another room
 # than $T/remote.git. Delete it with `git update-ref -d`.
-forge() { git -C "${FORGE_REMOTE:-$T/remote.git}" update-ref "refs/heads/syn/${3:-alex-gh}/$1" "$(forged "$2" "${3-}" "${4-}")"; }
+forge() { age_keys; git -C "${FORGE_REMOTE:-$T/remote.git}" update-ref "refs/heads/syn/${3:-alex-gh}/$1" "$(forged "$2" "${3-}" "${4-}")"; }
 forge_as() { forge "$@"; }
 # forged <mode> [login] [extra]: the commit of such a state.json in the remote, for a ref that forge cannot write
 forged() { local blob tree r="${FORGE_REMOTE:-$T/remote.git}"
@@ -1220,7 +1229,9 @@ lacks "$(as_user sam "$PY" -c 'import sys; sys.path.insert(0, sys.argv[1]); impo
 # T-S1d: copies of the real invite's id on another branch (unsigned, another key, tampered text, the real one with its
 # signature written another way) do not stop it
 MID=$MID2 TO=alex-gh FORGE_KEY="$T/mal-key" forge dup1 dup sam-gh
-until_ok 15 'the copies of the invite are checked and forged' test_copies alex 'Evil plan' 'bad bad bad'
+# The unsigned copy is forged at once (Sam signs); of the two signed ones the first check asks Sam's keys anew and finds
+# it forged, the second finds that question under ten minutes old and has no verdict yet: unsigned, never trusted
+until_ok 15 'the copies of the invite are checked and forged' test_copies alex 'Evil plan' 'bad bad unsigned'
 until_ok 15 'the real invite with its signature written another way verifies too' test_copies alex 'Plan A' 'ok ok'
 test_trust alex 'Plan A' ok && ok 'the real invite stays verified, the copies never count' || fail 'the copies took over' "$(copies alex 'Plan A')"
 mission_is alex "m['$MID2']['plan'].startswith('Plan A') and m['$MID2']['with'] == ['sam-gh', 'alex-gh']" \

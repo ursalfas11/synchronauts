@@ -97,6 +97,9 @@ PAIR_ALPHABET = '0123456789abcdefghjkmnpqrstvwxyz'  # the board's pairing code: 
 PAIR_LENGTH, PAIR_SECONDS = 16, 120
 XDG_OPEN = ('/usr/bin/xdg-open', '/usr/local/bin/xdg-open', '/bin/xdg-open', '/run/current-system/sw/bin/xdg-open')
 KEYS_GITHUB = 'https://github.com/{login}.keys'  # public SSH keys, to check senders; SYN_KEYS_URL names another place
+SIGNER_KEEP = timedelta(days=30)     # a login whose last good signature is older counts as one who does not sign
+SIGNER_TOUCH = 3600                 # seconds: a good signature renews the time in signers.json at most this often
+KEYS_GAP = 600                      # seconds between two fresh questions to the keys URL about one login
 MAX_KEYS = 50                       # key lines read per login
 MAX_KEY_LINE = 1000                 # longer lines are not keys
 NOTIFY_MAX = 5                      # system notifications per 10 minutes; past that the board and the agents still show it
@@ -773,7 +776,7 @@ def trust_view(n, login, checked, me, sealed=None, signers=()):
     is unsigned in the login of somebody who signs, as verify() finds without asking anybody. Mail between two others
     is not checked: `unsigned`, or `unchecked` if it is signed (only the board shows that). Every reader treats a value
     it does not know as `unsigned`. sealed: seal(n, login) if the caller has it; signers: the login_key() of each
-    login in signers.json."""
+    login whose signature checked out lately (signers_now)."""
     x = checked.get(sealed or seal(n, login))
     if isinstance(x, dict):
         return x.get('v', 'unsigned')
@@ -789,8 +792,7 @@ def mail_copies(k, others_=None, mine=True):
     is left out, so an old signed message cannot come back. Mail dated ahead of the clock here (the sender's clock, or
     this one, is off) comes with `ahead`, up to a day; further ahead it is left out."""
     others_ = load(HOME / 'others.json', {}) if others_ is None else others_
-    checked, signers, out = load(HOME / 'verified.json', {}), load(HOME / 'signers.json', []), []
-    signers = {login_key(x) for x in signers if isinstance(x, str)} if isinstance(signers, list) else set()
+    checked, signers, out = load(HOME / 'verified.json', {}), signers_now(), []
     oldest, soon = now() - MAIL_KEEP - timedelta(days=1), now() + timedelta(minutes=10)
     newest = now() + timedelta(days=1)
     for who, d in others_.items():
@@ -1008,7 +1010,7 @@ def check_mail(k, wait=False):
                 v, final, by = (('unsigned', False, '') if n.get('sig') and n['from'] in down
                                 and id_owner(n['id']) == n['from'] else judge(n, k))
                 if not final:  # it could not be checked (the keys, the record of pushes): no verdict to keep
-                    if n.get('sig'):
+                    if n.get('sig') and by != 'wait':  # 'wait': the keys were asked lately, that is no outage
                         down.add(n['from'])
                     pending += 1
                 else:
@@ -1383,13 +1385,22 @@ def github_keys(login, fresh=False, ttl=86400, url=None):
     (signing_keys), cached for ttl seconds: a list (empty if there are none, also when the place answers 404: it
     knows no such login), None if the place cannot be asked. At most
     MAX_KEYS lines, none longer than MAX_KEY_LINE: the place is not ours and must not feed unbounded text into the
-    signature check."""
+    signature check. Every question, answered or not, is noted (`asked`), for keys_asked()."""
     import urllib.error
     import urllib.request
     cache = load(HOME / 'keys.json', {})
     c = (cache.get(login) if isinstance(cache, dict) else None) or {}
     if c and not fresh and time.time() - c.get('time', 0) < ttl:
         return c['keys']
+
+    def failed():
+        with Lock('keys'):
+            cache = load(HOME / 'keys.json', {})
+            cache = cache if isinstance(cache, dict) else {}
+            cache[login] = {**(cache.get(login) if isinstance(cache.get(login), dict) else {}), 'asked': time.time()}
+            save(HOME / 'keys.json', cache)
+        return c.get('keys')
+
     try:
         req = urllib.request.Request((url or keys_url()).format(login=login), headers={'User-Agent': 'synchronauts'})
         with urllib.request.urlopen(req, timeout=10) as r:
@@ -1398,20 +1409,28 @@ def github_keys(login, fresh=False, ttl=86400, url=None):
         if not url and keys_url() == KEYS_GITHUB:  # GitHub keeps the keys for signing only in another list
             more = signing_keys(login)
             if more is None:
-                return c.get('keys')
+                return failed()
             keys = (keys + [x for x in more if x not in keys])[:MAX_KEYS]
     except urllib.error.HTTPError as f:
         if f.code != 404:  # busy, down, rate limited: ask again later
-            return c.get('keys')
+            return failed()
         keys = []  # an answer: no such login, so no keys (its signed mail is forged), and no question every minute
     except Exception:  # noqa: BLE001  # no answer, a broken one (http.client's errors are no OSError) or a URL that
-        return c.get('keys')  # cannot be asked: user:password@ read as a port, a {field} but {login}. Not passed on
+        return failed()  # cannot be asked: user:password@ read as a port, a {field} but {login}. Not passed on
     with Lock('keys'):  # the watcher's checker thread, setup and choose_key write it too: read anew, add, write
         cache = load(HOME / 'keys.json', {})
         cache = cache if isinstance(cache, dict) else {}
         cache[login] = {'time': time.time(), 'keys': keys}
         save(HOME / 'keys.json', cache)
     return keys
+
+
+def keys_asked(login):
+    """When the keys URL was last asked about login, answered or not (0 if never)."""
+    cache = load(HOME / 'keys.json', {})
+    c = cache.get(login) if isinstance(cache, dict) else None
+    c = c if isinstance(c, dict) else {}
+    return max([x for x in (c.get('time'), c.get('asked')) if isinstance(x, (int, float))] or [0])
 
 
 def signing_keys(login):
@@ -1611,9 +1630,10 @@ def judge(n, k=None):
     elsewhere; 'bad' when another account pushed it, pusher. final is False for a check that could not be made
     ('unsigned', and check_mail() asks again): the keys could not be fetched, the record of pushes does not say yet,
     ssh-keygen did not start or did not end in time, or the ssh-keygen of this machine checks no signature at all
-    (can_verify). k: the room's config."""
+    (can_verify), or no key fits and the keys URL was asked about the sender less than KEYS_GAP seconds ago (then
+    pusher is 'wait': the keys are not down, check_mail() has no reason to leave the sender's other mail alone).
+    k: the room's config."""
     k = config() if k is None else k
-    signers = set(load(HOME / 'signers.json', []))
     if not n.get('sig'):
         v, by = push_verdict(k, n['from'], n.get('places')) if id_owner(n.get('id')) == n['from'] else (None, '')
         if v == 'wait':
@@ -1625,19 +1645,57 @@ def judge(n, k=None):
                 note_room_mismatch(n['from'], n['room'])
                 return 'bad', True, ''
             return 'ok', True, ''
-        return ('bad' if login_key(n['from']) in {login_key(x) for x in signers} else 'unsigned'), True, ''
-    v = signed_verdict(n, k, signers)
-    return v, v != 'unsigned', ''
+        return ('bad' if login_key(n['from']) in signers_now() else 'unsigned'), True, ''
+    v = signed_verdict(n, k)
+    return ('unsigned', False, 'wait') if v == 'wait' else (v, v != 'unsigned', '')
 
 
-def signed_verdict(n, k, signers):
-    """judge() for a message with a signature."""
+def signer_file():
+    """signers.json as {login: when its signature last checked out}. The file of 0.5 is a list of logins without a
+    time: each counts as signed now."""
+    d = load(HOME / 'signers.json', {})
+    if isinstance(d, list):
+        d = {x: time.time() for x in d if isinstance(x, str)}
+    return {x: t for x, t in d.items() if isinstance(x, str) and isinstance(t, (int, float))} if isinstance(d, dict) else {}
+
+
+def signers_now():
+    """The login_key() of each login that signed within SIGNER_KEEP: unsigned mail in their name is forged. Somebody who
+    sends from a machine without a key and signs nowhere for that long shows as unsigned again. The list of 0.5 is
+    written out once with the time of this read, so the 30 days run from then."""
+    if isinstance(load(HOME / 'signers.json', {}), list):
+        with Lock('keys'):  # another process may have done it meanwhile
+            if isinstance(load(HOME / 'signers.json', {}), list):
+                save(HOME / 'signers.json', signer_file())
+    t = time.time()
+    return {login_key(x) for x, at in signer_file().items() if t - SIGNER_KEEP.total_seconds() < at <= t + 86400}
+
+
+def note_signer(login):
+    """login's signature checked out: the time goes into signers.json (at most every SIGNER_TOUCH seconds), and the
+    logins past SIGNER_KEEP leave it."""
+    t = time.time()
+    if t - signer_file().get(login, 0) < SIGNER_TOUCH:
+        return
+    with Lock('keys'):  # another process may add a signer meanwhile: read anew, add, write
+        d = {x: at for x, at in signer_file().items() if t - at < SIGNER_KEEP.total_seconds()}
+        d[login] = t
+        save(HOME / 'signers.json', dict(sorted(d.items())))
+
+
+def signed_verdict(n, k):
+    """judge() for a message with a signature; 'wait' for one that waits for the gap between two questions to the keys URL."""
     if id_owner(n.get('id')) != n['from']:  # signed under somebody else's id: a copy meant to push the real one out
         return 'bad'
     if PROBE == [False]:  # this machine checks no signature: no verdict, and no ssh-keygen run per message
         return 'unsigned'
     refused = False  # ssh-keygen ran and said no
+    before = keys_asked(n['from'])
     for fresh in (False, True):  # a new key on GitHub: look again once
+        if fresh and keys_asked(n['from']) != before:
+            break  # the first look asked the keys URL itself: these are the current keys
+        if fresh and time.time() - before < KEYS_GAP:
+            return 'wait'  # asked lately and the key is not there: no verdict yet, a later pass asks again
         keys = github_keys(n['from'], fresh)
         if keys is None:  # GitHub cannot be asked: no verdict
             return 'unsigned'
@@ -1648,9 +1706,7 @@ def signed_verdict(n, k, signers):
             return 'unsigned'
         refused = True
         if r.returncode == 0:
-            if n['from'] not in signers:
-                with Lock('keys'):  # another process may add a signer meanwhile: read anew, add, write
-                    save(HOME / 'signers.json', sorted(set(load(HOME / 'signers.json', [])) | {n['from']}))
+            note_signer(n['from'])
             if n.get('room') is not None and norm_room(n['room']) not in room_ids(k):
                 note_room_mismatch(n['from'], n['room'])  # a replay from another room, or the remotes differ
                 return 'bad'
