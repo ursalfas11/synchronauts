@@ -48,13 +48,45 @@ def writer(n):
         errors.append(repr(error))
 
 
-threads = [threading.Thread(target=writer, args=(n,)) for n in range(4)]
+def reader():
+    for _ in range(300):
+        if syn.load(target, None) is None:
+            empty.append(1)
+
+
+# A reader meanwhile: on Windows the file cannot be opened for the instant in which a save replaces it. load() reads
+# again then; the default would look like an empty file (a teammate's name fell back to the login that way)
+syn.save(target, {})
+empty = []
+threads = [threading.Thread(target=writer, args=(n,)) for n in range(4)] + [threading.Thread(target=reader)]
 for t in threads:
     t.start()
 for t in threads:
     t.join()
 left = sorted(p.name for p in HOME.iterdir() if p.name != 'x.json')
 check(not errors, '4 threads x 100 saves of one file raise nothing', str(errors[:3]))
+check(not empty, 'and a reader meanwhile never gets the default for a file that is there', f'{len(empty)} of 300')
+calls, real_read, was = [], Path.read_text, syn.WINDOWS
+
+
+def refused_twice(self, *a, **kw):
+    calls.append(self)
+    if len(calls) < 3:
+        raise PermissionError(13, 'in use')
+    return real_read(self, *a, **kw)
+
+
+Path.read_text = refused_twice
+try:
+    syn.WINDOWS = True
+    again = syn.load(target, None)
+    del calls[:]
+    syn.WINDOWS = False
+    once = syn.load(target, 'default')
+finally:
+    Path.read_text, syn.WINDOWS = real_read, was
+check(isinstance(again, dict) and once == 'default',
+      'load reads a file again that Windows refuses for an instant; elsewhere a refusal is the default', f'{again} {once}')
 check(isinstance(json.loads(target.read_text(encoding='utf-8')), dict) and not left,
       'and leave valid JSON and no temp file', str(left))
 check(syn.temp_name(target).name != syn.temp_name(HOME / 'y.json').name
