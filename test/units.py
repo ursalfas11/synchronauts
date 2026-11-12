@@ -955,6 +955,71 @@ syn.gh_run = real_run
 for name in ('invites.json', 'invites-told.json'):
     (HOME / name).unlink(missing_ok=True)
 
+# Edits through Bash: the files `git status` lists before and after a command; only what the command changed counts
+def sh_git(repo, *args):
+    subprocess.run(['git', '-c', 'user.name=test', '-c', 'user.email=test@example.com', '-c', 'core.autocrlf=false',
+                    *args], cwd=repo, check=True, capture_output=True, stdin=subprocess.DEVNULL)
+
+
+bash_repo = TMP / 'bash-units'
+bash_repo.mkdir()
+sh_git(bash_repo, 'init', '-q', '-b', 'main')
+check(syn.dirty_files(str(bash_repo)) == {}, 'a repo without a commit and without changes lists nothing')
+(bash_repo / '.gitignore').write_text('*.cache\n', encoding='utf-8')
+for name in ('keep.txt', 'was.txt', 'old name.txt'):
+    (bash_repo / name).write_text('one\n', encoding='utf-8')
+sh_git(bash_repo, 'add', '-A')
+sh_git(bash_repo, 'commit', '-q', '-m', 'init')
+(bash_repo / 'dirty.txt').write_text('a\n', encoding='utf-8')  # dirty before the command, and left alone
+(bash_repo / 'again.txt').write_text('a\n', encoding='utf-8')  # dirty before and written again by the command
+(bash_repo / 'gone.txt').write_text('a\n', encoding='utf-8')   # dirty before, removed by the command
+call = {'tool_use_id': 'toolu_unit1'}
+syn.HOME.joinpath('snaps').mkdir(parents=True, exist_ok=True)
+syn.bash_changed('unit0001', call)  # no snapshot: nothing
+before = syn.dirty_files(str(bash_repo))
+check(set(before) == {'dirty.txt', 'again.txt', 'gone.txt', '.gitignore'} or set(before) == {'dirty.txt', 'again.txt',
+      'gone.txt'}, 'the snapshot lists the files that are dirty before a command', str(before))
+syn.save(syn.snap_path('unit0001', call), {'root': str(bash_repo), 'files': before})
+(bash_repo / 'again.txt').write_text('a longer line\n', encoding='utf-8')
+(bash_repo / 'gone.txt').unlink()
+(bash_repo / 'Mü ller ä.txt').write_text('x\n', encoding='utf-8')
+(bash_repo / 'build.cache').write_text('x\n', encoding='utf-8')  # ignored
+(bash_repo / 'keep.txt').write_text('two lines\n', encoding='utf-8')
+(bash_repo / 'was.txt').unlink()
+sh_git(bash_repo, 'mv', 'old name.txt', 'new name.txt')
+(bash_repo / 'sub').mkdir()
+(bash_repo / 'sub' / 'deep.txt').write_text('x\n', encoding='utf-8')
+got = syn.bash_changed('unit0001', call)
+files = sorted(got[1]) if got else None
+want = sorted(['again.txt', 'gone.txt', 'Mü ller ä.txt', 'keep.txt', 'was.txt', 'old name.txt', 'new name.txt',
+               'sub/deep.txt'])
+check(got and got[0] == str(bash_repo) and files == want,
+      'after a command: new, rewritten, deleted, renamed (both names) and untracked files in folders count, with spaces '
+      'and accents', str(files))
+check('dirty.txt' not in files and 'build.cache' not in files,
+      'a file that was dirty and not touched, and an ignored file, do not count')
+check(not syn.snap_path('unit0001', call).exists(), 'the snapshot is gone after the comparison')
+sh_git(bash_repo, 'add', '-A')
+sh_git(bash_repo, 'commit', '-q', '-m', 'all')
+syn.save(syn.snap_path('unit0002', call), {'root': str(bash_repo), 'files': {'dirty.txt': syn.stamp(str(bash_repo / 'dirty.txt'))}})
+check(syn.bash_changed('unit0002', call) == (str(bash_repo), []),
+      'a file that a commit made clean without writing it does not count')
+real_git_raw = syn.git_raw
+
+
+def slow_git(*args, **kwargs):
+    raise subprocess.TimeoutExpired('git', 1)
+
+
+syn.git_raw = slow_git
+check(syn.dirty_files(str(bash_repo)) is None, 'git status that does not answer in time gives no snapshot, no error')
+syn.save(syn.snap_path('unit0003', call), {'root': str(bash_repo), 'files': {}})
+check(syn.bash_changed('unit0003', call) is None, 'and no comparison after the command either')
+syn.git_raw = real_git_raw
+check(syn.dirty_files(str(TMP / 'not-there')) is None, 'a folder that is no repo gives no snapshot')
+syn.save(syn.snap_path('unit0004', call), ['not', 'a', 'snapshot'])
+check(syn.bash_changed('unit0004', call) is None, 'a damaged snapshot is no comparison')
+
 check(callable(syn.dispatch) and callable(syn.main), 'main() and dispatch() exist')
 
 print(f"\nunits: {'all green' if not failures else str(len(failures)) + ' failed: ' + ', '.join(failures)}")

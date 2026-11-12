@@ -898,6 +898,33 @@ check "$(hook sam PreToolUse "$(edit sam33333 "$T/sam-demo" "$T/sam-demo/src/lib
 out=$(from_session sam33333 as_user sam "$PY" "$SYN" claim "$T/sam-demo/src/lib/util.ts" 2>&1) && fail 'claimed twice' "$out" \
   || check "$out" 'Alex has claimed src/lib/ already' 'what another session claimed cannot be claimed again'
 check "$(hook sam UserPromptSubmit "$(session sam33333 "$T/sam-demo")")" '(claimed: src/claimed.ts, src/lib/)' 'the picture shows the claims'
+# Edits through Bash: a shell command cannot be asked about beforehand; after it, the files it changed count like edits
+# (file list), and a claimed one is told to the session. Files that were dirty before and untouched do not count.
+bash_id() { echo "{\"session_id\":\"$1\",\"cwd\":\"$2\",\"tool_use_id\":\"$3\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"true\"}}"; }
+files_of() { "$PY" -c 'import json,sys; sys.stdout.write("\n".join(json.load(open(sys.argv[1]))["sessions"][sys.argv[2]]["repos"]["acme/demo"]["files"]))' "$T/home-$1/status.json" "$2"; }
+echo 'out.cache' >> "$T/sam-demo/.git/info/exclude"
+echo x > "$T/sam-demo/src/old.ts"; echo a > "$T/sam-demo/src/again.ts"; echo a > "$T/sam-demo/src/gone.ts"
+hook sam PreToolUse "$(bash_id sam77777 "$T/sam-demo" toolu_sh1)" >/dev/null
+echo changed > "$T/sam-demo/src/claimed.ts"; echo 'more text' >> "$T/sam-demo/src/again.ts"; rm "$T/sam-demo/src/gone.ts"
+echo x > "$T/sam-demo/src/mü ller.ts"; echo x > "$T/sam-demo/out.cache"; git -C "$T/sam-demo" mv src/a.ts src/a2.ts
+out=$(hook sam PostToolUse "$(bash_id sam77777 "$T/sam-demo" toolu_sh1)")
+check "$out" 'Alex has claimed src/claimed.ts in demo; a shell command changed it' 'a claimed file that a shell command changed is told to the session afterwards'
+lacks "$out" 'src/again.ts;' 'a file nobody claimed gets no such note'
+files=$(files_of sam sam77777 | crlf_safe)
+check "$files" 'src/claimed.ts' 'a file written by a shell command counts as edited'
+check "$files" 'src/mü ller.ts' 'also one with a space and an accent'
+check "$files" 'src/again.ts' 'a file that was dirty before and written again counts'
+check "$files" 'src/gone.ts' 'a file that the command deleted counts'
+check "$files" 'src/a2.ts' 'a renamed file counts with its new name'
+check "$files" 'src/a.ts' 'and with its old one'
+lacks "$files" 'src/old.ts' 'a file that was dirty before and not touched does not count'
+lacks "$files" 'out.cache' 'an ignored file does not count'
+[ -z "$(ls "$T/home-sam/snaps" 2>/dev/null)" ] && ok 'the snapshot is removed after the call' || fail 'snapshot left' "$(ls "$T/home-sam/snaps")"
+git -C "$T/sam-demo" mv src/a2.ts src/a.ts; rm -f "$T/sam-demo/src/old.ts" "$T/sam-demo/src/again.ts" "$T/sam-demo/src/mü ller.ts" "$T/sam-demo/out.cache"
+git -C "$T/sam-demo" checkout -q -- src/claimed.ts 2>/dev/null || rm -f "$T/sam-demo/src/claimed.ts"
+hook sam SessionEnd "$(session sam77777 "$T/sam-demo")" >/dev/null
+out=$(hook sam PostToolUse "$(bash_id sam77777 "$T/plain" toolu_sh2)")
+[ -z "$out" ] && ok 'a Bash call without a snapshot (not in a repo of the team) says nothing' || fail 'Bash without snapshot' "$out"
 from_session sam55555 as_user sam "$PY" "$SYN" claim "$T/sam-demo/src/own.ts" >/dev/null
 check "$(hook sam PreToolUse "$(edit sam33333 "$T/sam-demo" "$T/sam-demo/src/own.ts")")" 'Your other session has claimed src/own.ts' 'a claim of an own other session is asked about too'
 check "$(from_session ale11111 as_user alex "$PY" "$SYN" claim --release)" 'Released all claims' 'Alex releases the claims'
