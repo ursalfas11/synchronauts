@@ -2573,7 +2573,12 @@ def snapshot(root):
     tmp = HOME / f'.index.{os.getpid()}'
     try:
         if index.exists():
+            st = index.stat()
             tmp.write_bytes(index.read_bytes())
+            # with the times of the index: git takes a file for unchanged when its time and size are those of its
+            # entry, unless the entry is as young as the index. A copy with the time of now would hide an edit made
+            # in the second of the last `git add` or commit that left the size as it was
+            os.utime(tmp, ns=(st.st_atime_ns, st.st_mtime_ns))
         env = {'GIT_INDEX_FILE': str(tmp)}
         git('add', '-A', cwd=root, timeout=60, env=env)
         tree = git('write-tree', cwd=root, timeout=20, env=env)
