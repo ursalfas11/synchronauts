@@ -988,6 +988,24 @@ snap = syn.snapshot(str(work))
 check(syn.unpushed(str(work), tip, snap) == {'Ü.md', 'new.md'},
       'what a checkout has not pushed: changed and new files against its branch at origin, names as they are',
       str(syn.unpushed(str(work), tip, snap)))
+# an edit in the second of the last commit that leaves the size as it was: git can only tell by the content, which it
+# reads when the entry is as young as the index. The snapshot's copy of the index must keep the index's time for that
+racy = TMP / 'unit-racy'
+subprocess.run(['git', 'init', '-q', '-b', 'main', str(racy)], check=True, capture_output=True)
+(racy / 'a.md').write_text('one\n', encoding='utf-8')
+at = int(time.time()) - 100
+os.utime(racy / 'a.md', (at, at))
+subprocess.run(['git', '-C', str(racy), 'add', '-A'], check=True, capture_output=True)
+subprocess.run(['git', '-C', str(racy), '-c', 'user.name=t', '-c', 'user.email=t@example.com', 'commit', '-q', '-m', 'base'],
+               check=True, capture_output=True)
+os.utime(racy / '.git' / 'index', (at, at))
+(racy / 'a.md').write_text('two\n', encoding='utf-8')
+os.utime(racy / 'a.md', (at, at))
+racy_head = syn.git('rev-parse', 'HEAD', cwd=racy)
+racy_snap = syn.snapshot(str(racy))
+check(racy_snap != racy_head and syn.git('show', f'{racy_snap}:a.md', cwd=racy) == 'two',
+      'a snapshot holds an edit made in the second of the last commit that left the size as it was',
+      f'{racy_snap} {racy_head}')
 check(syn.unpushed(str(work), tip, tip) == set() and syn.unpushed(str(work), None, snap) is None
       and syn.unpushed(str(work), '0' * 40, snap) is None,
       'nothing when all is pushed, and no answer for a branch that was never pushed')
