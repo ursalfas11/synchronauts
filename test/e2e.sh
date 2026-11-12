@@ -146,7 +146,22 @@ solo() { echo "$2" | SYN_REMOTE= SYN_ME= SYN_NAME= SYN_MACHINE= SYN_HOME="$T/hom
 git -C "$T/sam-demo" worktree add -q -b feature "$T/sam-demo-wt"
 git init -q -b main "$T/plain" && git -C "$T/plain" -c user.name=test -c user.email=test@example.com commit -q --allow-empty -m init
 out=$(solo SessionStart '{"session_id":"solo0000","cwd":"/"}')
-[ -z "$out" ] && ok 'without a room, a session start outside Git repos stays silent' || fail 'solo start' "$out"
+check "$out" '"systemMessage": "Synchronauts [0-9.]* is on' 'the first session start after the install tells the human that it is on'
+lacks "$out" 'additionalContext' 'and none of it goes to Claude'
+out=$(solo SessionStart '{"session_id":"solo0000","cwd":"/"}')
+[ -z "$out" ] && ok 'after that, a session start outside Git repos stays silent without a room' || fail 'solo start' "$out"
+# A Python that does not start (missing, the Windows store's placeholder) or is too old for syn.py: the session start
+# says so to the human and ends with 0, the other hooks of an old Python stay quiet
+start_cmd=$("$PY" -c 'import json,sys; sys.stdout.write(json.load(open(sys.argv[1], encoding="utf-8"))["hooks"]["SessionStart"][0]["hooks"][0]["command"])' "$ROOT/hooks/hooks.json")
+out=$(CLAUDE_PLUGIN_ROOT="$T/no-plugin" sh -c "$start_cmd" 2>/dev/null </dev/null | crlf_safe) || fail 'the fallback of the session start' "$out"
+check "$out" '^{"systemMessage": "Synchronauts is off: Python did not start' 'a session start whose Python does not start says so to the human'
+old_python() { "$PY" -c 'import sys
+path, event = sys.argv[1:3]
+sys.version_info, sys.argv = (3, 8, 10, "final", 0), ["hook.py", event]
+exec(compile(open(path, encoding="utf-8").read(), path, "exec"))' "$HOOK" "$1" </dev/null | crlf_safe; }
+out=$(old_python SessionStart) || fail 'the session start under an old Python' "$out"
+check "$out" '^{"systemMessage": "Synchronauts is off: it needs Python 3.9 or newer, this is Python 3.8."}$' 'under a Python older than 3.9 the session start names the version it found'
+out=$(old_python PreToolUse) && [ -z "$out" ] && ok 'and the other hooks stay quiet there' || fail 'a hook under an old Python' "$out"
 solo PostToolUse "$(edit solo1111 "$T/sam-demo" "$T/sam-demo/src/a.ts")" >/dev/null
 SECONDS_BEFORE=$SECONDS; out=$(solo SessionStart "$(session solo2222 "$T/sam-demo-wt")")
 [ $((SECONDS - SECONDS_BEFORE)) -lt 5 ] && ok 'without a room the session start waits for no watcher (none runs)' || fail 'solo SessionStart waits'
@@ -175,6 +190,10 @@ check "$out" 'systemMessage' 'and the human sees it too'
 git -C "$T/sam-demo" checkout -q -- src/a.ts; git -C "$T/sam-demo-wt" checkout -q -- src/a.ts
 out=$(SYN_REMOTE= SYN_HOME="$T/home-solo" "$PY" "$SYN" send alex hello 2>&1) && fail 'send without a room' "$out" \
   || check "$out" 'needs a room' 'send without a room explains itself'
+
+# Setup says what to do instead of git's words when the name is no repo (no gh, no access: units.py)
+out=$(SYN_REMOTE= SYN_HOME="$T/home-noroom" SYN_ME=new-gh SYN_NAME=New SYN_MACHINE=one "$PY" "$SYN" setup "$T/no room" 2>&1) \
+  && fail 'setup with a name that is no repo' "$out" || check "$out" 'is no Git repo: name the room as owner/repo' 'setup with a name that is no repo says how to name a room'
 
 # Joining with an open invitation: setup accepts it, nobody has to click it on GitHub first. gh and GitHub are
 # faked; Windows starts no shell script as gh, so this runs on macOS and Linux only
@@ -208,7 +227,7 @@ esac
 EOF
   invited() { echo "$2" | PATH="$T/bin:$PATH" SYN_INVITES= SYN_REMOTE= SYN_ME= SYN_NAME=Kim SYN_MACHINE= SYN_HOME="$T/home-invited" "$PY" "$HOOK" "$1"; }
   out=$(invited SessionStart "$(session inv11111 "$T/plain")")
-  lacks "$out" 'invited' 'the session start itself does not wait for GitHub'
+  lacks "$out" 'invited this' 'the session start itself does not wait for GitHub'
   until_ok 15 'the look for invitations runs in the background' test -s "$T/home-invited/invites.json"
   out=$(invited UserPromptSubmit "$(session inv11111 "$T/plain")")
   check "$out" '@lee-gh invited this GitHub account to the Synchronauts room lee-gh/room' 'the next prompt tells Claude who invites to which room'

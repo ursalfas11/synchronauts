@@ -207,6 +207,14 @@ This file is in English only; the README and the guide exist in English and Germ
 
 ### Changed
 
+- The install is one command, `claude plugin install synchronauts --marketplace ursalfas11/synchronauts` (Claude Code
+  2.1.292 or newer; the guide keeps the two commands for an older one), and the first session start after it tells
+  you in one line that Synchronauts is on and what a team does next. The line is for you, Claude gets none of it. If
+  Python does not start or is older than 3.9, the session start says that instead of failing without a word.
+- `setup` names the next step where it used to print git's words: without the GitHub CLI it says to install it and
+  to log in, a room that is missing or that your account may not read gets the command its owner invites you with
+  (GitHub answers "not found" for both), a git that cannot log in to GitHub gets `gh auth setup-git`, and a name that
+  is no repo is told how a room is named.
 - The README's Start section works as written: it names what you need, says to restart Claude Code and that
   `~/.synchronauts/syn` exists once a session has started, shows the line that invites a teammate, and says in three
   sentences what the room sees. Commands carry their full path, and a line says that the project is not affiliated

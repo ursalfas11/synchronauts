@@ -44,11 +44,10 @@ Eine Nachricht weckt eine Session, die nach ihrem Zug wartet. Claude Code zeigt 
 Du brauchst Claude Code, Python 3.9 oder neuer und `git`; fürs Team außerdem die GitHub-CLI `gh`, angemeldet. Es läuft auf macOS, Linux und Windows (mit Git for Windows). Die Einzelheiten stehen in der [Anleitung](docs/guide.de.md#schnellstart).
 
 ```sh
-claude plugin marketplace add ursalfas11/synchronauts
-claude plugin install synchronauts@synchronauts
+claude plugin install synchronauts --marketplace ursalfas11/synchronauts
 ```
 
-Danach Claude Code neu starten. Allein war's das schon: Deine eigenen Sessions und Worktrees sehen einander, und nichts verlässt den Rechner. Fürs Team sagst du zu Claude:
+Danach Claude Code neu starten; der erste Sessionstart meldet, dass Synchronauts läuft. Allein war's das schon: Deine eigenen Sessions und Worktrees sehen einander, und nichts verlässt den Rechner. Fürs Team sagst du zu Claude:
 
 > Richte Synchronauts mit dem Raum du/agents-room ein und lade alex ein.
 

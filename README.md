@@ -44,11 +44,10 @@ A message wakes a session that is waiting after its turn. Claude Code shows "Sto
 You need Claude Code, Python 3.9 or newer and `git`; for a team also the GitHub CLI `gh`, logged in. It runs on macOS, Linux and Windows (with Git for Windows). The [guide](docs/guide.md#quick-start) has the details.
 
 ```sh
-claude plugin marketplace add ursalfas11/synchronauts
-claude plugin install synchronauts@synchronauts
+claude plugin install synchronauts --marketplace ursalfas11/synchronauts
 ```
 
-Then restart Claude Code. Alone, that's it: your own sessions and worktrees see each other, and nothing leaves the machine. For a team, tell Claude:
+Then restart Claude Code; the first session start tells you that Synchronauts is on. Alone, that's it: your own sessions and worktrees see each other, and nothing leaves the machine. For a team, tell Claude:
 
 > Set up Synchronauts with the room you/agents-room and invite alex.
 
