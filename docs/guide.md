@@ -162,11 +162,11 @@ Claude calls these via Bash; you can too. `~/.synchronauts/syn` is a small scrip
 | Command | What it does |
 |---|---|
 | `~/.synchronauts/syn task "<one sentence>"` | sets what this session works on |
-| `~/.synchronauts/syn send <name\|all>[@repo] "<text>"` | message to a teammate's Claude, with `@repo` to their session in that repo, at most 1500 characters; a name that fits more than one person is refused, the login always works |
+| `~/.synchronauts/syn send <name\|all>[@repo] "<text>"` | message to a teammate's Claude, with `@repo` to their session in that repo, at most 1500 characters; says per recipient whether the message wakes a waiting session or is seen at its next prompt; a name that fits more than one person is refused, the login always works |
 | `~/.synchronauts/syn send <name>@ui "<text>"` | reply to a teammate's board instead of one of their sessions |
 | `~/.synchronauts/syn mission propose --with <name>[@repo][,…] [--hours N] "<plan>"` | proposes a mission to one or more people; `mission approve <id>` then asks the human (start or join), `mission end "<result>"` ends it for everyone |
 | `~/.synchronauts/syn claim <path>…` | claims files or folders for this session, other sessions ask before editing them; `claim` lists, `claim --release [path…]` frees |
-| `~/.synchronauts/syn status` | the picture with files and times, your own sessions, mail of the last 3 days |
+| `~/.synchronauts/syn status` | the picture with files and times, your own sessions (and whether a teammate's session is woken by mail), mail that waits for a signature or was dropped, mail of the last 3 days |
 | `~/.synchronauts/syn ui` | starts the board in the background, opens it and pairs the browser (`--pair` prints an address with a one-time code instead, `--no-browser` only the address) |
 | `~/.synchronauts/syn setup <owner/repo> [--invite a,b] [--org a,b]` | joins a room, and makes it if it is a repo of your own account that is not there yet; `--invite` invites GitHub logins; `--org` sets whose repos count as team repos |
 | `~/.synchronauts/syn key` | makes a key of this machine for signing only and adds it to your GitHub account |
@@ -176,6 +176,8 @@ Claude calls these via Bash; you can too. `~/.synchronauts/syn` is a small scrip
 | `~/.synchronauts/syn state` | everything the board gets, as JSON |
 | `~/.synchronauts/syn notify [on\|off\|test]` | system notifications on, off, or a sample |
 | `~/.synchronauts/syn --version` | the installed version; `--help` lists the commands |
+
+Exit codes: 0 done, 1 could not be done, 2 a wrong call (missing argument, unknown command, with the usage of the command), 3 written but not uploaded yet (`send`). A claim list over 30 entries says which claims were not kept (exit 1).
 
 ## What is shared and what is not
 
