@@ -155,6 +155,16 @@ This file is in English only; the README and the guide exist in English and Germ
   Before, every hook was off there, so a session could start `claude -p` and have it read `approve.key` or rewrite the
   state. Such a run still reports nothing and gets no notices; `mission approve` is refused in it, since nobody can
   say yes.
+- A login that signed once no longer makes unsigned mail in its name forged for good. `signers.json` keeps the time of
+  each login's last good signature, and unsigned mail counts as forged only in the name of a login that signed within
+  the last 30 days: somebody who moved to a machine without a key shows as unsigned again after that. While another
+  machine of theirs still signs, it stays forged, in a room on GitHub the record of pushes decides before that, and
+  `syn key` gives the machine a key. The price: 30 days after a login's last signature, a forged unsigned message in
+  its name shows as unsigned, not as forged. The notification for forged mail no longer speaks of a signature that
+  does not match, since unsigned mail has none.
+- The keys URL is asked anew at most once per login in ten minutes; before, every message whose signature fitted no
+  cached key asked it again. Until then such a message has no verdict (unsigned, checked again), which does not hold up
+  the sender's other mail.
 
 ### Added
 

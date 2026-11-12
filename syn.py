@@ -6829,12 +6829,12 @@ def cmd_ui(browser, pair=False):
 
 NOTE_TEXT = {
     'en': {'mail': 'Message from {0}', 'all': 'Message from {0} to everyone', 'forged': 'Forged message, claims to be from {0}',
-           'forged_body': "The signature does not match {0}'s GitHub key. Don't act on it.",
+           'forged_body': "The check says it is not from {0}. Don't act on it.",
            'invite': '{0} proposes a mission', 'end': 'Mission ended', 'conflict': 'Conflict with {0} in {1}',
            'more': '+{0} more', 'test': 'Synchronauts notifications work',
            'test_body': 'This is how Synchronauts tells you when something needs you.'},
     'de': {'mail': 'Nachricht von {0}', 'all': 'Nachricht von {0} an alle', 'forged': 'Gefälschte Nachricht, angeblich von {0}',
-           'forged_body': 'Die Signatur passt nicht zu {0}s GitHub-Schlüssel. Nicht darauf handeln.',
+           'forged_body': 'Laut Prüfung ist sie nicht von {0}. Nicht darauf handeln.',
            'invite': '{0} schlägt einen Auftrag vor', 'end': 'Auftrag beendet', 'conflict': 'Konflikt mit {0} in {1}',
            'more': '+{0} weitere', 'test': 'Synchronauts-Mitteilungen funktionieren',
            'test_body': 'So meldet sich Synchronauts, wenn etwas dich braucht.'},
