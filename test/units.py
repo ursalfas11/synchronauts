@@ -390,16 +390,29 @@ check(syn.check_mail(k) == 0 and [n['trust'] for n in syn.mail_to_me(k)] == ['ok
       'once the keys URL answers, the next pass finds their verdicts')
 with syn.Lock('verify'):
     check(syn.check_mail(k) is None, 'while another one checks, check_mail returns at once: setup leaves it to the watcher')
+def aged_keys():
+    """The last question to the keys URL was longer ago than KEYS_GAP, so that a signature no key fits is looked up
+    again (the cached keys stay valid)."""
+    cache = syn.load(HOME / 'keys.json', {})
+    for c in cache.values():
+        for f in ('time', 'asked'):
+            if f in c:
+                c[f] -= syn.KEYS_GAP + 1
+    syn.save(HOME / 'keys.json', cache)
+
+
 # The inbox holds ids. A copy somebody changed later under an id in it is shown before its check as trust_view() finds
 # it without a verdict: forged if it is unsigned in the login of somebody who signs (verify() finds that offline),
 # otherwise unsigned
 unsigned_copy = dict({f: v for f, v in notes[0].items() if f != 'sig'}, text='Changed copy, unsigned')
 signed_copy = dict(notes[1], text='Changed copy, signed with the old signature')
 syn.save(HOME / 'others.json', {'kim-gh/x': branch('kim-gh', [unsigned_copy, signed_copy, notes[2]])})
+aged_keys()
 check([n['trust'] for n in syn.mail_to_me(k)] == ['bad', 'unsigned', 'bad']
       and syn.verify({**unsigned_copy, 'from': 'kim-gh'}, k) == 'bad',
       'a changed copy under an id the inbox has: forged before its check if unsigned in the login of a signer, '
       'otherwise unsigned until its check', str([n['trust'] for n in syn.mail_to_me(k)]))
+aged_keys()
 check(syn.check_mail(k) == 0 and [n['trust'] for n in syn.mail_to_me(k)] == ['bad', 'bad', 'bad'],
       'and the check finds both forged')
 # A signature that could not be checked is no verdict, never a forgery: an ssh-keygen that does not start or does not
@@ -409,17 +422,21 @@ real_keygen = syn.ssh_keygen
 real_note = {**notes[0], 'from': 'kim-gh'}
 del syn.PROBE[:]  # the forged copies above asked it
 syn.ssh_keygen = lambda *args, **kwargs: None
+aged_keys()
 check(syn.verify(real_note, k) == 'unsigned' and syn.PROBE == [],
       'an ssh-keygen that does not answer: a real signed message gets no verdict, it is not forged')
 syn.ssh_keygen = lambda *args, **kwargs: subprocess.CompletedProcess(args, 1, b'', b'unknown option -- Y')
+aged_keys()
 check(syn.verify(real_note, k) == 'unsigned' and syn.PROBE == [False],
       'an ssh-keygen that checks no signature at all: no verdict either', str(syn.PROBE))
+aged_keys()
 c = syn.Checker(k)
 c._go()
 check('checks no signatures' in c.error, 'and the watcher reports it', c.error)
 del syn.PROBE[:]
 syn.ssh_keygen = real_keygen
 check(syn.verify(real_note, k) == 'ok' and syn.PROBE == [], 'a good signature does not ask the probe')
+aged_keys()
 check(syn.verify({**signed_copy, 'from': 'kim-gh'}, k) == 'bad' and syn.PROBE == [True],
       'an ssh-keygen that works says no: forged, as before', str(syn.PROBE))
 # `fetched` is touched last, once the mail is checked: not by a pass that read others.json before a newer fetch
@@ -441,6 +458,7 @@ syn.save(HOME / 'others.json', {'kim-gh/x': branch('kim-gh', [unsigned_copy, sig
 syn.check_mail(k)
 touched = (HOME / 'fetched').exists()
 syn.judge = real_judge
+aged_keys()
 check(not touched and syn.check_mail(k) == 0 and (HOME / 'fetched').exists(),
       'a pass that started before a fetch leaves `fetched` to the next pass, which checks that mail too')
 
@@ -497,6 +515,7 @@ ghost['sig'] = syn.sign(ghost, {'me': 'ghost-gh'})
 del os.environ['SYN_SIGNING_KEY']
 os.environ['SYN_KEYS_URL'] = there
 syn.save(HOME / 'others.json', {'ghost-gh/x': branch('ghost-gh', [ghost])})
+aged_keys()
 check(syn.check_mail(k) == 0 and [n['trust'] for n in syn.mail_to_me(k)] == ['bad'],
       'signed mail under a login the keys URL answers 404 for is forged at once, not asked about again')
 os.environ['SYN_KEYS_URL'] = keys.as_uri() + '/{login}.keys'

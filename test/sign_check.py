@@ -24,6 +24,7 @@ import sys
 import tempfile
 import threading
 import time
+import urllib.request
 from contextlib import redirect_stderr, redirect_stdout
 from datetime import timedelta
 from pathlib import Path
@@ -803,6 +804,121 @@ else:
         close(server, held)
         restore()
 empty_outbox()
+
+# --- who signed lately: signers.json runs out, and the keys URL is asked at most once in ten minutes ------------------------
+restore()
+fake_home('home-signers')
+agents({})
+os.environ['SYN_SIGNING_KEY'] = str(JULE)
+SIGNERS, KEYS = HOME / 'signers.json', HOME / 'keys.json'
+DAY = 86400
+
+
+def forgery(login='jule-gh'):
+    """Unsigned mail in the name of a login, as a branch of the room or another machine without a key writes it."""
+    n = message('Written without a signature.')
+    n['from'] = login
+    return syn.verify(n, K)
+
+
+def aged(days, login='jule-gh'):
+    syn.save(SIGNERS, {login: time.time() - days * DAY})
+
+
+def age():
+    return (time.time() - syn.load(SIGNERS, {})['jule-gh']) / DAY
+
+
+if SIGNERS.exists():
+    SIGNERS.unlink()
+check(forgery() == 'unsigned', 'before a login signed, unsigned mail in its name is only unsigned', forgery())
+check(signed('First good signature.') == 'ok' and forgery() == 'bad' and age() < 0.01,
+      'a good signature puts the login into signers.json with its time, and unsigned mail in its name is forged',
+      syn.load(SIGNERS, None))
+aged(29)
+check(forgery() == 'bad', 'it stays forged within the 30 days: a downgrade to unsigned mail is not for free')
+aged(31)
+check(forgery() == 'unsigned' and 'jule-gh' not in syn.signers_now(),
+      'after 30 days without a good signature the login counts as one who does not sign: a machine of theirs without '
+      'a key is no longer forged')
+check(signed('Back from the holidays.') == 'ok' and age() < 0.01 and forgery() == 'bad',
+      'a good signature renews it, and the next unsigned mail is forged again', syn.load(SIGNERS, None))
+syn.save(SIGNERS, {'jule-gh': time.time() - 600})
+before = syn.load(SIGNERS, {})
+check(signed('Another one, ten minutes later.') == 'ok' and syn.load(SIGNERS, {}) == before,
+      'signers.json is not written for every message: a time renews at most once an hour')
+syn.save(SIGNERS, ['jule-gh', 'Old-Gh', 7])
+check(forgery() == 'bad' and forgery('old-gh') == 'bad'
+      and sorted(syn.load(SIGNERS, {})) == ['Old-Gh', 'jule-gh'] and age() < 0.01
+      and all(isinstance(t, float) for t in syn.load(SIGNERS, {}).values()),
+      'the list of 0.5 counts as signed now, once, and is written out with a time: the 30 days run from there',
+      syn.load(SIGNERS, None))
+syn.save(SIGNERS, {'jule-gh': 'yesterday', 'x': None, 'Old-Gh': time.time() + 400 * DAY})
+check(forgery() == 'unsigned' and syn.signers_now() == set(),
+      'a time that is no number, or one far in the future, counts for nothing')
+SIGNERS.write_text('[[1]', encoding='utf-8')
+check(forgery() == 'unsigned', 'a broken signers.json is no signer')
+SIGNERS.unlink()
+
+# the keys URL: one fresh question per login in ten minutes
+asks, real_open = [], urllib.request.urlopen
+
+
+def counting_open(*args, **kwargs):
+    asks.append(1)
+    return real_open(*args, **kwargs)
+
+
+def push_back(login='jule-gh'):
+    """The last question to the keys URL was KEYS_GAP and a second ago."""
+    cache = syn.load(KEYS, {})
+    cache[login] = {x: v - syn.KEYS_GAP - 1 if isinstance(v, float) else v for x, v in cache[login].items()}
+    syn.save(KEYS, cache)
+
+
+urllib.request.urlopen = counting_open
+if KEYS.exists():
+    KEYS.unlink()
+os.environ['SYN_SIGNING_KEY'] = str(EVIL)  # a key that the keys URL does not list for jule-gh (yet)
+check(signed('First try with the new key.') == 'bad' and len(asks) == 1,
+      'a signature that no key fits asks the keys URL once, not twice: the first look was the fresh one', len(asks))
+n = message('Second try.')
+n.update({'sig': syn.sign(n, K), 'from': 'jule-gh'})
+check(syn.judge(n, K) == ('unsigned', False, 'wait') and len(asks) == 1,
+      'the next one within ten minutes asks nothing and has no verdict yet (a wait, not an outage)',
+      (syn.judge(n, K), len(asks)))
+with (S / 'keys' / 'jule-gh.keys').open('a', encoding='utf-8') as f:
+    f.write(line(EVIL) + '\n')  # the new key is on GitHub now
+check(signed('Third try.') == 'unsigned' and len(asks) == 1,
+      'a key that was just added is not looked for before the ten minutes are over: no verdict, no question', len(asks))
+push_back()
+check(signed('Fourth try.') == 'ok' and len(asks) == 2,
+      'after ten minutes it asks again, finds the new key and the message checks out', len(asks))
+(S / 'keys' / 'jule-gh.keys').write_text(f'{line(JULE)}\n{line(AGKEY)}\n', encoding='utf-8')
+cache = syn.load(KEYS, {})
+cache['jule-gh']['time'] -= 2 * DAY  # a list that is a day old is asked for again at the first look
+syn.save(KEYS, cache)
+asks.clear()
+check(signed('Fifth try.') == 'bad' and len(asks) == 1,
+      'a list that ran out is asked for once, and its answer is final: the key is gone again', len(asks))
+KEYS.unlink()
+
+
+def silent(*args, **kwargs):
+    asks.append(1)
+    raise OSError('no answer')
+
+
+urllib.request.urlopen = silent
+n = message('Nobody answers.')
+n.update({'sig': syn.sign(n, K), 'from': 'jule-gh'})
+asks.clear()
+got = [syn.verify(n, K) for _ in range(3)]
+check(got == ['unsigned'] * 3 and syn.keys_asked('jule-gh') > time.time() - 5,
+      'a question that is not answered is noted as asked, and gives no verdict', (got, len(asks)))
+urllib.request.urlopen = real_open
+os.environ.pop('SYN_SIGNING_KEY')
+restore()
 
 # --- numbers in the environment -----------------------------------------------------------------------------------------
 got = []
