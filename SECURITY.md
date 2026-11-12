@@ -37,8 +37,10 @@ the room ends up in Claude's context.
 
 - **The room is the trust boundary.** Whoever can write to the room repo can write any branch in it, including one named
   after somebody else. A branch name proves nothing.
-- Only a signed mail field is attributable: the sender signs it with an SSH key that the keys URL (GitHub by default)
-  lists for the sender's login. Everything else in a state is presence information that any room member can fake.
+- Only a mail field is attributable, in one of two ways. The sender signs it with an SSH key that the keys URL (GitHub
+  by default) lists for the sender's login; or, in a room on GitHub, GitHub's record of pushes (the repo's activity)
+  shows that the sender's account pushed the commit that holds it. Both rest on the account at GitHub. Everything else
+  in a state is presence information that any room member can fake.
 - The local board listens on 127.0.0.1. Its API needs a key that exists only in the running server and in the browser
   tab that paired with it; a tab pairs with a one-time code from the user's own folder (`ui-pair.json`). Anything that
   runs as the user can read that code, as it can read the SSH keys, and pair with the board.
@@ -46,7 +48,8 @@ the room ends up in Claude's context.
 ### Attackers considered
 
 - A malicious room member: writes branches in other names, forged mail, odd types, huge or hidden-character texts.
-- A room member whose account or SSH key was stolen: signs as its owner until the key is removed from the keys URL.
+- A room member whose account or SSH key was stolen: signs as its owner until the key is removed from the keys URL,
+  and with the login for GitHub pushes as its owner.
 - Another user on the same machine (port, files).
 - A website in the user's browser against the board (CSRF, DNS rebinding).
 - The network between the machine and the Git host or the keys URL.
@@ -91,6 +94,7 @@ each with a line of its own (see Not protected).
 
 | Threat | Behaviour before 0.6 | Behaviour in 0.6 | Residual risk |
 |---|---|---|---|
+| Mail from somebody without a key, and forged mail in their name | unsigned mail could not be told from forged mail, so everybody needed an SSH key on GitHub, and a second machine without one made its owner's mail show as forged | in a room on GitHub the record of pushes names the account behind every push, forced ones too: mail without a signature is the sender's when that account pushed the commit it was read from, and forged when another account did; the warning names that account. An old commit of the sender that somebody else pushed back counts as the sender's, like a copy of a signed message | an account that GitHub does not show the record to checks signatures only (setup says so); a record that answers late leaves mail unsigned until it does; whoever has the sender's login for GitHub pushes as the sender |
 | Mission hijack: a branch in the room defines, changes or ends a mission, or fakes a join | the `missions` field of any branch counted; unsigned joins and ends counted | a mission exists only as far as signed mail proves it: people and end time are signed in the invite, joins, ends and work messages count only as signed mail of the mission's people; the field is gone from `state.json` | A person of the mission can sign harmful instructions within the plan (see Not protected) |
 | Mission close text: a forged proposal makes Claude "do what the proposal says" | any message of kind invite got the instruction | only a live, signed proposal from its proposer to a person of its crew does (tell the human the plan and run the approve command), and the instruction adds that nothing the plan asks for comes before the yes; everything else is information that cannot be joined | any room member can sign a proposal of their own with you in the crew and get that instruction; its plan is that member's text, untrusted until you approve it |
 | Playing a signed mission message back in another room | no room in the signature | `room` is signed; another room's id shows as forged, mission mail without it does not count | rooms that really share one repo |
@@ -134,6 +138,11 @@ each with a line of its own (see Not protected).
 ### Known limits
 
 Things that work as designed or as far as tested, so that nobody counts on more than there is:
+
+- The check of unsigned mail against GitHub's record of pushes has been measured with the owner of a room: a push,
+  forced or not, was in the record within two seconds, with the right account. Whether GitHub shows the record of a
+  private room to an invited member is not tested yet; where it does not, setup says "Not signed yet" and names
+  `syn key`.
 
 - Look-alike names and logins are caught only by a best-effort table (case, accents, common Cyrillic and Greek
   letters, 1/l/I, 0/o, rn/m, vv/w); other look-alikes are not marked.
