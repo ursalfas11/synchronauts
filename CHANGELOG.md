@@ -213,6 +213,13 @@ This file is in English only; the README and the guide exist in English and Germ
   else, and prints what is still yours to do (`claude plugin uninstall synchronauts`, the key on GitHub). Both ask in
   a terminal and need `--yes` elsewhere, and Claude Code asks before a Bash call of either.
 
+- The room cleans itself up. A machine deletes the branches of its own login that no machine pushed to for 30 days
+  (at setup and when the watcher starts; a machine that comes back simply pushes again), and never a branch of
+  somebody else. Branches of other people that old no longer take part in the names, the look-alike check or the
+  picture. When the room has more than 300 branches, those of the own login are read first, and the watcher reports
+  how many were not read (`status`, the board) instead of dropping the logins late in the alphabet without a word. The
+  room's git folder on each machine prunes the loose objects of every push after an hour, not after two weeks.
+
 ### Changed
 
 - The README's Start section works as written: it names what you need, says to restart Claude Code and that
@@ -255,8 +262,9 @@ This file is in English only; the README and the guide exist in English and Germ
 - `status` says when no room is set up, and shows mail that waits in the outbox for a signature and mail that was
   dropped in the last 3 days; `syn state` carries both as `outbox`.
 - Exit codes: 2 for a wrong call (a missing argument, an unknown command, a value that is not allowed), with the usage
-  of that command instead of the list of all, and 3 for `send` when the message is written but not uploaded yet; 1
-  stays for a call that could not be done. `--help` lists them.
+  of that command instead of the list of all, also before a room or a session is looked at, and 3 for `send` and
+  `mission end` when the message is written but not uploaded yet; 1 stays for a call that could not be done. `--help`
+  lists them.
 - `claim` refuses a claim over the 30 a session may hold in a repo and says which ones, with exit code 1; it used to
   cut the list in alphabetical order without a word, which could drop a claim that was there. A task noted with `task`
   outside a session is taken only by a Bash hook in the same folder within 10 seconds, no longer by whichever session

@@ -323,7 +323,9 @@ check "$out" 'Unknown command: bogus. Commands: status' 'an unknown command says
 [ $rc = 2 ] && ok 'and ends with exit code 2, a wrong call' || fail "unknown command: exit $rc" "$out"
 # a missing argument says what is missing and the usage of that command, also before a room is looked at
 for call in 'send|name and the text is missing. Usage: send <name|all>' 'send alex|text is missing. Usage: send <name|all>' \
-    'task|sentence is missing. Usage: task "<one sentence>"' 'notify maybe|Usage: notify \[on|off|test\]'; do
+    'task|sentence is missing. Usage: task "<one sentence>"' 'notify maybe|Usage: notify \[on|off|test\]' \
+    'rooms bogus|Usage: rooms \[--refresh\]' 'mission bogus|Usage: mission propose' 'mission end|Usage: mission propose' \
+    'mission approve|Usage: mission propose'; do
   rc=0; out=$(SYN_HOME="$T/home-solo" SYN_REMOTE= "$PY" "$SYN" ${call%%|*} 2>&1) || rc=$?
   { [ $rc = 2 ] && grep -q -- "${call#*|}" <<<"$out"; } && ok "exit code 2 and the usage for: ${call%%|*}" || fail "wrong call: ${call%%|*} (exit $rc)" "$out"
 done
@@ -432,6 +434,52 @@ lacks "$(cat "$T/home-b3/errors.json" 2>/dev/null)" 'verifying' 'the check repor
 git -C "$T/b3room.git" update-ref -d refs/heads/syn/slow-gh/one
 stop "$("$PY" -c 'import json,sys; sys.stdout.write(str(json.load(open(sys.argv[1]))["pid"]))' "$T/home-b3/watcher.json")"
 touch "$T/slowkeys/stop"; wait "$SLOWKEYS" || fail 'the keys server ended with an error'  # no other test asks it
+fi
+
+# The room is cleaned up (#8). cleanup_check.py: from branches with a commit date of our own choosing, the dead branches
+# of my own login are deleted in the room (only at the commit found dead, a failure is ignored), those of others are
+# left out of the state, the cut over MAX_BRANCHES keeps the live ones and is reported, the gc settings. Then in a room of
+# its own: setup deletes Jule's dead branch of another machine, the watcher does it at its start and sets the gc settings
+# of an old room, 301 branches make the watcher report the cut in errors.json until they are gone
+if block b 'room cleanup: dead branches, the cut at 300 branches, git settings against loose objects'; then
+"$PY" "$ROOT/test/cleanup_check.py" "$ROOT" "$T" | crlf_safe
+git init -q --bare "$T/b9room.git"
+b9() { SYN_REMOTE="$T/b9room.git" SYN_HOME="$T/home-b9" SYN_ME=jule-gh SYN_NAME=Jule SYN_MACHINE=one SYN_SIGNING_KEY="$T/jule-key" "$@"; }
+b9room() { git -C "$T/b9room.git" "$@"; }
+b9gc() { git -C "$T/home-b9/git" config "$@"; }
+b9forge() { FORGE_REMOTE="$T/b9room.git" forge "$@"; }
+b9dead() { GIT_COMMITTER_DATE='2020-01-01T00:00:00 +0000' GIT_AUTHOR_DATE='2020-01-01T00:00:00 +0000' b9forge "$@"; }
+b9dead old names jule-gh; b9dead dead names alex-gh
+b9forge phone names jule-gh; b9forge live names alex-gh
+b9 "$PY" "$SYN" setup >/dev/null
+[ -z "$(b9room for-each-ref refs/heads/syn/jule-gh/old)" ] && ok "setup deletes Jule's dead branch of another machine in the room" \
+  || fail "Jule's dead branch is still in the room" "$(b9room for-each-ref)"
+[ -n "$(b9room for-each-ref refs/heads/syn/jule-gh/phone)" ] && [ -n "$(b9room for-each-ref refs/heads/syn/jule-gh/one)" ] \
+  && [ -n "$(b9room for-each-ref refs/heads/syn/alex-gh/dead)" ] \
+  && ok "her live branch, the branch of this machine and Alex's dead one stay" || fail 'setup deleted too much' "$(b9room for-each-ref)"
+others=$(crlf_safe < "$T/home-b9/others.json")
+check "$others" 'alex-gh/live' "Alex's live branch is in the state"
+lacks "$others" 'alex-gh/dead' "Alex's dead branch is not: it takes no part in the names and no poll reads it"
+check "$(b9gc gc.pruneExpire | crlf_safe)" '1.hour.ago' "setup sets gc.pruneExpire in the room's git folder"
+# an old room has none of it: the watcher sets the settings and deletes the next dead branch at its start
+b9gc --unset gc.pruneExpire; b9gc --unset gc.autoDetach
+b9dead old2 names jule-gh
+session b9000000 "$T" | b9 "$PY" "$HOOK" SessionStart >/dev/null
+old2_gone() { [ -z "$(b9room for-each-ref refs/heads/syn/jule-gh/old2)" ]; }
+gc_set() { [ "$(b9gc gc.autoDetach | crlf_safe)" = false ]; }
+until_ok 15 "the watcher deletes Jule's next dead branch at its start" old2_gone
+until_ok 15 'and sets the gc settings of an old room' gc_set
+# 301 branches in the room: the watcher reports the cut, in the error text that `status` shows
+tip=$(FORGE_REMOTE="$T/b9room.git" forged names zbulk-gh)
+"$PY" -c 'import sys; sys.stdout.write("".join(f"create refs/heads/syn/zbulk-gh/m{i:03d} {sys.argv[1]}\n" for i in range(301)))' "$tip" | crlf_safe | b9room update-ref --stdin
+cut_reported() { grep -q 'more than 300 branches' "$T/home-b9/errors.json"; }
+until_ok 30 'with more than 300 branches the watcher reports that some are not read' cut_reported
+check "$(crlf_safe < "$T/home-b9/others.json")" 'jule-gh/phone' 'and still reads the branch of the own login, however late in the alphabet the others are'
+"$PY" -c 'import sys; sys.stdout.write("".join(f"delete refs/heads/syn/zbulk-gh/m{i:03d}\n" for i in range(301)))' | crlf_safe | b9room update-ref --stdin
+cut_gone() { ! cut_reported; }
+until_ok 30 'once they are gone the report goes too' cut_gone
+for x in jule-gh/phone alex-gh/dead alex-gh/live; do b9room update-ref -d refs/heads/syn/$x; done
+stop "$("$PY" -c 'import json,sys; sys.stdout.write(str(json.load(open(sys.argv[1]))["pid"]))' "$T/home-b9/watcher.json")"
 fi
 
 # Keys in an ssh-agent or on a security key (S6). sign_check.py: the order in which choose_key() looks (a key file, a
@@ -592,9 +640,10 @@ sys.exit(not [n for n in json.load(open(sys.argv[1])) if n.get("mission") == sys
 
   # Jule ends the mission while her agent hangs: it ends on her machine at once, the end waits for her key
   point "$S6S/stuck.sock"; S6SOCK="$S6S/stuck.sock"
-  out=$(SYN_SIGN_WAIT=1 from_session s6j11111 s6 jule "$PY" "$SYN" mission end 'The price import is in, Kim reviewed it.' 2>&1)
+  rc=0; out=$(SYN_SIGN_WAIT=1 from_session s6j11111 s6 jule "$PY" "$SYN" mission end 'The price import is in, Kim reviewed it.' 2>&1) || rc=$?
   check "$out" "Mission $S6MID ended here" "${S6_CHECKS[27]}"
   check "$out" 'the others learn it once it signs' "${S6_CHECKS[28]}"
+  [ $rc = 3 ] || fail "mission end whose end waits for the key: exit $rc, not 3 (written, not out yet)" "$out"
   jule_free() { s6 jule "$PY" -c 'import sys; sys.path.insert(0, sys.argv[1]); import syn
 sys.exit(syn.my_mission(syn.config(), sys.argv[2]) is not None)' "$ROOT" s6j11111; }
   jule_free && ok "${S6_CHECKS[29]}" || fail "${S6_CHECKS[29]}" "$(cat "$T/home-s6j/missions.json")"

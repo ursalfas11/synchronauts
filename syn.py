@@ -66,6 +66,15 @@ PREFIX = 'syn/'                     # branch namespace in the room
 ACTIVE = timedelta(hours=3)         # a session without a sign of life counts as active this long
 MAIL_WINDOW = timedelta(hours=24)   # mail this old that no session has shown yet still reaches a new session
 MAIL_KEEP = timedelta(days=7)       # sent mail stays in the own branch this long
+# A branch whose last push is this old is dead: more than MAIL_KEEP, so its mail is out of date as well (mail_copies).
+# Its owner's other machines delete it, everybody else leaves it out of the room (name table, polls) and a machine
+# that comes back simply pushes its branch again. The commit date is the activity: state.json keeps no time of its own
+# that outlives MAIL_KEEP.
+STALE = timedelta(days=30)
+# What keeps the three loose objects of every push from piling up in the room's git folder: the objects are not
+# reachable from any local ref once pushed, so `gc --auto` removes them after the grace time. An hour is long past any
+# publish() or fetch() that still needs them; no detached gc, it runs inside the fetch that started it, under the lock.
+GIT_CONFIG = (('gc.pruneExpire', '1.hour.ago'), ('gc.auto', '500'), ('gc.autoDetach', 'false'))
 TICK = setting('SYN_TICK', 0.0)  # seconds between two polls; 0 = 5 on GitHub, otherwise 20
 IDLE = setting('SYN_IDLE', 900.0)  # the watcher keeps running this long without a sign of life
 # A session is only woken up to this long after its last step. With a one-hour cache its context is still in the
@@ -115,7 +124,7 @@ SHA_RE = r'[0-9a-f]{40,64}'
 ROOM_RE = r'[\w.:/@~-]{1,200}'     # the id of a room in signed mail, see room_id()
 STATES = ('working', 'approval', 'waiting', 'error')
 MAX_STATE = 512 * 1024              # bytes of one state.json; a bigger one is left out
-MAX_BRANCHES = 300
+MAX_BRANCHES = 300                  # branches of the room that are read; the rest is reported (fetch_branches)
 PATH_MAX = 240                      # characters of a file or claim name from someone else's state
 # one pattern for hidden characters, written with escapes so nobody has to see them in the source: soft hyphen,
 # combining grapheme joiner, Arabic letter mark, the Hangul fillers (letters for \w that show as nothing, so a name
@@ -511,6 +520,7 @@ def setup(k, derive=True, agents=True):
             git('config', 'remote.origin.url', k['remote'])
         else:
             git('remote', 'set-url', 'origin', k['remote'])
+        tune_git()
         accepted = False
         try:
             listing = ls_remote()  # without access this fails clearly
@@ -537,7 +547,7 @@ def setup(k, derive=True, agents=True):
             if f in new:
                 k[f] = new[f]
         publish(k)
-        fetch(k, listing)
+        fetch(k, listing, prune=True)
     # the mail is checked before a hook sees it, outside the git lock as well; while the watcher checks it, setup
     # leaves that to the watcher
     check_mail(k)
@@ -548,6 +558,16 @@ def setup(k, derive=True, agents=True):
             pass
     link(always=True)
     return accepted
+
+
+def tune_git():
+    """GIT_CONFIG into the room's git folder, in a new one and in an old one. Only under Lock('git'); a failure is
+    ignored, the objects then wait for the usual two weeks."""
+    for key, value in GIT_CONFIG:
+        try:
+            git('config', key, value)
+        except RuntimeError:
+            pass
 
 
 def link(always):
@@ -926,11 +946,30 @@ def drop_refs(refs):
                 pass
 
 
+def branch_dates():
+    """{ref: (sha, time of the commit)} of the local copies of the others' branches, the time as a Unix time; 0 for
+    what is no commit or has no date, which counts as old."""
+    dates = {}
+    for row in git('for-each-ref', '--format=%(objectname) %(committerdate:unix) %(refname)', IN_REFS,
+                   OLD_REFS).splitlines():
+        sha, t, ref = row.split(' ', 2)
+        dates[ref] = (sha, int(t) if t.isdigit() else 0)
+    return dates
+
+
+def dead(t):
+    """Whether a branch whose commit has the Unix time t is dead, see STALE."""
+    return now().timestamp() - t > STALE.total_seconds()
+
+
 def fetch_branches(k, listing=None):
-    """[(who, ref)] of the other branches syn/<who> in the room, each fetched into its own ref (branch_ref) when it
-    changed; a branch deleted in the meantime keeps its last ref until the next fetch. The refs of branches that are
-    gone are deleted, and so are those of 0.5 (refs/remotes/origin/syn/). listing: the room's branches as `<ref> <sha>`
-    lines if the caller has just listed them (setup, the watcher's Poller), otherwise ls_remote()."""
+    """([(who, ref)], note) of the other branches syn/<who> in the room, each fetched into its own ref (branch_ref)
+    when it changed; a branch deleted in the meantime keeps its last ref until the next fetch. The refs of branches
+    that are gone are deleted, and so are those of 0.5 (refs/remotes/origin/syn/). Over MAX_BRANCHES the branches of
+    my own login come first, then the live ones, then the dead ones known from an earlier fetch (the listing has no
+    dates), each in alphabetical order; the note says how many live ones were left out, '' if none. listing: the room's
+    branches as `<ref> <sha>` lines if the caller has just listed them (setup, the watcher's Poller), otherwise
+    ls_remote()."""
     found, own = {}, own_branch(k)[len(PREFIX):]
     for row in ls_remote() if listing is None else listing:
         ref, _, sha = str(row).partition(' ')
@@ -938,22 +977,49 @@ def fetch_branches(k, listing=None):
         login, _, machine = who.partition('/')
         if fits(SHA_RE, sha) and fits(LOGIN_RE, login) and fits(MACHINE_RE, machine) and who != own:
             found[who] = sha
-    branches = sorted(found)[:MAX_BRANCHES]
-    have = {ref: sha for sha, _, ref in (row.partition(' ') for row in git(
-        'for-each-ref', '--format=%(objectname) %(refname)', IN_REFS, OLD_REFS).splitlines())}
-    gone = fetch_refs([w for w in branches if have.get(branch_ref(w)) != found[w]])
+    have = branch_dates()
+
+    def known_dead(w):  # an earlier fetch read this very commit, and it is old
+        sha, t = have.get(branch_ref(w), ('', now().timestamp()))
+        return sha == found[w] and dead(t)
+
+    order = sorted(found, key=lambda w: (w.partition('/')[0] != k['me'], known_dead(w), w))
+    branches, left = order[:MAX_BRANCHES], [w for w in order[MAX_BRANCHES:] if not known_dead(w)]
+    gone = fetch_refs([w for w in branches if have.get(branch_ref(w), ('',))[0] != found[w]])
     branches = [w for w in branches if w not in gone or branch_ref(w) in have]
     keep = {branch_ref(w) for w in branches}
     drop_refs([ref for ref in have if ref not in keep])
-    return [(w, branch_ref(w)) for w in branches]
+    note = f'the room has more than {MAX_BRANCHES} branches, {len(left)} of them are not read' if left else ''
+    return [(w, branch_ref(w)) for w in branches], note
 
 
-def fetch(k, listing=None):
+def delete_dead(k, branches):
+    """Deletes the branches of mine that no machine pushed to for STALE; branches: [(who, sha)] of those found dead.
+    Only syn/<my login>/<machine> of another machine, and only while it still is at the commit that was found dead
+    (a lease): one that came back in between stays. At most 20 per call; a failure (no right to delete, a protected
+    branch, offline) is ignored, the next start tries again. Only under Lock('git')."""
+    refs = [(f'refs/heads/{PREFIX}{w}', sha) for w, sha in branches
+            if w.partition('/')[0] == k['me'] and w != own_branch(k)[len(PREFIX):] and fits(SHA_RE, sha)][:20]
+    if refs:
+        try:
+            git('push', '-q', '--delete', *(f'--force-with-lease={ref}:{sha}' for ref, sha in refs), 'origin',
+                *(ref for ref, _ in refs), timeout=30)
+        except (RuntimeError, subprocess.TimeoutExpired, OSError):
+            pass
+
+
+def fetch(k, listing=None, prune=False):
     """Fetch the other branches and put their state into others.json, each with the `commit` it was read from;
-    check_mail() then checks the new mail and notes it. listing: see fetch_branches(). Only under Lock('git')."""
-    refs = fetch_branches(k, listing)
-    at = dict(row.split(' ', 1)[::-1] for row in git(
-        'for-each-ref', '--format=%(objectname) %(refname)', IN_REFS).splitlines())
+    check_mail() then checks the new mail and notes it. A dead branch (STALE) is left out; with prune, those of my own
+    login are deleted in the room (delete_dead). Returns the note of fetch_branches() about branches that were not
+    read. listing: see fetch_branches(). Only under Lock('git')."""
+    refs, note = fetch_branches(k, listing)
+    dates = branch_dates()
+    old = [(who, ref) for who, ref in refs if dead(dates.get(ref, ('', 0))[1])]
+    if prune:
+        delete_dead(k, [(who, dates[ref][0]) for who, ref in old if ref in dates])
+    refs = [x for x in refs if x not in old]
+    at = {ref: sha for ref, (sha, _) in dates.items()}
     sizes = git('cat-file', '--batch-check=%(objectsize)', stdin=''.join(f'{r}:state.json\n' for _, r in refs)).splitlines()
     others_ = {}
     for (who, ref), size in zip(refs, sizes):
@@ -970,6 +1036,7 @@ def fetch(k, listing=None):
         if d:
             others_[who] = {**d, 'commit': at[ref]} if fits(SHA_RE, at.get(ref)) else d
     save(HOME / 'others.json', others_)
+    return note
 
 
 def check_mail(k, wait=False):
@@ -2004,7 +2071,12 @@ def watch(k):
             time.sleep(86400)
 
     threading.Thread(target=heal_room, daemon=True).start()
-    nudge, errors, reported, noted, owed = None, {}, None, None, False
+    nudge, errors, reported, noted, owed, prune = None, {}, None, None, False, True
+    try:  # a room that was set up before 0.6 gets the git settings too
+        with Lock('git'):
+            tune_git()
+    except Exception as f:  # noqa: BLE001
+        print(f'{iso()} git settings: {type(f).__name__}: {f}', flush=True)
     while (age(HOME / 'alive') < IDLE and SCRIPT.exists()
            and version(load(HOME / 'retire.json', {}).get('version')) <= version(VERSION)):
         t = time.time()
@@ -2029,7 +2101,12 @@ def watch(k):
                 if poller.changed():
                     try:
                         with Lock('git'):
-                            fetch(k, poller.state)  # what the poll listed: no second round trip to the room
+                            cut = fetch(k, poller.state, prune)  # what the poll listed: no second round trip
+                        prune = False  # dead branches of mine go once per start; a failed delete waits for the next
+                        if cut:
+                            errors['cut'] = cut
+                        else:
+                            errors.pop('cut', None)
                     except Exception:
                         poller.forget()  # fetch again at the next poll instead of waiting for the next change
                         raise
@@ -6466,9 +6543,11 @@ def cmd_mission(k, args):
         elif why == 'busy':  # the watcher asks the key for what was queued before: the end goes out after that
             print(f"Mission {m['id']} ended here; the end waits in the outbox while the watcher asks your SSH key for "
                   f"what was queued before it: the others learn it once it signs (touch or unlock it if it asks).")
+            return EXIT_PENDING
         else:  # the key did not sign the end in time: it waits in the outbox
             print(f"Mission {m['id']} ended here, but {unsigned_why()}: the others learn it once it signs, the watcher "
                   f"asks it again.")
+            return EXIT_PENDING
     else:
         wrong(f'Usage: {USAGE["mission"]}')
 
@@ -7540,6 +7619,11 @@ def dispatch(cmd, rest):
         wrong(f"send: the {'text' if rest else 'name and the text'} is missing. Usage: {USAGE['send']}")
     if cmd == 'task' and not rest:
         wrong(f"task: the sentence is missing. Usage: {USAGE['task']}")
+    if cmd == 'mission' and (rest[:1] not in (['propose'], ['approve'], ['end']) or len(rest) < 2
+                             or rest[0] == 'approve' and len(rest) != 2):
+        wrong(f"Usage: {USAGE['mission']}")  # before the room and the session are asked for: wrong is wrong anywhere
+    if cmd == 'rooms' and rest not in ([], ['--refresh']):
+        wrong(f"Usage: {USAGE['rooms']}")
     k = config()
     if cmd == 'setup':
         args, people = list(rest), []
@@ -7594,7 +7678,7 @@ def dispatch(cmd, rest):
     elif cmd == 'task':
         cmd_task(' '.join(rest))
     elif cmd == 'mission':
-        cmd_mission(k, rest)
+        return cmd_mission(k, rest) or 0
     elif cmd == 'claim':
         return cmd_claim(k, rest) or 0
     elif cmd == 'status':
