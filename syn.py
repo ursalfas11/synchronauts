@@ -85,6 +85,9 @@ MISSION_WAKES_PER_HOUR = 30         # within a mission the Claudes are meant to 
 MISSION_HOURS = 2                   # default length of a mission in hours
 MISSION_MAX_HOURS = 7.5             # the longest one; the Stop hook waits at most 8 h
 MAX_FILES = 30
+EXIT_USAGE, EXIT_PENDING = 2, 3     # besides 0 done and 1 failed: wrong call, not out yet
+TASK_NOTE = 10                      # seconds a task noted from outside a session waits for the Bash hook that follows it
+DROPPED_SHOWN = timedelta(days=3)   # `status` lists mail that was dropped from the outbox this long
 MAX_CREW = 20                       # people in one mission, the proposer included
 MAX_TEXT = 1500                     # characters per message; `send` rejects longer ones instead of cutting silently
 STATUS_TEXT = 300                   # characters of a message that `syn status` shows; the message itself came in full
@@ -2451,7 +2454,7 @@ def others(k, skip=None, own=True):
                 yield 'Your other session', f"{k['me']}/{k['machine']}/{sid}", s, True
 
 
-def line(who, s, full=False):
+def line(who, s, full=False, note=''):
     """A session as one line: short for the hooks, full with time and files for `status`. A session can list 20 repos
     with claims of 240 characters each: the line shows CLAIMS_SHOWN claims over all of them and LINE_SHOWN characters
     of repos, branches, files and claims (status three times that), someone else's task 120 characters (status 200)."""
@@ -2465,7 +2468,7 @@ def line(who, s, full=False):
         claims = f" (claimed: {', '.join(shown)}{' ' if shown and rest else ''}{rest})" if cs else ''
         parts.append(f"{short(repo)}@{r.get('branch')}" + (f" [{', '.join(f[-4:])}{more}]" if f else '') + claims)
     body, cap = '; '.join(parts), LINE_SHOWN * (3 if full else 1)
-    last = f" (last {clock(s.get('last'))})" if full else ''
+    last = f" (last {clock(s.get('last'))}{note})" if full else ''
     task = f' · "{untrusted(s["task"], 200 if full else TASK_SHOWN)}"' if s.get('task') else ''
     return f"- {who}{last}: {body[:cap] + '…' if len(body) > cap else body}{task}"
 
@@ -2570,7 +2573,12 @@ def snapshot(root):
     tmp = HOME / f'.index.{os.getpid()}'
     try:
         if index.exists():
+            st = index.stat()
             tmp.write_bytes(index.read_bytes())
+            # with the times of the index: git takes a file for unchanged when its time and size are those of its
+            # entry, unless the entry is as young as the index. A copy with the time of now would hide an edit made
+            # in the second of the last `git add` or commit that left the size as it was
+            os.utime(tmp, ns=(st.st_atime_ns, st.st_mtime_ns))
         env = {'GIT_INDEX_FILE': str(tmp)}
         git('add', '-A', cwd=root, timeout=60, env=env)
         tree = git('write-tree', cwd=root, timeout=20, env=env)
@@ -4589,9 +4597,17 @@ def sid_set(command, cwd, st=None):
 
 
 def gate_refusal(command):
-    m = re.search(r'\bapprove\s+(' + ID_RE + ')', flat(command))
-    return (f"Synchronauts: `mission approve` must be the whole command. Run exactly "
-            f"`{CMD} mission approve {m.group(1) if m else '<id>'}`, alone.")
+    """What Claude is told when a command may hide `mission approve`. A command without a call of syn in sight (a sed
+    or a curl that names both words, a script that holds them) is refused all the same, and told why and what else
+    can be done: the short text alone was no help there."""
+    text = flat(command)
+    m = re.search(r'\bapprove\s+(' + ID_RE + ')', text)
+    run = f"`{CMD} mission approve {m.group(1) if m else '<id>'}`, alone"
+    if not re.search(r'\bsyn\b', text):
+        return (f"Synchronauts: refused. This command, or a script it runs, names `mission` and `approve` and could "
+                f"hide an approval: `mission approve` must be the whole command. If it has nothing to do with a "
+                f"mission, the human can run it in their own terminal. To approve one, run exactly {run}.")
+    return f"Synchronauts: `mission approve` must be the whole command. Run exactly {run}."
 
 
 def gate_is_syn(gate, cwd):
@@ -5604,8 +5620,17 @@ def log_event(sid, kind, repo=None, **fields):
         save(HOME / 'events.json', events[-MAX_EVENTS:])
 
 
-def take_task(sid):
-    """Picks up a task noted by `syn.py task`; the Bash hook of the calling session gets there first."""
+def take_task(sid, cwd):
+    """Picks up a task noted by `syn.py task` outside a session. It belongs to the Bash call that wrote it: only a hook
+    of a session in that folder, within TASK_NOTE seconds, takes it; an older note is thrown away."""
+    note = load(HOME / 'task.json', {})
+    if not isinstance(note, dict):
+        return None
+    if time.time() - (note.get('at') if isinstance(note.get('at'), (int, float)) else 0) > TASK_NOTE:
+        (HOME / 'task.json').unlink(missing_ok=True)
+        return None
+    if not cwd or str(note.get('cwd')) != os.path.realpath(str(cwd)):
+        return None
     own = HOME / f'task.{sid}.json'
     try:
         os.replace(HOME / 'task.json', own)
@@ -5623,6 +5648,9 @@ def cleanup():
             p.unlink(missing_ok=True)
     # temp files of a writer that was killed half way (save, private_write, link, snapshot): .name.<pid>[.<thread>]
     stale = time.time() - 3600
+    for p in (HOME / 'snaps').glob('*'):  # a snapshot before a Bash command whose after-hook never ran
+        if mtime(p) < stale:
+            p.unlink(missing_ok=True)
     for folder in (HOME, SESSIONS, HOME / 'outbox'):
         try:
             names_ = os.listdir(folder)
@@ -5707,6 +5735,104 @@ def edited_paths(e):
     return []
 
 
+BASH_STATUS_TIMEOUT = 1.5  # seconds `git status` gets before and after a Bash command; slower: this call goes untracked
+BASH_MAX_DIRTY = 3000       # more changed files than this in a repo: no snapshot (the lstat of each would be the cost)
+BASH_SLOW_PAUSE = 600       # seconds a repo is left alone after that or after a `git status` that was too slow
+
+
+def stamp(path):
+    """[mtime in ns, size] of a file as it is now, None if it is gone."""
+    try:
+        st = os.lstat(path)
+    except OSError:
+        return None
+    return [st.st_mtime_ns, st.st_size]
+
+
+def dirty_files(root):
+    """{path in the repo: stamp} of every file `git status` lists (changed, staged, deleted, renamed both ways, untracked;
+    never ignored ones), None if git did not answer in time, fails or lists too many. Read-only (no optional lock), -z and
+    quotePath off for any name."""
+    try:
+        out = git_raw('--no-optional-locks', '-c', 'core.quotePath=false', 'status', '--porcelain=v1', '-z',
+                      '--untracked-files=all', cwd=root, timeout=BASH_STATUS_TIMEOUT)
+    except (RuntimeError, OSError, subprocess.TimeoutExpired):
+        return None
+    parts, found, i = out.decode('utf-8', 'replace').split('\0'), [], 0
+    while i < len(parts):
+        x, i = parts[i], i + 1
+        if len(x) < 4:
+            continue
+        found.append(x[3:])
+        if ('R' in x[:2] or 'C' in x[:2]) and i < len(parts) and parts[i]:  # `XY new\0old\0`: the old name changed too
+            found.append(parts[i])
+            i += 1
+    if len(found) > BASH_MAX_DIRTY:
+        return None
+    return {f: stamp(os.path.join(root, f)) for f in found}
+
+
+def snap_path(sid, e):
+    return HOME / 'snaps' / f"{sid}.{re.sub(r'[^A-Za-z0-9_-]', '', str(e.get('tool_use_id') or 'x'))[:40]}.json"
+
+
+def slow_mark(repo):
+    """The file that says a repo gave no snapshot lately: too slow, too many changed files."""
+    return HOME / 'snaps' / f"slow.{re.sub(r'[^A-Za-z0-9_.-]', '_', repo)[:80]}"
+
+
+def bash_before(k, sid, e):
+    """PreToolUse before Bash: the files that are changed in the repo of the session now, with their stamps, for
+    bash_changed() after the command. Never stops or slows the call beyond BASH_STATUS_TIMEOUT, and never fails. A repo
+    that gave no snapshot is not asked again for BASH_SLOW_PAUSE: in a huge one, one command waits, not every one."""
+    try:
+        r = repo_of(e['cwd'], orgs(k)) if e.get('cwd') else None
+        if not r or time.time() - mtime(slow_mark(r[0])) < BASH_SLOW_PAUSE:
+            return
+        d = dirty_files(r[1])
+        if d is None:
+            save(slow_mark(r[0]), {})
+        else:
+            save(snap_path(sid, e), {'root': r[1], 'files': d})
+    except Exception:
+        pass
+
+
+def bash_changed(sid, e):
+    """PostToolUse after Bash: (repo root, files) that the command changed, the way bash_before() saw the repo. A file
+    counts when it is listed now and was not before, or when its mtime or size differs from before (also one that is
+    clean or gone now). Files that were dirty before and untouched are not counted. Committed changes (`git pull`,
+    `git checkout` of a branch) and ignored files are not seen. Without the snapshot, or when git is too slow now: None."""
+    p = snap_path(sid, e)
+    snap = load(p, None)
+    p.unlink(missing_ok=True)
+    try:
+        root, before = snap['root'], snap['files']
+        after = dirty_files(root)
+        if after is None:
+            return None
+        names = sorted(f for f in set(before) | set(after)
+                       if f not in before or before[f] != (after[f] if f in after else stamp(os.path.join(root, f))))
+    except (TypeError, KeyError):
+        return None
+    import unicodedata  # only here, so the hooks start fast
+    return root, [unicodedata.normalize('NFC', f) for f in names][:MAX_FILES]
+
+
+def claim_notes(k, sid, repo, files, team=()):
+    """(key, text) when a command changed files that another session claimed: it could not be asked before, the
+    command's targets are unknown until it has run."""
+    for who, key, s, _ in others(k, sid):
+        x = s['repos'].get(repo)
+        if not x or key.split('/')[0] in team:
+            continue
+        hit = sorted(f for f in files if any(covers(c, f) for c in x.get('claims', [])))
+        if hit:
+            yield (f"claim|{key}|{repo}|{','.join(hit)}",
+                   f"⚠️ {who} has claimed {', '.join(hit[:6])} in {short(repo)}; a shell command changed it. "
+                   f"Tell {k.get('name')}.")
+
+
 def edit_question(k, sid, path, agent):
     """Why the human should be asked before this session edits path, or None: another session claimed the file, or a
     teammate's session is editing it, and this session has not edited it yet."""
@@ -5772,6 +5898,8 @@ def pre_bash(k, sid, e, agent):
     reason = checked(lambda: state_touch(command, cwd, st) or sid_set(command, cwd, st) and SID_REFUSAL, command)
     if reason:
         refuse(reason)
+    else:
+        bash_before(k, sid, e)
     return 0
 
 
@@ -5916,10 +6044,14 @@ def hook(event, agent='claude', got=None):
         r = repo_of(path, owners)
         if r:
             hits.append((r, in_repo(path, r[1])))
+    shell = bash_changed(sid, e) if event == 'PostToolUse' and e.get('tool_name') == 'Bash' else None
+    shell_repo = repo_of(shell[0], owners) if shell and shell[1] else None
+    if shell_repo:  # what a shell command changed counts like an edit
+        hits += [(shell_repo, f) for f in shell[1]]
     roots = {r[0]: r[1] for r, _ in hits if r}  # where the session works, for the conflict check; stays on this machine
     update_session(sid, lambda s: s.update(active=time.time(), ended=event == 'SessionEnd', **where,
                                            roots={**s.get('roots', {}), **roots}))
-    task = clean(take_task(sid) or '')[:200] if e.get('tool_name') == 'Bash' else ''
+    task = clean(take_task(sid, e.get('cwd')) or '')[:200] if e.get('tool_name') == 'Bash' else ''
     joined = approved(k, sid, e) if event == 'PostToolUse' and e.get('tool_name') == 'Bash' else ''
     history = []  # (kind, repo, fields) for the UI's history
 
@@ -5984,7 +6116,9 @@ def hook(event, agent='claude', got=None):
         # it, a session hears of the repos it works in or its prompt names
         scope = set(mine.get('repos', {})) | named if sess.get('introduced') else None
         notes = [(key, x) for key, x in [*situation_lines(k, sid, scope),
-                                         *overlaps(k, mine, sid, asked, partners(k, m)), *conflict_lines(k, sid)]
+                                         *overlaps(k, mine, sid, asked, partners(k, m)),
+                                         *(claim_notes(k, sid, shell_repo[0], shell[1], partners(k, m)) if shell_repo else ()),
+                                         *conflict_lines(k, sid)]
                  if key not in sess['reported']] if in_team else []
         if error and in_team and f'error|{error}' not in sess['reported']:
             notes.append((f'error|{error}', f'Synchronauts: sync is failing ({error}); the picture may be stale.'))
@@ -6031,7 +6165,7 @@ def hook(event, agent='claude', got=None):
 
     # the human sees warnings, unless the permission prompt before the edit already told them
     for_user = [x for key, x in notes
-                if key.startswith(('file|', 'branch|', 'error|', 'conflict|')) and not allowed(key, asked)]
+                if key.startswith(('file|', 'claim|', 'branch|', 'error|', 'conflict|')) and not allowed(key, asked)]
     for_user += [for_human(n, nm) for n, first in mail if first]
     invited = invite_lines(k) if k.get('solo') and event == 'UserPromptSubmit' else ('', '')
     if invited[0]:
@@ -6089,6 +6223,13 @@ def current_session():
     """sid of the session a command comes from (Claude Code sets CLAUDE_CODE_SESSION_ID, Codex CODEX_THREAD_ID),
     otherwise ''."""
     return (os.environ.get('CLAUDE_CODE_SESSION_ID') or os.environ.get('CODEX_THREAD_ID') or '')[:8]
+
+
+def wrong(text):
+    """A wrong call, exit code EXIT_USAGE: a missing argument, an unknown command or a value that is not allowed. A call
+    that is fine but cannot be done is sys.exit(text), exit code 1."""
+    print(text, file=sys.stderr)
+    sys.exit(EXIT_USAGE)
 
 
 def check_text(text):
@@ -6212,6 +6353,22 @@ def drop_record(path, why):
     path.unlink(missing_ok=True)
 
 
+def outbox_state():
+    """What the outbox holds back, for `status` and the board: {'waiting': records that wait for a signature, 'since':
+    the time of the oldest, 'dropped': [{'time', 'why'}] of the last DROPPED_SHOWN from dropped.log}."""
+    waiting, dropped = outbox_records(), []
+    try:
+        lines = (HOME / 'outbox' / 'dropped.log').read_text(encoding='utf-8').splitlines()
+    except OSError:
+        lines = []
+    for text in lines:
+        m = re.fullmatch(r'(\S+) outbox: dropped \S+: (.*)', text)
+        if m and parse(m.group(1)) > now() - DROPPED_SHOWN:
+            dropped.append({'time': m.group(1), 'why': one_line(m.group(2), 200)})
+    since = load(waiting[0], {}).get('time') if waiting else None
+    return {'waiting': len(waiting), 'since': since if isinstance(since, str) else None, 'dropped': dropped}
+
+
 def drain_outbox(k):
     """Signs and posts what waits in the outbox (outbox_put), oldest first, one record at a time; a record goes only
     once it is in the own mail, signed. When the key does not sign, that record and the ones after it stay for the next
@@ -6248,6 +6405,10 @@ def drain_outbox(k):
         lock.__exit__()
 
 
+class Nobody(ValueError):
+    """`send all` in a room with nobody else: a call that is fine, with nobody to hear it."""
+
+
 def create_message(k, to, text, source=None):
     """Puts a message into the own mail, the watcher pushes it. (message, recipients, missing): missing are the
     recipients without a session in the named repo right now. ValueError for an unknown recipient."""
@@ -6262,7 +6423,7 @@ def create_message(k, to, text, source=None):
     # one person per name, the exact login first, a name that fits several is refused (resolve); `all` is everybody
     targets = sorted(x for x in nm if x != k['me']) if person.strip().lower() == 'all' else [resolve(k, person)]
     if not targets:
-        raise ValueError('Nobody else is in the room yet.')
+        raise Nobody('Nobody else is in the room yet.')
     fields = {'repo': repo, 'source': source}  # source 'ui': the human writes in person, the reply goes to their UI
     if not source:
         sid = current_session()
@@ -6280,15 +6441,42 @@ def create_message(k, to, text, source=None):
     return n, who, [nm.get(x, x) for x in targets if to_repo and x not in there]
 
 
+def delivery_line(k, n):
+    """Who of the recipients of a message just sent is woken by it, who gets it with the next step of a session at work
+    and who sees it only at the next prompt, for the sender's Claude, which would wait in vain for an answer. For each
+    recipient the session that shows the message is the most recently active one, in the message's repo if it names
+    one (as target() picks there); arrival() decides."""
+    if n.get('repo') == UI_TARGET:
+        return ''
+    nm, limit, got = names(k), now() - ACTIVE, load(HOME / 'others.json', {})
+    woken, soon, later = [], [], []
+    for login in n['to']:
+        found = [s for d in got.values() if d.get('login') == login for s in (d.get('sessions') or {}).values()
+                 if isinstance(s, dict) and s.get('repos') and parse(s.get('last')) > limit]
+        there = [x for x in found if n.get('repo') and any(matches(r, n['repo']) for r in x['repos'])]
+        s = max(there or found, key=lambda x: parse(x.get('last')), default=None)
+        how, who = arrival(s) if s else 'no open session', nm.get(login, login)
+        if how in ('wakes', 'at work'):
+            (woken if how == 'wakes' else soon).append(who)
+        else:
+            later.append(f'{who} ({how})')
+    return ' '.join(x for x in (f"Waiting, will be woken: {', '.join(woken)}." if woken else '',
+                                f"At work, gets it with the next step: {', '.join(soon)}." if soon else '',
+                                f"Sees it at its next prompt: {', '.join(later)}." if later else '') if x)
+
+
 def cmd_send(k, to, text):
+    """0 if the message is out, EXIT_PENDING if it is written and waits for the watcher to upload it."""
     try:
         check_text(text)
         alive()
         ensure_watcher()
         await_fetch(5)
         n, who, missing = create_message(k, to, text)
-    except ValueError as f:
+    except Nobody as f:
         sys.exit(str(f))
+    except ValueError as f:
+        wrong(str(f))
     # a key that did not sign (no touch or unlock in time, an agent that is gone): the message goes out unsigned
     why = unsigned_why()
     unsigned = '' if n.get('sig') or vouched(k) else f'Unsigned: this machine has no key (`{CMD} key` makes one).'
@@ -6300,16 +6488,20 @@ def cmd_send(k, to, text):
     while time.time() < end:
         if n['id'] in load(HOME / 'pushed.json', []):
             print(f'Ready for {who}.')
+            note = delivery_line(k, n)
+            if note:
+                print(note)
             if missing:
                 print(f"{', '.join(missing)}: no session in {n['repo']} right now, the most recently active one shows it.")
             if unsigned:
                 print(unsigned)
-            return
+            return 0
         time.sleep(0.3)
     print(f'Written to {who}, but not uploaded yet ({error_text() or "the watcher does not answer"}). '
           f'It goes out once sync works again.')
     if unsigned:
         print(unsigned)
+    return EXIT_PENDING
 
 
 def cmd_task(text):
@@ -6326,8 +6518,10 @@ def cmd_task(text):
         ensure_watcher()
         print('Task set.')
         return
-    save(HOME / 'task.json', {'text': text, 'time': iso()})  # run by hand: the next Bash hook picks it up
-    print("Task noted; this session's next Bash hook adds it.")
+    # no session id: the Bash hook of a session in this folder picks it up, within TASK_NOTE seconds
+    save(HOME / 'task.json', {'text': text, 'at': time.time(), 'cwd': os.path.realpath(os.getcwd())})
+    print(f'Task noted for a session in this folder that runs a Bash command in the next {TASK_NOTE} s; '
+          f'otherwise it is dropped.')
 
 
 def cmd_claim(k, args):
@@ -6344,7 +6538,7 @@ def cmd_claim(k, args):
             sys.exit(f"{p}: not in a {'Git' if k.get('solo') else 'team'} repo.")
         c = in_repo(full, r[1])
         if c in ('.', '') or c.startswith('../'):
-            sys.exit(f'{p}: claim files or folders, not the whole repo.')
+            wrong(f'{p}: claim files or folders, not the whole repo.')
         c += '/' if full.is_dir() else ''
         if not release and not k.get('solo') and not safe_path(c, True):  # it would stay on this machine (own_state)
             sys.exit(f'{p}: the others would never see this claim, {unshared(c)}. Claim a folder above it, or tell them '
@@ -6363,12 +6557,17 @@ def cmd_claim(k, args):
                 if taken:
                     sys.exit(f"{who} has claimed {taken[0]} already ({short(repo)}@{x.get('branch')}). Talk to them first.")
 
+    cut = []  # claims over MAX_FILES, which are not kept
+
     def change(s):
         for (repo, _, branch), cs in wanted.items():
             x = s['repos'].setdefault(repo, {'files': []})
             x.update(branch=branch, last=minute())
-            x['claims'] = sorted(set(x.get('claims', [])) - set(cs)) if release else \
-                sorted(set(x.get('claims', [])) | set(cs))[:MAX_FILES]
+            have = x.get('claims', [])
+            new = [c for c in cs if c not in have]
+            fit = new[:max(MAX_FILES - len(have), 0)]  # the ones that are there stay: a new claim pushes none out
+            cut.extend([] if release else new[len(fit):])
+            x['claims'] = sorted(set(have) - set(cs) if release else set(have) | set(fit))
         if release and not wanted:
             for x in s['repos'].values():
                 x.pop('claims', None)
@@ -6386,8 +6585,13 @@ def cmd_claim(k, args):
     if release:
         print('Released.' if wanted else 'Released all claims of this session.')
     else:
-        print(f"Claimed {'; '.join(f'{short(r[0])}: ' + ', '.join(cs) for r, cs in wanted.items())}. Other sessions ask "
-              f"their human before editing it; the claim ends with this session or `claim --release`.")
+        done = {r: [c for c in cs if c not in cut] for r, cs in wanted.items()}
+        if any(done.values()):
+            print(f"Claimed {'; '.join(f'{short(r[0])}: ' + ', '.join(cs) for r, cs in done.items() if cs)}. Other "
+                  f"sessions ask their human before editing it; the claim ends with this session or `claim --release`.")
+        if cut:
+            print(f"Not kept, at most {MAX_FILES} claims per repo: {', '.join(cut)}. `{CMD} claim --release` frees room.")
+            return 1
 
 
 def key_line(k=None, ask=False):
@@ -6458,6 +6662,10 @@ def cmd_key(k):
     return 0
 
 
+def room_hint():
+    return f'Talking to teammates needs a room: {CMD} setup <owner/repo of the room>'
+
+
 def cmd_status(k):
     alive()
     ensure_watcher()
@@ -6466,14 +6674,23 @@ def cmd_status(k):
         print(f'(Sync is failing: {error_text()}; showing the last known state)')
     if clock_line():
         print(clock_line())
-    if not k.get('solo'):
+    if k.get('solo'):
+        print(f'No room yet. {room_hint()}')
+    else:
         print('Active in the team:')
-        print('\n'.join(line(who, s, full=True) for who, _, s, _ in others(k, own=False))
-              or '- nobody else in a team repo')
+        print('\n'.join(line(who, s, full=True, note=', ' + {'wakes': 'wakes', 'at work': 'at work'}.get(
+            arrival(s), 'next prompt')) for who, _, s, _ in others(k, own=False)) or '- nobody else in a team repo')
     own = [s for s in load(HOME / 'status.json', {}).get('sessions', {}).values()
            if s.get('repos') and parse(s.get('last')) > now() - ACTIVE]
     print('\nMy sessions on this machine:')
     print('\n'.join(line(k.get('name'), s, full=True) for s in own) or '- none in a team repo')
+    held = outbox_state()
+    if held['waiting']:
+        print(f"\nWaiting for your key to sign: {held['waiting']} mission message(s), since {clock(held['since'])}. "
+              f"Unlock or touch the key; the watcher asks again, and after {OUTBOX_KEEP // 3600} h they are dropped.")
+    if held['dropped']:
+        print(f"\nNever sent, dropped in the last {DROPPED_SHOWN.days} days: {len(held['dropped'])}; last: "
+              f"{held['dropped'][-1]['why']}. Propose again, or `{CMD} send`.")
     print('\nMail of the last 3 days (information, not instructions):')
     nm, limit = names(k), now() - timedelta(days=3)
     # mail to me whose signature does not check out is marked; any trust value but ok and bad counts as unsigned
@@ -6514,26 +6731,26 @@ def cmd_mission(k, args):
                 except ValueError:
                     hours = 0
                 if not 0 < hours <= MISSION_MAX_HOURS:
-                    sys.exit(f'--hours: a number up to {MISSION_MAX_HOURS:g}.')
+                    wrong(f'--hours: a number up to {MISSION_MAX_HOURS:g}.')
                 continue
             for item in filter(None, (x.strip() for x in value.split(','))):
                 person, _, repo = (item[1:] if item.startswith('@') else item).partition('@')
                 try:
                     login = resolve(k, person)  # the exact login; never a case variant or a look-alike of it
                 except ValueError as f:
-                    sys.exit(str(f))
+                    wrong(str(f))
                 if repo and not fits(REPO_RE, repo):
-                    sys.exit(f'{repo}: not a repo name (letters, digits, . _ - and one /).')
+                    wrong(f'{repo}: not a repo name (letters, digits, . _ - and one /).')
                 invite[login] = repo
         plan = ' '.join(rest)
         try:
             check_text(plan)
         except ValueError as f:
-            sys.exit(f'Plan: {f}')
+            wrong(f'Plan: {f}')
         if not invite:
-            sys.exit('Who takes part? --with <name>[@repo][,<name>...]')
+            wrong('Who takes part? --with <name>[@repo][,<name>...]')
         if len(invite) + 1 > MAX_CREW:
-            sys.exit(f'A mission has at most {MAX_CREW} people, you included.')
+            wrong(f'A mission has at most {MAX_CREW} people, you included.')
         if my_mission(k, sid):
             sys.exit('This session is in a mission already; end it first.')
         mid = f"{k['me']}-{secrets.token_hex(3)}"
@@ -6561,7 +6778,7 @@ def cmd_mission(k, args):
         try:
             check_text(summary)
         except ValueError as f:
-            sys.exit(f'Result: {f}')
+            wrong(f'Result: {f}')
         alive()
         ensure_watcher()  # before the key is asked: it sends the end that waits in the outbox, also after an interrupt
         try:
@@ -6580,15 +6797,41 @@ def cmd_mission(k, args):
         elif why == 'busy':  # the watcher asks the key for what was queued before: the end goes out after that
             print(f"Mission {m['id']} ended here; the end waits in the outbox while the watcher asks your SSH key for "
                   f"what was queued before it: the others learn it once it signs (touch or unlock it if it asks).")
+            return EXIT_PENDING
         else:  # the key did not sign the end in time: it waits in the outbox
             print(f"Mission {m['id']} ended here, but {unsigned_why()}: the others learn it once it signs, the watcher "
                   f"asks it again.")
+            return EXIT_PENDING
     else:
-        sys.exit('mission propose --with <name>[@repo][,…] [--hours N] "<plan>" · mission approve <id> · '
-                 'mission end "<result>"')
+        wrong(f'Usage: {USAGE["mission"]}')
 
 
 # --- UI -----------------------------------------------------------------------
+
+def wakeable(s, local=None):
+    """Whether a message wakes this session now: it waits for mail and, for another machine's session, its wake window
+    is not over. local: its session file if it runs on this machine; then it is known exactly whether its Stop hook
+    waits for mail right now. The board and `send` say the same."""
+    state, since = s.get('state') or 'waiting', parse(s.get('state_since') or s.get('start'))
+    if s.get('agent') == 'codex':
+        return False  # its mail waits for the next prompt
+    if local is None:
+        return state == 'waiting' and (now() - since).total_seconds() < WAKE_WINDOW
+    return (state == 'waiting' and local.get('waiting_since', 0) >= local.get('active', 0)
+            and time.time() - local.get('pulse', 0) < 90 and bool(local.get('waiter')) and pid_alive(local['waiter']))
+
+
+def arrival(s):
+    """How a message reaches a session of another machine, in a word or two: 'wakes' (it waits for mail), 'at work' (it
+    gets the message with its next tool call), otherwise why it sees it only at its next prompt. A session at work
+    without a sign of life for QUIET_AFTER was interrupted, not working: no Stop hook ran."""
+    if wakeable(s):
+        return 'wakes'
+    state, since = s.get('state') or 'waiting', parse(s.get('state_since') or s.get('start'))
+    if state in ('working', 'approval') and now() - max(since, parse(s.get('last'))) <= QUIET_AFTER['working']:
+        return 'at work'
+    return 'Codex' if s.get('agent') == 'codex' else 'wake window over' if state == 'waiting' else 'quiet'
+
 
 def ui_session(login, machine, sid, s, local=None):
     """A session for the UI. local: its session file if it runs on this machine; then it is known exactly whether its
@@ -6598,19 +6841,11 @@ def ui_session(login, machine, sid, s, local=None):
     if local and local.get('active'):
         last = max(last, datetime.fromtimestamp(local['active'], timezone.utc))
     state, since = s.get('state') or 'waiting', parse(s.get('state_since') or s.get('start'))
-    if s.get('agent') == 'codex':
-        wakeable = False  # its mail waits for the next prompt
-    elif local is None:
-        wakeable = state == 'waiting' and (t - since).total_seconds() < WAKE_WINDOW
-    else:
-        wakeable = (state == 'waiting' and local.get('waiting_since', 0) >= local.get('active', 0)
-                    and time.time() - local.get('pulse', 0) < 90 and bool(local.get('waiter'))
-                    and pid_alive(local['waiter']))
     if state in QUIET_AFTER and t - max(since, last) > QUIET_AFTER[state]:
         state = 'quiet'  # no Stop hook (Esc) or long after the turn
     return {'key': f'{login}/{machine}/{sid}', 'login': login, 'machine': machine, 'here': local is not None,
             'repos': repos, 'task': s.get('task') or '', 'start': s.get('start'), 'last': iso(last),
-            'state': state, 'since': iso(since), 'wakeable': wakeable, 'cwd': (local or {}).get('cwd') or '',
+            'state': state, 'since': iso(since), 'wakeable': wakeable(s, local), 'cwd': (local or {}).get('cwd') or '',
             'agent': s.get('agent') or 'claude'}
 
 
@@ -6691,7 +6926,8 @@ def ui_data(k):
                                  key=lambda n: (str(n.get('time')), n['id']))[-200:],
                   'events': sorted(events, key=lambda x: parse(x.get('time')), reverse=True)[:300],
                   'missions': sorted(ms, key=lambda m: str(m['start']), reverse=True),
-                  'error': error_text(), 'max_text': MAX_TEXT, 'wake_min': round(WAKE_WINDOW / 60)})
+                  'outbox': outbox_state(), 'error': error_text(), 'max_text': MAX_TEXT,
+                  'wake_min': round(WAKE_WINDOW / 60)})
 
 
 UI_FILES = {'/manifest.webmanifest': ('manifest.webmanifest', 'application/manifest+json'),
@@ -7186,7 +7422,7 @@ def cmd_notify(args):
         if not desktop_note(tx['test'], tx['test_body']):
             sys.exit('This system has no way to show notifications (on Linux: install notify-send, libnotify).')
     elif args:
-        sys.exit('Usage: notify [on|off|test]')
+        wrong(f'Usage: {USAGE["notify"]}')
     on = notify_on(load(HOME / 'config.json', {}))
     print(f"Notifications are {'on' if on else 'off'}: a message to you, a mission proposal or result, a forged "
           f"message and a real conflict with a teammate's work, at most {NOTIFY_MAX} per 10 minutes, while one of your "
@@ -7225,7 +7461,7 @@ def cmd_rooms(k, args):
         else:
             print(f'Room id: {found or room_id(k)}.' + ('' if changed else ' Unchanged.'))
     elif args:
-        sys.exit('Usage: rooms [--refresh]')
+        wrong(f'Usage: {USAGE["rooms"]}')
     else:
         alt = [norm_room(x) for x in k.get('room_alt') or [] if isinstance(x, str)]
         print(f"Room {room_id(k)}" + (f" (earlier ids: {', '.join(alt)})" if alt else ''))
@@ -7261,6 +7497,12 @@ def main(argv):
     return dispatch(cmd, rest)
 
 
+USAGE = {'send': 'send <name|all>[@repo] "<text>"', 'task': 'task "<one sentence>"', 'rooms': 'rooms [--refresh]',
+         'notify': 'notify [on|off|test]',
+         'mission': 'mission propose --with <name>[@repo][,…] [--hours N] "<plan>" · mission approve <id> · '
+                    'mission end "<result>"'}
+COMMANDS = ('status', 'send', 'task', 'claim', 'mission', 'ui', 'line', 'state', 'notify', 'rooms', 'codex', 'setup', 'key')
+
 HELP = f"""synchronauts {VERSION}: your team's agents see each other, talk, and stay off each other's files.
 
   status                             who works where, your own sessions, mail of the last 3 days
@@ -7279,6 +7521,8 @@ HELP = f"""synchronauts {VERSION}: your team's agents see each other, talk, and 
   key                                a key of this machine for signing only, added to your GitHub account
   --version, --help
 
+Exit codes: 0 done · 1 could not be done · 2 wrong call (missing argument, unknown command) · 3 written, not uploaded yet
+
 Guide: https://github.com/ursalfas11/synchronauts/blob/main/docs/guide.md"""
 
 
@@ -7287,6 +7531,17 @@ def dispatch(cmd, rest):
     another process (the MCP server) calls. Not for `hook`, `watcher`, `ui-server` or `conflicts`, which main() starts."""
     global COMMAND
     COMMAND = True  # a command may wait for a key in an agent or on a security key: sign() says so
+    if cmd not in COMMANDS:
+        wrong(f'Unknown command: {cmd}. Commands: ' + ' · '.join(COMMANDS) + '. --help has the usage.')
+    if cmd == 'send' and len(rest) < 2:
+        wrong(f"send: the {'text' if rest else 'name and the text'} is missing. Usage: {USAGE['send']}")
+    if cmd == 'task' and not rest:
+        wrong(f"task: the sentence is missing. Usage: {USAGE['task']}")
+    if cmd == 'mission' and (rest[:1] not in (['propose'], ['approve'], ['end']) or len(rest) < 2
+                             or rest[0] == 'approve' and len(rest) != 2):
+        wrong(f"Usage: {USAGE['mission']}")  # before the room and the session are asked for: wrong is wrong anywhere
+    if cmd == 'rooms' and rest not in ([], ['--refresh']):
+        wrong(f"Usage: {USAGE['rooms']}")
     k = config()
     if cmd == 'setup':
         args, people = list(rest), []
@@ -7330,16 +7585,16 @@ def dispatch(cmd, rest):
         return cmd_key(k)
     if not is_setup(k):
         if cmd in ('send', 'mission'):
-            sys.exit(f'Talking to teammates needs a room: {CMD} setup <owner/repo of the room>')
+            sys.exit(room_hint())
         k = solo(k)
-    if cmd == 'send' and len(rest) >= 2:
-        cmd_send(k, rest[0], ' '.join(rest[1:]))
-    elif cmd == 'task' and rest:
+    if cmd == 'send':
+        return cmd_send(k, rest[0], ' '.join(rest[1:]))
+    elif cmd == 'task':
         cmd_task(' '.join(rest))
     elif cmd == 'mission':
-        cmd_mission(k, rest)
+        return cmd_mission(k, rest) or 0
     elif cmd == 'claim':
-        cmd_claim(k, rest)
+        return cmd_claim(k, rest) or 0
     elif cmd == 'status':
         cmd_status(k)
     elif cmd == 'ui':
@@ -7356,11 +7611,6 @@ def dispatch(cmd, rest):
         cmd_notify(rest)
     elif cmd == 'rooms':
         cmd_rooms(k, rest)
-    else:
-        sys.exit('Commands: status · send <name|all>[@repo] "<text>" · task "<one sentence>" · claim <path>… · '
-                 'mission … · ui [--pair] · line · state · notify [on|off|test] · rooms [--refresh] · '
-                 'codex [--remove] · setup <owner/repo of the room> [--invite login,...] [--org owner,...] · key · --help · '
-                 '--version')
     return 0
 
 

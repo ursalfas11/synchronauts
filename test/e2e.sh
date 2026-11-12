@@ -191,6 +191,7 @@ SECONDS_BEFORE=$SECONDS; solo Stop "$(session solo1111 "$T/sam-demo")" >/dev/nul
 [ $((SECONDS - SECONDS_BEFORE)) -lt 5 ] && ok 'without a room the Stop hook does not wait for mail' || fail 'solo Stop waits'
 SECONDS_BEFORE=$SECONDS; out=$(SYN_REMOTE= SYN_ME= SYN_NAME= SYN_MACHINE= SYN_HOME="$T/home-solo" "$PY" "$SYN" status)
 check "$out" 'My sessions on this machine' 'status works without a room'
+check "$out" 'No room yet. Talking to teammates needs a room: .*setup <owner/repo of the room>' 'and says in one line that no room is set up and how to do it'
 [ $((SECONDS - SECONDS_BEFORE)) -lt 5 ] && ok 'and does not wait for a watcher either' || fail 'solo status waits'
 
 # Two worktrees change the same line: the check merges both working trees and reports a real conflict
@@ -235,6 +236,8 @@ else
 fi
 out=$(SYN_REMOTE= SYN_HOME="$T/home-solo" "$PY" "$SYN" send alex hello 2>&1) && fail 'send without a room' "$out" \
   || check "$out" 'needs a room' 'send without a room explains itself'
+rc=0; SYN_REMOTE= SYN_HOME="$T/home-solo" "$PY" "$SYN" send alex hello >/dev/null 2>&1 || rc=$?
+[ $rc = 1 ] && ok 'and ends with exit code 1: the call was right, it cannot be done' || fail "send without a room: exit $rc"
 
 # Setup says what to do instead of git's words when the name is no repo (no gh, no access: units.py)
 out=$(SYN_REMOTE= SYN_HOME="$T/home-noroom" SYN_ME=new-gh SYN_NAME=New SYN_MACHINE=one "$PY" "$SYN" setup "$T/no room" 2>&1) \
@@ -379,8 +382,17 @@ print(json.dumps({"login": "ray-gh", "name": "Ray", "sessions": {}, "events": []
   [ "$(machine_of home-lee3)" = "$second" ] && [ "$(machine_of home-lee2)" = "$first" ] \
     && ok 'and keeps its name at the next setup' || fail 'the name changed' "$(machine_of home-lee3)"
 fi
-out=$(as_user sam "$PY" "$SYN" bogus 2>&1) && fail 'an unknown command went through' "$out" \
-  || check "$out" 'Commands: status' 'an unknown command prints the list of commands'
+rc=0; out=$(as_user sam "$PY" "$SYN" bogus 2>&1) || rc=$?
+check "$out" 'Unknown command: bogus. Commands: status' 'an unknown command says so and prints the list of commands'
+[ $rc = 2 ] && ok 'and ends with exit code 2, a wrong call' || fail "unknown command: exit $rc" "$out"
+# a missing argument says what is missing and the usage of that command, also before a room is looked at
+for call in 'send|name and the text is missing. Usage: send <name|all>' 'send alex|text is missing. Usage: send <name|all>' \
+    'task|sentence is missing. Usage: task "<one sentence>"' 'notify maybe|Usage: notify \[on|off|test\]' \
+    'rooms bogus|Usage: rooms \[--refresh\]' 'mission bogus|Usage: mission propose' 'mission end|Usage: mission propose' \
+    'mission approve|Usage: mission propose'; do
+  rc=0; out=$(SYN_HOME="$T/home-solo" SYN_REMOTE= "$PY" "$SYN" ${call%%|*} 2>&1) || rc=$?
+  { [ $rc = 2 ] && grep -q -- "${call#*|}" <<<"$out"; } && ok "exit code 2 and the usage for: ${call%%|*}" || fail "wrong call: ${call%%|*} (exit $rc)" "$out"
+done
 # --version and --help answer with exit code 0, before anything under HOME is read or made
 out=$(SYN_HOME="$T/home-none" "$PY" "$SYN" --version | crlf_safe) && [ "$out" = "synchronauts $(sed -n "s/^VERSION = '\(.*\)'/\1/p" "$SYN")" ] && [ ! -e "$T/home-none" ] \
   && ok '--version prints the version and touches nothing' || fail '--version' "$out"
@@ -692,9 +704,10 @@ sys.exit(not [n for n in json.load(open(sys.argv[1])) if n.get("mission") == sys
 
   # Jule ends the mission while her agent hangs: it ends on her machine at once, the end waits for her key
   point "$S6S/stuck.sock"; S6SOCK="$S6S/stuck.sock"
-  out=$(SYN_SIGN_WAIT=1 from_session s6j11111 s6 jule "$PY" "$SYN" mission end 'The price import is in, Kim reviewed it.' 2>&1)
+  rc=0; out=$(SYN_SIGN_WAIT=1 from_session s6j11111 s6 jule "$PY" "$SYN" mission end 'The price import is in, Kim reviewed it.' 2>&1) || rc=$?
   check "$out" "Mission $S6MID ended here" "${S6_CHECKS[27]}"
   check "$out" 'the others learn it once it signs' "${S6_CHECKS[28]}"
+  [ $rc = 3 ] || fail "mission end whose end waits for the key: exit $rc, not 3 (written, not out yet)" "$out"
   jule_free() { s6 jule "$PY" -c 'import sys; sys.path.insert(0, sys.argv[1]); import syn
 sys.exit(syn.my_mission(syn.config(), sys.argv[2]) is not None)' "$ROOT" s6j11111; }
   jule_free && ok "${S6_CHECKS[29]}" || fail "${S6_CHECKS[29]}" "$(cat "$T/home-s6j/missions.json")"
@@ -821,11 +834,21 @@ hook alex PostToolUse "$(bash_call ale22222 "$T/alex-other")" >/dev/null
 hook alex PostToolUse "$(bash_call ale11111 "$T/alex-demo")" >/dev/null
 [ "$(task_of alex ale11111) | $(task_of alex ale22222)" = 'Build tickets API | Other construction site' ] \
   && ok 'each session gets its own task' || fail 'tasks mixed up' "$(cat "$T/home-alex/status.json")"
+# A task noted without a session id belongs to the Bash call that wrote it: a session in another folder does not take it
+out=$(cd "$T/alex-demo" && as_user alex "$PY" "$SYN" task "Noted by hand")
+check "$out" 'Task noted for a session in this folder' 'a task without a session id says whose Bash command takes it'
+hook alex PostToolUse "$(bash_call ale22222 "$T/alex-other")" >/dev/null
+[ "$(task_of alex ale11111)" = 'Build tickets API' ] && ok 'a session in another folder does not take it' || fail 'the task went to the wrong session' "$(cat "$T/home-alex/status.json")"
+hook alex PostToolUse "$(bash_call ale11111 "$T/alex-demo")" >/dev/null
+[ "$(task_of alex ale11111)" = 'Noted by hand' ] && ok 'the session in that folder does' || fail 'the task was not taken' "$(cat "$T/home-alex/status.json")"
+from_session ale11111 as_user alex "$PY" "$SYN" task "Build tickets API" >/dev/null
 hook alex SessionEnd "$(session ale22222 "$T/alex-other")" >/dev/null
 
 # Sam edits a private repo on the side: it must not show up in the picture
 hook sam PostToolUse "$(edit sam22222 "$T/private" "$T/private/src/a.ts")" >/dev/null
-until_ok 10 "the watchers bring Alex's task to Sam" grep -q 'Build tickets API' "$T/home-sam/others.json"
+# the task of the session itself: the history of Alex's branch names every task it ever had
+alex_task() { "$PY" -c 'import json,sys; sys.exit(json.load(open(sys.argv[1], encoding="utf-8"))["alex-gh/one"]["sessions"]["ale11111"].get("task") != sys.argv[2])' "$T/home-sam/others.json" "$1"; }
+until_ok 10 "the watchers bring Alex's task to Sam" alex_task 'Build tickets API'
 
 # Outside the team repos the plugin costs no context until the session touches a team repo
 out=$(hook sam SessionStart "$(session sam66666 "$T/private")")
@@ -879,9 +902,14 @@ T0=$(now_s); hook alex Stop "$(session ale11111 "$T/alex-demo")" 2>"$T/wake1" & 
 await_waiter alex ale11111 "$T0"
 out=$(as_user sam "$PY" "$SYN" send alex "$(printf '%01600d' 0)" 2>&1) && fail 'a message that is too long went through' "$out" \
   || check "$out" 'Too long' 'a message that is too long is rejected instead of cut'
-out=$(as_user sam "$PY" "$SYN" send kim 'hello' 2>&1) && fail 'an unknown recipient went through' "$out" \
-  || check "$out" 'Unknown: kim. In the room: Alex (@alex-gh)' 'an unknown recipient is rejected with the room'
-check "$(from_session sam33333 as_user sam "$PY" "$SYN" send alex 'I am touching src/a.ts right now, please leave it alone.')" 'Ready for Alex' 'send'
+rc=0; out=$(as_user sam "$PY" "$SYN" send kim 'hello' 2>&1) || rc=$?
+check "$out" 'Unknown: kim. In the room: Alex (@alex-gh)' 'an unknown recipient is rejected with the room'
+[ $rc = 2 ] && ok 'with exit code 2' || fail "unknown recipient: exit $rc" "$out"
+sam_sees_wake() { as_user sam "$PY" "$SYN" status | grep -q 'Alex (last [^)]*, wakes)'; }
+until_ok 20 "status shows that mail wakes Alex's waiting session" sam_sees_wake
+out=$(from_session sam33333 as_user sam "$PY" "$SYN" send alex 'I am touching src/a.ts right now, please leave it alone.')
+check "$out" 'Ready for Alex' 'send'
+check "$out" 'Waiting, will be woken: Alex\.' 'and says that the message wakes Alex, whose session waits'
 rc=0; exit_of $W1 10 || rc=$?
 [ $rc = 2 ] && ok 'the waiting session is woken (exit 2)' || fail "wake: exit $rc" "$(cat "$T/wake1")"
 check "$(cat "$T/wake1")" 'please leave it alone' 'the wake text carries the message'
@@ -964,12 +992,47 @@ check "$(hook sam PreToolUse "$(edit sam33333 "$T/sam-demo" "$T/sam-demo/src/lib
 out=$(from_session sam33333 as_user sam "$PY" "$SYN" claim "$T/sam-demo/src/lib/util.ts" 2>&1) && fail 'claimed twice' "$out" \
   || check "$out" 'Alex has claimed src/lib/ already' 'what another session claimed cannot be claimed again'
 check "$(hook sam UserPromptSubmit "$(session sam33333 "$T/sam-demo")")" '(claimed: src/claimed.ts, src/lib/)' 'the picture shows the claims'
+# Edits through Bash: a shell command cannot be asked about beforehand; after it, the files it changed count like edits
+# (file list), and a claimed one is told to the session. Files that were dirty before and untouched do not count.
+bash_id() { echo "{\"session_id\":\"$1\",\"cwd\":\"$2\",\"tool_use_id\":\"$3\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"true\"}}"; }
+files_of() { "$PY" -c 'import json,sys; sys.stdout.write("\n".join(json.load(open(sys.argv[1]))["sessions"][sys.argv[2]]["repos"]["acme/demo"]["files"]))' "$T/home-$1/status.json" "$2"; }
+echo 'out.cache' >> "$T/sam-demo/.git/info/exclude"
+echo x > "$T/sam-demo/src/old.ts"; echo a > "$T/sam-demo/src/again.ts"; echo a > "$T/sam-demo/src/gone.ts"
+hook sam PreToolUse "$(bash_id sam77777 "$T/sam-demo" toolu_sh1)" >/dev/null
+echo changed > "$T/sam-demo/src/claimed.ts"; echo 'more text' >> "$T/sam-demo/src/again.ts"; rm "$T/sam-demo/src/gone.ts"
+echo x > "$T/sam-demo/src/mü ller.ts"; echo x > "$T/sam-demo/out.cache"; git -C "$T/sam-demo" mv src/a.ts src/a2.ts
+out=$(hook sam PostToolUse "$(bash_id sam77777 "$T/sam-demo" toolu_sh1)")
+check "$out" 'Alex has claimed src/claimed.ts in demo; a shell command changed it' 'a claimed file that a shell command changed is told to the session afterwards'
+lacks "$out" 'src/again.ts;' 'a file nobody claimed gets no such note'
+files=$(files_of sam sam77777 | crlf_safe)
+check "$files" 'src/claimed.ts' 'a file written by a shell command counts as edited'
+check "$files" 'src/mü ller.ts' 'also one with a space and an accent'
+check "$files" 'src/again.ts' 'a file that was dirty before and written again counts'
+check "$files" 'src/gone.ts' 'a file that the command deleted counts'
+check "$files" 'src/a2.ts' 'a renamed file counts with its new name'
+check "$files" 'src/a.ts' 'and with its old one'
+lacks "$files" 'src/old.ts' 'a file that was dirty before and not touched does not count'
+lacks "$files" 'out.cache' 'an ignored file does not count'
+[ -z "$(ls "$T/home-sam/snaps" 2>/dev/null)" ] && ok 'the snapshot is removed after the call' || fail 'snapshot left' "$(ls "$T/home-sam/snaps")"
+git -C "$T/sam-demo" mv src/a2.ts src/a.ts; rm -f "$T/sam-demo/src/old.ts" "$T/sam-demo/src/again.ts" "$T/sam-demo/src/mü ller.ts" "$T/sam-demo/out.cache"
+git -C "$T/sam-demo" checkout -q -- src/claimed.ts 2>/dev/null || rm -f "$T/sam-demo/src/claimed.ts"
+hook sam SessionEnd "$(session sam77777 "$T/sam-demo")" >/dev/null
+out=$(hook sam PostToolUse "$(bash_id sam77777 "$T/plain" toolu_sh2)")
+[ -z "$out" ] && ok 'a Bash call without a snapshot (not in a repo of the team) says nothing' || fail 'Bash without snapshot' "$out"
 from_session sam55555 as_user sam "$PY" "$SYN" claim "$T/sam-demo/src/own.ts" >/dev/null
 check "$(hook sam PreToolUse "$(edit sam33333 "$T/sam-demo" "$T/sam-demo/src/own.ts")")" 'Your other session has claimed src/own.ts' 'a claim of an own other session is asked about too'
 check "$(from_session ale11111 as_user alex "$PY" "$SYN" claim --release)" 'Released all claims' 'Alex releases the claims'
 from_session sam55555 as_user sam "$PY" "$SYN" claim --release "$T/sam-demo/src/own.ts" >/dev/null
 released() { [ -z "$(hook sam PreToolUse "$(edit sam33333 "$T/sam-demo" "$T/sam-demo/src/claimed.ts")")" ]; }
 until_ok 10 'after the release, the file needs no question' released
+many=(); for i in $(seq 10 40); do many+=("$T/alex-demo/src/m$i.ts"); done
+rc=0; out=$(from_session ale11111 as_user alex "$PY" "$SYN" claim "${many[@]}") || rc=$?
+check "$out" 'Not kept, at most 30 claims per repo: src/m40.ts' 'a claim list over the maximum says which claims were not kept'
+[ $rc = 1 ] && ok 'with exit code 1' || fail "claim over the maximum: exit $rc" "$out"
+rc=0; out=$(from_session ale11111 as_user alex "$PY" "$SYN" claim "$T/alex-demo/src/a0.ts") || rc=$?
+check "$out" 'Not kept, at most 30 claims per repo: src/a0.ts' 'a claim on top of a full list is refused, whatever its name'
+[ $rc = 1 ] && check "$(from_session ale11111 as_user alex "$PY" "$SYN" claim)" 'src/m39.ts' 'and pushes none out that was there' || fail "claim on a full list: exit $rc" "$out"
+from_session ale11111 as_user alex "$PY" "$SYN" claim --release >/dev/null
 [ -z "$(hook sam PreToolUse "$(edit sam33333 "$T/sam-demo" "$T/sam-demo/src/own.ts")")" ] && ok 'an own release takes effect at once' || fail 'own release'
 check "$(cat "$T/home-alex/events.json")" '"kind": "claim"' 'claims are in the history'
 check "$(as_user alex "$PY" "$SYN" status)" 'Sam → Alex' 'status lists the mail'
@@ -1503,6 +1566,11 @@ refused() { local out; out=$(gate toolu_t5 "$T/sam-demo" "$2")
   if grep -q '"permissionDecision": "deny"' <<<"$out" && grep -q 'must be the whole command' <<<"$out" \
     && ! grep -q '"approving"' "$T/home-sam/sessions/sam33333.json"; then ok "refused: $1"; else fail "not refused: $1" "$out"; fi; }
 refused 'the gate, then && touch' "$G && touch $T/pwned"
+lacks "$(gate toolu_t5 "$T/sam-demo" "$G && touch $T/pwned")" 'own terminal' 'a chained call of syn gets the short text'
+# a command that has nothing to do with syn and names both words is refused too (the guard cannot tell), and is told so
+out=$(gate toolu_t5 "$T/sam-demo" "sed -i 's/approve/confirm/' docs/mission.md")
+check "$out" 'could hide an approval' 'a sed that names mission and approve is refused with the reason'
+check "$out" 'can run it in their own terminal' 'and with what the human can do instead'
 refused 'the gate, then ; touch' "$G; touch $T/pwned"
 refused 'the gate into a pipe' "$G | cat"
 refused 'the gate with a command substitution' "$G \$(touch $T/pwned)"
