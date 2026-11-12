@@ -92,6 +92,8 @@ CLOCK_SKEW = timedelta(minutes=5)   # an invite dated further ahead of the clock
 CLOCK_OFF = 300                     # seconds the clock here may differ from GitHub's before syn says so
 EDIT_TOOLS = ('Edit', 'Write', 'MultiEdit', 'NotebookEdit')
 CONFLICT_TICK = setting('SYN_CONFLICT_TICK', 60.0)  # seconds between two conflict checks
+STORE_AGE = 86400                   # the commits that the conflict check fetched are kept this many seconds ...
+STORE_SIZE = 100 * 2**20            # ... or up to this many bytes, then the store is emptied
 EVENTS_KEEP = timedelta(hours=24)   # an event stays in the UI's history this long
 MAX_EVENTS = 100
 PUSH_GAP = TICK or 15               # seconds between two pushes when only state or history changed; mail goes at once
@@ -2443,32 +2445,78 @@ def overlaps(k, mine, sid, asked=(), team=()):
 
 # --- Conflicts ----------------------------------------------------------------
 
-def snapshot(root):
+def snapshot(root, objects=None):
     """A commit of the working tree as it is, uncommitted and new files included, written without touching the
-    repo's index, refs or files: `git add` goes into a copy of the index. The HEAD itself if nothing changed."""
+    repo's index, refs or files: `git add` goes into a copy of the index. The HEAD itself if nothing changed. Its
+    objects go where `objects` (object_env) says."""
     head = git('rev-parse', 'HEAD', cwd=root, timeout=10)
     index = Path(root, git('rev-parse', '--git-path', 'index', cwd=root, timeout=10))
     tmp = HOME / f'.index.{os.getpid()}'
     try:
         if index.exists():
             tmp.write_bytes(index.read_bytes())
-        env = {'GIT_INDEX_FILE': str(tmp)}
+        env = dict(objects or {}, GIT_INDEX_FILE=str(tmp))
         git('add', '-A', cwd=root, timeout=60, env=env)
         tree = git('write-tree', cwd=root, timeout=20, env=env)
     finally:
         tmp.unlink(missing_ok=True)
     if tree == git('rev-parse', 'HEAD^{tree}', cwd=root, timeout=10):
         return head
-    who = {f'GIT_{x}_{y}': v for x in ('AUTHOR', 'COMMITTER') for y, v in (('NAME', 'synchronauts'),
-                                                                           ('EMAIL', 'synchronauts@localhost'))}
+    who = dict(objects or {}, **{f'GIT_{x}_{y}': v for x in ('AUTHOR', 'COMMITTER')
+                                 for y, v in (('NAME', 'synchronauts'), ('EMAIL', 'synchronauts@localhost'))})
     return git('commit-tree', tree, '-p', head, '-m', 'synchronauts: working tree', cwd=root, timeout=20, env=who)
 
 
-def conflicted(root, a, b):
+def object_env(primary, *others):
+    """Environment that makes git write new objects into the folder `primary` and read those of `others` (and of
+    GIT_ALTERNATE_OBJECT_DIRECTORIES, if set) as well: the repo gets none. OSError for a path that the variable cannot
+    carry (it is split at `:`, on Windows at `;`)."""
+    sep = ';' if WINDOWS else ':'
+    inherited = [x for x in os.environ.get('GIT_ALTERNATE_OBJECT_DIRECTORIES', '').split(sep) if x]
+    if any(sep in str(d) for d in (primary, *others)):
+        raise OSError(f'a folder name with {sep}')
+    return {'GIT_OBJECT_DIRECTORY': str(primary),
+            'GIT_ALTERNATE_OBJECT_DIRECTORIES': sep.join([str(d) for d in others] + inherited)}
+
+
+def rmtree_quiet(path):
+    """Deletes a folder with everything in it, Git's read-only object files too (on Windows rmtree stops at those);
+    what cannot be deleted stays, and the next run tries again."""
+    def unlock(func, p, _):
+        try:
+            os.chmod(p, stat.S_IWRITE)
+            func(p)
+        except OSError:
+            pass
+    shutil.rmtree(path, onerror=unlock)
+
+
+def open_store():
+    """The folder for the commits of teammates that the conflict check fetches, so that the work repo gets none of
+    them. Emptied when it is older than STORE_AGE or bigger than STORE_SIZE (what it held is fetched again). Returns
+    (folder, whether it was emptied or is new)."""
+    store, size = HOME / 'conflict-objects', 0
+    for folder, _, names in os.walk(store):
+        for name in names:
+            try:
+                size += os.path.getsize(os.path.join(folder, name))
+            except OSError:
+                pass
+    empty = age(store / 'since') > STORE_AGE or size > STORE_SIZE
+    if empty:
+        rmtree_quiet(store)
+    private_dir(store)
+    if empty or not (store / 'since').exists():
+        (store / 'since').write_text(iso(), encoding='utf-8')
+    return store, empty
+
+
+def conflicted(root, a, b, objects=None):
     """Files that would conflict if a and b were merged, [] if none, None if git cannot tell (older than 2.38,
-    unrelated histories)."""
+    unrelated histories). The merge's objects go where `objects` (object_env) says."""
     r = subprocess.run(['git', 'merge-tree', '--write-tree', '--name-only', '--no-messages', a, b], cwd=root,
-                       capture_output=True, stdin=subprocess.DEVNULL, timeout=60)
+                       capture_output=True, stdin=subprocess.DEVNULL, timeout=60,
+                       env=dict(os.environ, **objects) if objects else None)
     if r.returncode not in (0, 1):
         return None
     return sorted({x for x in r.stdout.decode('utf-8', 'replace').splitlines()[1:] if x.strip()})
@@ -2485,9 +2533,19 @@ def conflict_check():
         lock = Lock('conflicts', wait=False).__enter__()
     except BlockingIOError:
         return
+    run = HOME / 'conflict-run'  # snapshots and merge results of this pass: they go here and are deleted at its end
     try:
         before, limit = load(HOME / 'conflicts.json', {}), now() - ACTIVE
-        tried = {x: t for x, t in before.get('fetched', {}).items() if time.time() - t < 3600}
+        rmtree_quiet(run)  # left by a pass that was killed
+        private_dir(run)
+        store, emptied = open_store()  # the commits fetched from teammates: not into the work repo
+        tried = {x: t for x, t in before.get('fetched', {}).items() if time.time() - t < 3600 and not emptied}
+        folders = {}  # root → its object folder (that of the common git dir, in a worktree)
+
+        def own(root):
+            if root not in folders:
+                folders[root] = Path(root, git('rev-parse', '--git-path', 'objects', cwd=root, timeout=10))
+            return folders[root]
         mine = {}  # sid → {repo: (root, branch)}
         for sid, s in load(HOME / 'status.json', {}).get('sessions', {}).items():
             local = load(SESSIONS / f'{sid}.json', {})
@@ -2499,7 +2557,7 @@ def conflict_check():
         def snap(root):
             if root not in snaps:
                 try:
-                    snaps[root] = snapshot(root)
+                    snaps[root] = snapshot(root, object_env(run, store, own(root)))
                 except (RuntimeError, OSError, subprocess.TimeoutExpired):
                     snaps[root] = None
             return snaps[root]
@@ -2508,16 +2566,22 @@ def conflict_check():
             """sha, if this repo has it or can fetch it from origin (once an hour per commit)."""
             if not sha or not re.fullmatch(r'[0-9a-f]{40,64}', sha) or not branch:
                 return None
+            try:
+                env = object_env(store, own(root))  # a fetch writes into the store
+            except (RuntimeError, OSError, subprocess.TimeoutExpired):
+                return None
             for attempt in (0, 1):
                 try:
-                    git('cat-file', '-e', f'{sha}^{{commit}}', cwd=root, timeout=10)
+                    git('cat-file', '-e', f'{sha}^{{commit}}', cwd=root, timeout=10, env=env)
                     return sha
                 except (RuntimeError, subprocess.TimeoutExpired):
                     if attempt or f'{repo}|{sha}' in tried:
                         return None
                     tried[f'{repo}|{sha}'] = time.time()
                     try:
-                        git('fetch', '-q', '--no-write-fetch-head', 'origin', f'refs/heads/{branch}', cwd=root, timeout=60)
+                        git('-c', 'gc.auto=0', '-c', 'maintenance.auto=false', 'fetch', '-q', '--no-write-fetch-head',
+                            '--no-tags', '--refmap=', '--no-prune', '--no-recurse-submodules', 'origin',
+                            f'refs/heads/{branch}', cwd=root, timeout=60, env=env)  # no ref of the repo moves
                     except (RuntimeError, subprocess.TimeoutExpired):
                         return None
 
@@ -2530,20 +2594,25 @@ def conflict_check():
                     pass
         for sid, repos in mine.items():
             for repo, (root, branch) in repos.items():
-                theirs = [(f"{k['me']}/{k['machine']}/{o}", x[repo][1], lambda r=x[repo][0]: snap(r))
+                theirs = [(f"{k['me']}/{k['machine']}/{o}", x[repo][1], lambda r=x[repo][0]: snap(r), x[repo][0])
                           for o, x in mine.items() if o != sid and repo in x and x[repo][0] != root]
                 theirs += [(key, s['repos'][repo].get('branch'),
-                            lambda r=s['repos'][repo]: pushed(root, repo, r.get('branch'), r.get('tip')))
+                            lambda r=s['repos'][repo]: pushed(root, repo, r.get('branch'), r.get('tip')), None)
                            for _, key, s, _ in others(k, own=False) if repo in s['repos']]
-                for key, other_branch, get in theirs:
+                for key, other_branch, get, there in theirs:
                     a = snap(root)
                     b = get() if a else None
-                    files = conflicted(root, a, b) if b and b != a else None
+                    try:  # the merge sees the objects of both checkouts, and writes into this pass's folder only
+                        env = object_env(run, store, own(root), *([own(there)] if there else []))
+                    except (RuntimeError, OSError, subprocess.TimeoutExpired):
+                        env = None
+                    files = conflicted(root, a, b, env) if b and b != a and env else None
                     if files:
                         out.setdefault(sid, []).append({'with': key, 'repo': repo, 'branch': other_branch,
                                                         'files': files[:MAX_FILES]})
         save(HOME / 'conflicts.json', {'time': iso(), 'sessions': out, 'tips': tips, 'fetched': tried})
     finally:
+        rmtree_quiet(run)
         lock.__exit__()
 
 

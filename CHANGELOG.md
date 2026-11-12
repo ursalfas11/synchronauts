@@ -218,6 +218,11 @@ This file is in English only; the README and the guide exist in English and Germ
   `~/.synchronauts/syn` exists once a session has started, shows the line that invites a teammate, and says in three
   sentences what the room sees. Commands carry their full path, and a line says that the project is not affiliated
   with Anthropic or OpenAI.
+- The conflict check no longer writes into your repo. Its snapshot and merge objects go into a temporary folder under
+  `~/.synchronauts` that is deleted after each run, and the commits it fetches from teammates into
+  `~/.synchronauts/conflict-objects` (emptied after a day or at 100 MB); no object and no ref is added to the work
+  repository's `.git`. It also compares two separate clones of one repo on the same machine now, not only worktrees.
+  Objects that earlier versions left in a repo stay there until `git gc` removes them.
 - **Breaking:** the board's key is no longer in `~/.synchronauts/ui-key` (`syn ui` deletes the file) or in an address
   (`#k=`); a script that read it to call the board's API stops working. Use `syn state` for the board's data, and
   `syn ui` or `syn ui --pair` to pair a browser.

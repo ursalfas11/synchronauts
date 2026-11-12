@@ -160,8 +160,8 @@ Things that work as designed or as far as tested, so that nobody counts on more 
   opener's command line; on a shared machine run `syn ui --pair` and open the address yourself.
 - Edits made through Bash (a script, `sed -i`, a build tool) are not tracked: the picture of who works on which file
   comes from the edit tools (Edit, Write, MultiEdit, NotebookEdit) and Codex patches only.
-- The conflict check writes objects (a snapshot commit and merge results, referenced by no branch) into the `.git`
-  folder of the work repository; they are unreferenced and removed by Git's own garbage collection.
+- Versions before 0.6.0 left the objects of the conflict check (a snapshot commit and merge results, referenced by no
+  branch) in the `.git` folder of the work repository; `git gc` removes them. The check no longer writes there.
 - There is no `leave` or `uninstall` command yet. See the guide for removing the plugin by hand.
 
 ## Hardening checklist for a room
