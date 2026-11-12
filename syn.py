@@ -6132,14 +6132,20 @@ def strip_codex(conf):
 
 def cmd_codex(args):
     """Enters the hooks into Codex's hooks.json, next to whatever else is there; --remove takes them out again."""
-    path = codex_path()
+    path, remove = codex_path(), '--remove' in args
     try:
         conf = json.loads(path.read_text(encoding='utf-8')) if path.exists() else {}
     except ValueError as error:
         sys.exit(f'{path} is not valid JSON ({error}); fix it first.')
-    strip_codex(conf)  # ours out, the others' untouched
+    try:
+        took = strip_codex(conf)  # ours out, the others' untouched
+    except (AttributeError, TypeError):  # valid JSON, but not the shape Codex reads: nothing of it is rewritten
+        sys.exit(f'{path} does not look like a hooks file of Codex; fix it first.')
+    if remove and not took:  # nothing of ours in it, or no file at all: none is written
+        print(f'No Synchronauts hooks in {path}.')
+        return
     hooks = conf['hooks']
-    if '--remove' not in args:
+    if not remove:
         link(always=True)
         for event, timeout in CODEX_HOOKS.items():
             group = {'hooks': [{'type': 'command', 'timeout': timeout,
@@ -6148,7 +6154,7 @@ def cmd_codex(args):
                 group['matcher'] = '^(apply_patch|Bash)$'
             hooks.setdefault(event, []).append(group)
     save(path, conf)
-    if '--remove' in args:
+    if remove:
         print(f'Removed the Synchronauts hooks from {path}.')
     else:
         print(f'Synchronauts hooks are in {path}. In Codex, open /hooks once and trust them; from the next Codex '

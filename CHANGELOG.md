@@ -290,6 +290,9 @@ This file is in English only; the README and the guide exist in English and Germ
 
 ### Fixed
 
+- `syn codex --remove` no longer creates `~/.codex/hooks.json` when there is none and leaves a file without hooks of
+  Synchronauts as it is; it says "No Synchronauts hooks in …". A hooks file that is valid JSON of another shape stops
+  `syn codex` with a sentence instead of a traceback, and is not rewritten.
 - On Windows a state file that another process replaced at that moment read as empty: a teammate's name fell back to
   the login, a session could miss from the picture for one hook. Such a read is tried again for up to half a second.
 - Two sessions with a detached HEAD in one repo no longer count as being on the same branch: git names every

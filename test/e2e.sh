@@ -1888,6 +1888,16 @@ lacks "$(codex sam Stop "$(session cod11111 "$T/sam-demo")")" 'decision' 'only o
 codex sam SessionEnd "$(session cod11111 "$T/sam-demo")" >/dev/null
 check "$(as_user sam "$PY" "$SYN" codex --remove)" 'Removed' 'syn codex --remove'
 [ "$(codex_hooks)" = '0 1' ] && ok 'and only ours go' || fail 'codex remove' "$(cat "$CODEX_HOME/hooks.json")"
+check "$(as_user sam "$PY" "$SYN" codex --remove)" 'No Synchronauts hooks' 'a second --remove finds none of ours'
+[ "$(codex_hooks)" = '0 1' ] && ok 'and leaves the file as it is' || fail 'codex remove twice' "$(cat "$CODEX_HOME/hooks.json")"
+check "$(as_user sam env CODEX_HOME="$T/codex-none" "$PY" "$SYN" codex --remove)" 'No Synchronauts hooks' 'without a hooks file --remove says so'
+[ ! -e "$T/codex-none" ] && ok 'and writes none' || fail 'codex remove wrote a file' "$(ls -a "$T/codex-none")"
+mkdir -p "$T/codex-odd"; echo '{"hooks": [1, 2]}' > "$T/codex-odd/hooks.json"
+rc=0; out=$(as_user sam env CODEX_HOME="$T/codex-odd" "$PY" "$SYN" codex 2>&1 | crlf_safe) || rc=$?
+[ $rc = 1 ] && ok 'a hooks file of another shape stops syn codex' || fail "codex odd file: exit $rc" "$out"
+check "$out" 'does not look like a hooks file of Codex' 'with a sentence'
+lacks "$out" 'Traceback' 'not a traceback'
+[ "$(cat "$T/codex-odd/hooks.json")" = '{"hooks": [1, 2]}' ] && ok 'and the file is untouched' || fail 'codex odd file changed' "$(cat "$T/codex-odd/hooks.json")"
 
 # Several owners count as team repos with --org a,b, for friends who each keep their repos in their own account
 out=$(echo "$(edit sam88888 "$T/private" "$T/private/src/a.ts")" | SYN_ORGS=acme,someone as_user sam "$PY" "$HOOK" PostToolUse)
