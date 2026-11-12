@@ -929,7 +929,8 @@ syn.gh_run, syn.time.sleep = real_run, real_sleep
 for name in PUSH_STATE:
     (HOME / name).unlink(missing_ok=True)
 
-# `send` says who is woken and who sees the message at the next prompt, by the logic of the board's `wakeable`; the
+# `send` says who is woken, who is at work and gets the message with the next step, and who sees it at the next
+# prompt, by the logic of the board's `wakeable`; the
 # outbox shows what waits for a signature and what was dropped; a task noted outside a session is for one folder, a few
 # seconds
 hour_ago = syn.iso(syn.now() - syn.timedelta(hours=2))
@@ -943,6 +944,8 @@ def person(login, **session):
 syn.save(HOME / 'others.json', {
     'alex-gh/x': person('alex-gh', state='waiting', state_since=t), 'kim-gh/x': person('kim-gh', state='waiting', state_since=t, agent='codex'),
     'jule-gh/x': person('jule-gh', state='waiting', state_since=hour_ago), 'lee-gh/x': person('lee-gh', state='working', state_since=t),
+    'sam-gh/x': person('sam-gh', state='working', state_since=hour_ago, last=hour_ago, agent='codex'),
+    'alice-gh/x': person('alice-gh', state='error', state_since=t),
     'ray-gh/x': syn.tidy({'login': 'ray-gh', 'name': 'Ray', 'sessions': {}, 'mail': [], 'events': []}, 'ray-gh', 'x')})
 mail = lambda to, repo='': {'to': to, 'repo': repo}  # noqa: E731
 check(syn.delivery_line(k, mail(['alex-gh'])) == 'Waiting, will be woken: Alex.', 'send: a waiting session is woken',
@@ -950,10 +953,17 @@ check(syn.delivery_line(k, mail(['alex-gh'])) == 'Waiting, will be woken: Alex.'
 check(syn.delivery_line(k, mail(['kim-gh'])) == 'Sees it at its next prompt: Kim (Codex).', 'send: Codex cannot be woken')
 check(syn.delivery_line(k, mail(['jule-gh'])) == 'Sees it at its next prompt: Jule (wake window over).',
       'send: a session that waits longer than the wake window is not woken')
-check(syn.delivery_line(k, mail(['lee-gh'])) == 'Sees it at its next prompt: Lee (at work).', 'send: a session at work is not woken')
+check(syn.delivery_line(k, mail(['lee-gh'])) == 'At work, gets it with the next step: Lee.',
+      'send: a session at work gets it with its next step', syn.delivery_line(k, mail(['lee-gh'])))
+check(syn.delivery_line(k, mail(['sam-gh'])) == 'Sees it at its next prompt: Sam (Codex).',
+      'send: a session at work without a sign of life for half an hour was interrupted, it sees it at the next prompt',
+      syn.delivery_line(k, mail(['sam-gh'])))
+check(syn.delivery_line(k, mail(['alice-gh'])) == 'Sees it at its next prompt: Alice (quiet).',
+      'send: a session that stopped with an error sees it at the next prompt', syn.delivery_line(k, mail(['alice-gh'])))
 check(syn.delivery_line(k, mail(['ray-gh'])) == 'Sees it at its next prompt: Ray (no open session).', 'send: nobody home')
-check(syn.delivery_line(k, mail(['alex-gh', 'kim-gh', 'ray-gh'])) == 'Waiting, will be woken: Alex. '
-      'Sees it at its next prompt: Kim (Codex), Ray (no open session).', 'send all: both kinds on one line')
+check(syn.delivery_line(k, mail(['alex-gh', 'kim-gh', 'lee-gh', 'ray-gh'])) == 'Waiting, will be woken: Alex. '
+      'At work, gets it with the next step: Lee. Sees it at its next prompt: Kim (Codex), Ray (no open session).',
+      'send all: the three kinds on one line')
 check(syn.delivery_line(k, mail(['alex-gh'], 'ui')) == '', 'send @ui: no session is woken, so no line')
 check(syn.delivery_line(k, mail(['alex-gh'], 'other')) == 'Waiting, will be woken: Alex.',
       'send @repo with no session there: the most recently active one decides')
@@ -961,7 +971,8 @@ s_alex = syn.load(HOME / 'others.json', {})['alex-gh/x']['sessions']['s1']
 check(syn.wakeable(s_alex) and not syn.wakeable(dict(s_alex, agent='codex')) and not syn.wakeable(dict(s_alex, state='working')),
       'wakeable() is the one rule: waiting, not Codex')
 board = {x['login']: x['wakeable'] for x in syn.ui_data(k)['sessions']}
-check(board == {'alex-gh': True, 'kim-gh': False, 'jule-gh': False, 'lee-gh': False}, 'and the board uses it', str(board))
+check(board == {'alex-gh': True, 'kim-gh': False, 'jule-gh': False, 'lee-gh': False, 'sam-gh': False, 'alice-gh': False},
+      'and the board uses it', str(board))
 for name in ('others.json',):
     (HOME / name).unlink(missing_ok=True)
 

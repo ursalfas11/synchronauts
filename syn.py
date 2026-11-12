@@ -6053,22 +6053,26 @@ def create_message(k, to, text, source=None):
 
 
 def delivery_line(k, n):
-    """Who of the recipients of a message just sent is woken by it and who sees it only at the next prompt, for the
-    sender's Claude, which would wait in vain for an answer. For each recipient the session that shows the message is
-    the most recently active one, in the message's repo if it names one (as target() picks there); wakeable() decides."""
+    """Who of the recipients of a message just sent is woken by it, who gets it with the next step of a session at work
+    and who sees it only at the next prompt, for the sender's Claude, which would wait in vain for an answer. For each
+    recipient the session that shows the message is the most recently active one, in the message's repo if it names
+    one (as target() picks there); arrival() decides."""
     if n.get('repo') == UI_TARGET:
         return ''
-    nm, limit, got, woken, later = names(k), now() - ACTIVE, load(HOME / 'others.json', {}), [], []
+    nm, limit, got = names(k), now() - ACTIVE, load(HOME / 'others.json', {})
+    woken, soon, later = [], [], []
     for login in n['to']:
         found = [s for d in got.values() if d.get('login') == login for s in (d.get('sessions') or {}).values()
                  if isinstance(s, dict) and s.get('repos') and parse(s.get('last')) > limit]
         there = [x for x in found if n.get('repo') and any(matches(r, n['repo']) for r in x['repos'])]
         s = max(there or found, key=lambda x: parse(x.get('last')), default=None)
-        if s and wakeable(s):
-            woken.append(nm.get(login, login))
+        how, who = arrival(s) if s else 'no open session', nm.get(login, login)
+        if how in ('wakes', 'at work'):
+            (woken if how == 'wakes' else soon).append(who)
         else:
-            later.append(f"{nm.get(login, login)} ({not_woken_why(s) if s else 'no open session'})")
+            later.append(f'{who} ({how})')
     return ' '.join(x for x in (f"Waiting, will be woken: {', '.join(woken)}." if woken else '',
+                                f"At work, gets it with the next step: {', '.join(soon)}." if soon else '',
                                 f"Sees it at its next prompt: {', '.join(later)}." if later else '') if x)
 
 
@@ -6170,9 +6174,11 @@ def cmd_claim(k, args):
         for (repo, _, branch), cs in wanted.items():
             x = s['repos'].setdefault(repo, {'files': []})
             x.update(branch=branch, last=minute())
-            x['claims'] = sorted(set(x.get('claims', [])) - set(cs) if release else set(x.get('claims', [])) | set(cs))
-            cut.extend(x['claims'][MAX_FILES:])
-            x['claims'] = x['claims'][:MAX_FILES]
+            have = x.get('claims', [])
+            new = [c for c in cs if c not in have]
+            fit = new[:max(MAX_FILES - len(have), 0)]  # the ones that are there stay: a new claim pushes none out
+            cut.extend([] if release else new[len(fit):])
+            x['claims'] = sorted(set(have) - set(cs) if release else set(have) | set(fit))
         if release and not wanted:
             for x in s['repos'].values():
                 x.pop('claims', None)
@@ -6283,8 +6289,8 @@ def cmd_status(k):
         print(f'No room yet. {room_hint()}')
     else:
         print('Active in the team:')
-        print('\n'.join(line(who, s, full=True, note=', wakes' if wakeable(s) else ', next prompt')
-                        for who, _, s, _ in others(k, own=False)) or '- nobody else in a team repo')
+        print('\n'.join(line(who, s, full=True, note=', ' + {'wakes': 'wakes', 'at work': 'at work'}.get(
+            arrival(s), 'next prompt')) for who, _, s, _ in others(k, own=False)) or '- nobody else in a team repo')
     own = [s for s in load(HOME / 'status.json', {}).get('sessions', {}).values()
            if s.get('repos') and parse(s.get('last')) > now() - ACTIVE]
     print('\nMy sessions on this machine:')
@@ -6424,10 +6430,16 @@ def wakeable(s, local=None):
             and time.time() - local.get('pulse', 0) < 90 and bool(local.get('waiter')) and pid_alive(local['waiter']))
 
 
-def not_woken_why(s):
-    """Why a message does not wake a session of another machine, in two words."""
-    return 'Codex' if s.get('agent') == 'codex' else 'at work' if (s.get('state') or 'waiting') != 'waiting' \
-        else 'wake window over'
+def arrival(s):
+    """How a message reaches a session of another machine, in a word or two: 'wakes' (it waits for mail), 'at work' (it
+    gets the message with its next tool call), otherwise why it sees it only at its next prompt. A session at work
+    without a sign of life for QUIET_AFTER was interrupted, not working: no Stop hook ran."""
+    if wakeable(s):
+        return 'wakes'
+    state, since = s.get('state') or 'waiting', parse(s.get('state_since') or s.get('start'))
+    if state in ('working', 'approval') and now() - max(since, parse(s.get('last'))) <= QUIET_AFTER['working']:
+        return 'at work'
+    return 'Codex' if s.get('agent') == 'codex' else 'wake window over' if state == 'waiting' else 'quiet'
 
 
 def ui_session(login, machine, sid, s, local=None):

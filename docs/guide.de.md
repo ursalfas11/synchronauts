@@ -164,11 +164,11 @@ Claude ruft sie per Bash auf, du kannst es auch. `~/.synchronauts/syn` ist ein k
 | Befehl | Wirkung |
 |---|---|
 | `~/.synchronauts/syn task "<ein Satz>"` | trägt ein, woran diese Session arbeitet |
-| `~/.synchronauts/syn send <name\|all>[@repo] "<text>"` | Nachricht an den Claude eines Kollegen, mit `@repo` an seine Session in diesem Repo, höchstens 1500 Zeichen; sagt je Empfänger, ob die Nachricht eine wartende Session weckt oder erst beim nächsten Prompt gesehen wird; ein Name, der auf mehr als eine Person passt, wird abgelehnt, der Login geht immer |
+| `~/.synchronauts/syn send <name\|all>[@repo] "<text>"` | Nachricht an den Claude eines Kollegen, mit `@repo` an seine Session in diesem Repo, höchstens 1500 Zeichen; sagt je Empfänger, ob die Nachricht eine wartende Session weckt, eine arbeitende mit ihrem nächsten Schritt erreicht oder erst beim nächsten Prompt gesehen wird; ein Name, der auf mehr als eine Person passt, wird abgelehnt, der Login geht immer |
 | `~/.synchronauts/syn send <name>@ui "<text>"` | Antwort ans Board eines Kollegen statt an eine seiner Sessions |
 | `~/.synchronauts/syn mission propose --with <name>[@repo][,…] [--hours N] "<plan>"` | schlägt einer oder mehreren Personen einen Auftrag vor; `mission approve <id>` fragt dann den Menschen (Start oder Beitritt), `mission end "<ergebnis>"` beendet ihn für alle |
 | `~/.synchronauts/syn claim <pfad>…` | beansprucht Dateien oder Ordner für diese Session, andere Sessions fragen vor dem Ändern; `claim` listet, `claim --release [pfad…]` gibt frei |
-| `~/.synchronauts/syn status` | das Bild mit Dateien und Uhrzeiten, die eigenen Sessions (und ob Post die Session eines Kollegen weckt), Post, die auf eine Signatur wartet oder verworfen wurde, Post der letzten 3 Tage |
+| `~/.synchronauts/syn status` | das Bild mit Dateien und Uhrzeiten, die eigenen Sessions (und für die Session eines Kollegen, ob Post sie weckt, bei der Arbeit erreicht oder auf ihren nächsten Prompt wartet), Post, die auf eine Signatur wartet oder verworfen wurde, Post der letzten 3 Tage |
 | `~/.synchronauts/syn ui` | startet das Board im Hintergrund, öffnet es und koppelt den Browser (`--pair` nennt stattdessen eine Adresse mit Einmal-Code, `--no-browser` nur die Adresse) |
 | `~/.synchronauts/syn setup <owner/repo> [--invite a,b] [--org a,b]` | tritt einem Raum bei und legt ihn an, wenn er ein Repo deines eigenen Kontos ist und noch nicht existiert; `--invite` lädt GitHub-Logins ein; `--org` legt fest, wessen Repos als Team-Repos zählen |
 | `~/.synchronauts/syn key` | legt einen Schlüssel dieses Rechners an, der nur signiert, und hinterlegt ihn in deinem GitHub-Konto |

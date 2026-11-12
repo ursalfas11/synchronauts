@@ -240,6 +240,20 @@ This file is in English only; the README and the guide exist in English and Germ
   says that the others learn it once the key signs. Before, the end went out unsigned, counted for nobody, and the
   mission was over on your side only.
 
+- `send` says how the message arrives: "Waiting, will be woken" for a session that waits, "At work, gets it with the
+  next step" for one that is working, and "Sees it at its next prompt" with the reason (Codex, wake window over, no
+  open session) for the rest, so a Claude does not wait for an answer that cannot come. `status` marks each teammate's
+  session the same way. The board and `send` decide it by one rule.
+- `status` says when no room is set up, and shows mail that waits in the outbox for a signature and mail that was
+  dropped in the last 3 days; `syn state` carries both as `outbox`.
+- Exit codes: 2 for a wrong call (a missing argument, an unknown command, a value that is not allowed), with the usage
+  of that command instead of the list of all, and 3 for `send` when the message is written but not uploaded yet; 1
+  stays for a call that could not be done. `--help` lists them.
+- `claim` refuses a claim over the 30 a session may hold in a repo and says which ones, with exit code 1; it used to
+  cut the list in alphabetical order without a word, which could drop a claim that was there. A task noted with `task`
+  outside a session is taken only by a Bash hook in the same folder within 10 seconds, no longer by whichever session
+  runs a command next.
+
 ### Fixed
 
 - Two sessions with a detached HEAD in one repo no longer count as being on the same branch: git names every

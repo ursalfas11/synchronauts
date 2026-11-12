@@ -885,6 +885,9 @@ many=(); for i in $(seq 10 40); do many+=("$T/alex-demo/src/m$i.ts"); done
 rc=0; out=$(from_session ale11111 as_user alex "$PY" "$SYN" claim "${many[@]}") || rc=$?
 check "$out" 'Not kept, at most 30 claims per repo: src/m40.ts' 'a claim list over the maximum says which claims were not kept'
 [ $rc = 1 ] && ok 'with exit code 1' || fail "claim over the maximum: exit $rc" "$out"
+rc=0; out=$(from_session ale11111 as_user alex "$PY" "$SYN" claim "$T/alex-demo/src/a0.ts") || rc=$?
+check "$out" 'Not kept, at most 30 claims per repo: src/a0.ts' 'a claim on top of a full list is refused, whatever its name'
+[ $rc = 1 ] && check "$(from_session ale11111 as_user alex "$PY" "$SYN" claim)" 'src/m39.ts' 'and pushes none out that was there' || fail "claim on a full list: exit $rc" "$out"
 from_session ale11111 as_user alex "$PY" "$SYN" claim --release >/dev/null
 [ -z "$(hook sam PreToolUse "$(edit sam33333 "$T/sam-demo" "$T/sam-demo/src/own.ts")")" ] && ok 'an own release takes effect at once' || fail 'own release'
 check "$(cat "$T/home-alex/events.json")" '"kind": "claim"' 'claims are in the history'
