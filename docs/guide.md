@@ -177,7 +177,7 @@ Claude calls these via Bash; you can too. `~/.synchronauts/syn` is a small scrip
 | `~/.synchronauts/syn notify [on\|off\|test]` | system notifications on, off, or a sample |
 | `~/.synchronauts/syn --version` | the installed version; `--help` lists the commands |
 
-Exit codes: 0 done, 1 could not be done, 2 a wrong call (missing argument, unknown command, with the usage of the command), 3 written but not uploaded yet (`send`). A claim list over 30 entries says which claims were not kept (exit 1).
+Exit codes: 0 done, 1 could not be done, 2 a wrong call (missing argument, unknown command, with the usage of the command), 3 written but not uploaded yet (`send`, `mission end`). A claim list over 30 entries says which claims were not kept (exit 1).
 
 ## What is shared and what is not
 

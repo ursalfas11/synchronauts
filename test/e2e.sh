@@ -323,7 +323,9 @@ check "$out" 'Unknown command: bogus. Commands: status' 'an unknown command says
 [ $rc = 2 ] && ok 'and ends with exit code 2, a wrong call' || fail "unknown command: exit $rc" "$out"
 # a missing argument says what is missing and the usage of that command, also before a room is looked at
 for call in 'send|name and the text is missing. Usage: send <name|all>' 'send alex|text is missing. Usage: send <name|all>' \
-    'task|sentence is missing. Usage: task "<one sentence>"' 'notify maybe|Usage: notify \[on|off|test\]'; do
+    'task|sentence is missing. Usage: task "<one sentence>"' 'notify maybe|Usage: notify \[on|off|test\]' \
+    'rooms bogus|Usage: rooms \[--refresh\]' 'mission bogus|Usage: mission propose' 'mission end|Usage: mission propose' \
+    'mission approve|Usage: mission propose'; do
   rc=0; out=$(SYN_HOME="$T/home-solo" SYN_REMOTE= "$PY" "$SYN" ${call%%|*} 2>&1) || rc=$?
   { [ $rc = 2 ] && grep -q -- "${call#*|}" <<<"$out"; } && ok "exit code 2 and the usage for: ${call%%|*}" || fail "wrong call: ${call%%|*} (exit $rc)" "$out"
 done
@@ -638,9 +640,10 @@ sys.exit(not [n for n in json.load(open(sys.argv[1])) if n.get("mission") == sys
 
   # Jule ends the mission while her agent hangs: it ends on her machine at once, the end waits for her key
   point "$S6S/stuck.sock"; S6SOCK="$S6S/stuck.sock"
-  out=$(SYN_SIGN_WAIT=1 from_session s6j11111 s6 jule "$PY" "$SYN" mission end 'The price import is in, Kim reviewed it.' 2>&1)
+  rc=0; out=$(SYN_SIGN_WAIT=1 from_session s6j11111 s6 jule "$PY" "$SYN" mission end 'The price import is in, Kim reviewed it.' 2>&1) || rc=$?
   check "$out" "Mission $S6MID ended here" "${S6_CHECKS[27]}"
   check "$out" 'the others learn it once it signs' "${S6_CHECKS[28]}"
+  [ $rc = 3 ] || fail "mission end whose end waits for the key: exit $rc, not 3 (written, not out yet)" "$out"
   jule_free() { s6 jule "$PY" -c 'import sys; sys.path.insert(0, sys.argv[1]); import syn
 sys.exit(syn.my_mission(syn.config(), sys.argv[2]) is not None)' "$ROOT" s6j11111; }
   jule_free && ok "${S6_CHECKS[29]}" || fail "${S6_CHECKS[29]}" "$(cat "$T/home-s6j/missions.json")"

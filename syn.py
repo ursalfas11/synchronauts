@@ -6485,9 +6485,11 @@ def cmd_mission(k, args):
         elif why == 'busy':  # the watcher asks the key for what was queued before: the end goes out after that
             print(f"Mission {m['id']} ended here; the end waits in the outbox while the watcher asks your SSH key for "
                   f"what was queued before it: the others learn it once it signs (touch or unlock it if it asks).")
+            return EXIT_PENDING
         else:  # the key did not sign the end in time: it waits in the outbox
             print(f"Mission {m['id']} ended here, but {unsigned_why()}: the others learn it once it signs, the watcher "
                   f"asks it again.")
+            return EXIT_PENDING
     else:
         wrong(f'Usage: {USAGE["mission"]}')
 
@@ -7219,6 +7221,11 @@ def dispatch(cmd, rest):
         wrong(f"send: the {'text' if rest else 'name and the text'} is missing. Usage: {USAGE['send']}")
     if cmd == 'task' and not rest:
         wrong(f"task: the sentence is missing. Usage: {USAGE['task']}")
+    if cmd == 'mission' and (rest[:1] not in (['propose'], ['approve'], ['end']) or len(rest) < 2
+                             or rest[0] == 'approve' and len(rest) != 2):
+        wrong(f"Usage: {USAGE['mission']}")  # before the room and the session are asked for: wrong is wrong anywhere
+    if cmd == 'rooms' and rest not in ([], ['--refresh']):
+        wrong(f"Usage: {USAGE['rooms']}")
     k = config()
     if cmd == 'setup':
         args, people = list(rest), []
@@ -7269,7 +7276,7 @@ def dispatch(cmd, rest):
     elif cmd == 'task':
         cmd_task(' '.join(rest))
     elif cmd == 'mission':
-        cmd_mission(k, rest)
+        return cmd_mission(k, rest) or 0
     elif cmd == 'claim':
         return cmd_claim(k, rest) or 0
     elif cmd == 'status':

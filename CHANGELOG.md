@@ -254,8 +254,9 @@ This file is in English only; the README and the guide exist in English and Germ
 - `status` says when no room is set up, and shows mail that waits in the outbox for a signature and mail that was
   dropped in the last 3 days; `syn state` carries both as `outbox`.
 - Exit codes: 2 for a wrong call (a missing argument, an unknown command, a value that is not allowed), with the usage
-  of that command instead of the list of all, and 3 for `send` when the message is written but not uploaded yet; 1
-  stays for a call that could not be done. `--help` lists them.
+  of that command instead of the list of all, also before a room or a session is looked at, and 3 for `send` and
+  `mission end` when the message is written but not uploaded yet; 1 stays for a call that could not be done. `--help`
+  lists them.
 - `claim` refuses a claim over the 30 a session may hold in a repo and says which ones, with exit code 1; it used to
   cut the list in alphabetical order without a word, which could drop a claim that was there. A task noted with `task`
   outside a session is taken only by a Bash hook in the same folder within 10 seconds, no longer by whichever session

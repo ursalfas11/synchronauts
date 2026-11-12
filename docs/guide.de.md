@@ -179,7 +179,7 @@ Claude ruft sie per Bash auf, du kannst es auch. `~/.synchronauts/syn` ist ein k
 | `~/.synchronauts/syn notify [on\|off\|test]` | Mitteilungen des Systems an, aus oder als Probe |
 | `~/.synchronauts/syn --version` | die installierte Version; `--help` listet die Kommandos |
 
-Exit-Codes: 0 erledigt, 1 ging nicht, 2 falscher Aufruf (fehlendes Argument, unbekannter Befehl, mit der Anwendung des Befehls), 3 geschrieben, aber noch nicht hochgeladen (`send`). Eine Claim-Liste über 30 Einträge nennt die nicht behaltenen Claims (Exit 1).
+Exit-Codes: 0 erledigt, 1 ging nicht, 2 falscher Aufruf (fehlendes Argument, unbekannter Befehl, mit der Anwendung des Befehls), 3 geschrieben, aber noch nicht hochgeladen (`send`, `mission end`). Eine Claim-Liste über 30 Einträge nennt die nicht behaltenen Claims (Exit 1).
 
 ## Was geteilt wird und was nicht
 
