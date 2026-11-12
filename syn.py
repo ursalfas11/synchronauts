@@ -179,10 +179,17 @@ def clock(s):
 
 
 def load(path, default):
-    try:
-        return json.loads(Path(path).read_text(encoding='utf-8'))
-    except (OSError, ValueError):
-        return default
+    """The JSON in path; default if it is missing or broken. On Windows a file that save() replaces at this moment
+    cannot be opened for an instant: that read is tried again, since default would look like an empty file."""
+    for attempt in range(25):
+        try:
+            return json.loads(Path(path).read_text(encoding='utf-8'))
+        except PermissionError:
+            if not WINDOWS or attempt == 24:
+                return default
+            time.sleep(0.02)
+        except (OSError, ValueError):
+            return default
 
 
 def replace(tmp, path):

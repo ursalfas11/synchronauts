@@ -257,6 +257,8 @@ This file is in English only; the README and the guide exist in English and Germ
 
 ### Fixed
 
+- On Windows a state file that another process replaced at that moment read as empty: a teammate's name fell back to
+  the login, a session could miss from the picture for one hook. Such a read is tried again for up to half a second.
 - Two sessions with a detached HEAD in one repo no longer count as being on the same branch: git names every
   detached HEAD `HEAD`. A session in a repo without a commit shows up now, with the branch its first commit will be
   on; before, it did not show at all.
