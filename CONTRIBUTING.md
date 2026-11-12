@@ -20,10 +20,15 @@ and the document and repo checks run in both. The CI runs the whole suite unless
 A new test block says in its first line which shard it belongs to (`if block a 'title'; then`), and a block that does
 not depend on the others goes to the lighter shard.
 
-No fixed `sleep` in a test: wait with `until_ok`. Every forged branch is deleted again with `git update-ref -d`. On
+No fixed `sleep` in a test: wait with `until_ok` (a waiting Stop hook: `await_waiter`; a check that something did *not* happen
+first waits for a positive sign that the pass in question has run, and only then looks). Every forged branch is deleted again with `git update-ref -d`. On
 Windows avoid `touch -d`, `kill -0` on foreign processes and `sed -i`; pass JSON through Python, wrap captured output in
 `crlf_safe`, and run every check on file modes or process ids through `posix_only`, which prints a stable
 `ok skipped:` line there.
+
+`python3 test/board_check.py` opens the board in headless Chrome or Chromium and checks the rendered page (no uncaught
+JavaScript error, the session of the test state, English and German texts); without a browser it prints a `skip` line and
+ends with 0. CI runs it as its own job on Linux, with `SYN_REQUIRE_CHROME=1`, which turns the skip into a failure there.
 
 ## The token budget
 
