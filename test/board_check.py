@@ -111,7 +111,7 @@ def main():
         want = re.search(r'<html[^>]*\blang="([a-z]+)"', dom)
         if not want or want.group(1) != lang[:2]:
             fail(f'the page language follows the browser ({label})', dom[:500])
-        ok(f'the page language is {lang[:2]} in a {label} browser')
+        ok(f'the page language is {lang[:2]} in the {label} browser')
         for key, w in zip(('nav.messages', 'nav.history'), words):  # the text of the tab, not the script's word list
             if f'data-t="{key}">{w}<' not in dom:
                 fail(f'"{w}" is on the {label} tab bar', dom)
