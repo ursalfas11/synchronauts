@@ -1134,6 +1134,118 @@ syn.gh_run, syn.time.sleep = real_run, real_sleep
 for name in PUSH_STATE:
     (HOME / name).unlink(missing_ok=True)
 
+# `send` says who is woken, who is at work and gets the message with the next step, and who sees it at the next
+# prompt, by the logic of the board's `wakeable`; the
+# outbox shows what waits for a signature and what was dropped; a task noted outside a session is for one folder, a few
+# seconds
+hour_ago = syn.iso(syn.now() - syn.timedelta(hours=2))
+
+
+def person(login, **session):
+    sess = {'repos': {'acme/demo': {'branch': 'main', 'last': t, 'files': []}}, 'task': '', 'last': t, 'start': t, **session}
+    return syn.tidy({'login': login, 'name': login.split('-')[0].title(), 'sessions': {'s1': sess}, 'mail': [], 'events': []}, login, 'x')
+
+
+syn.save(HOME / 'others.json', {
+    'alex-gh/x': person('alex-gh', state='waiting', state_since=t), 'kim-gh/x': person('kim-gh', state='waiting', state_since=t, agent='codex'),
+    'jule-gh/x': person('jule-gh', state='waiting', state_since=hour_ago), 'lee-gh/x': person('lee-gh', state='working', state_since=t),
+    'sam-gh/x': person('sam-gh', state='working', state_since=hour_ago, last=hour_ago, agent='codex'),
+    'alice-gh/x': person('alice-gh', state='error', state_since=t),
+    'ray-gh/x': syn.tidy({'login': 'ray-gh', 'name': 'Ray', 'sessions': {}, 'mail': [], 'events': []}, 'ray-gh', 'x')})
+mail = lambda to, repo='': {'to': to, 'repo': repo}  # noqa: E731
+check(syn.delivery_line(k, mail(['alex-gh'])) == 'Waiting, will be woken: Alex.', 'send: a waiting session is woken',
+      syn.delivery_line(k, mail(['alex-gh'])))
+check(syn.delivery_line(k, mail(['kim-gh'])) == 'Sees it at its next prompt: Kim (Codex).', 'send: Codex cannot be woken')
+check(syn.delivery_line(k, mail(['jule-gh'])) == 'Sees it at its next prompt: Jule (wake window over).',
+      'send: a session that waits longer than the wake window is not woken')
+check(syn.delivery_line(k, mail(['lee-gh'])) == 'At work, gets it with the next step: Lee.',
+      'send: a session at work gets it with its next step', syn.delivery_line(k, mail(['lee-gh'])))
+check(syn.delivery_line(k, mail(['sam-gh'])) == 'Sees it at its next prompt: Sam (Codex).',
+      'send: a session at work without a sign of life for half an hour was interrupted, it sees it at the next prompt',
+      syn.delivery_line(k, mail(['sam-gh'])))
+check(syn.delivery_line(k, mail(['alice-gh'])) == 'Sees it at its next prompt: Alice (quiet).',
+      'send: a session that stopped with an error sees it at the next prompt', syn.delivery_line(k, mail(['alice-gh'])))
+check(syn.delivery_line(k, mail(['ray-gh'])) == 'Sees it at its next prompt: Ray (no open session).', 'send: nobody home')
+check(syn.delivery_line(k, mail(['alex-gh', 'kim-gh', 'lee-gh', 'ray-gh'])) == 'Waiting, will be woken: Alex. '
+      'At work, gets it with the next step: Lee. Sees it at its next prompt: Kim (Codex), Ray (no open session).',
+      'send all: the three kinds on one line')
+check(syn.delivery_line(k, mail(['alex-gh'], 'ui')) == '', 'send @ui: no session is woken, so no line')
+check(syn.delivery_line(k, mail(['alex-gh'], 'other')) == 'Waiting, will be woken: Alex.',
+      'send @repo with no session there: the most recently active one decides')
+s_alex = syn.load(HOME / 'others.json', {})['alex-gh/x']['sessions']['s1']
+check(syn.wakeable(s_alex) and not syn.wakeable(dict(s_alex, agent='codex')) and not syn.wakeable(dict(s_alex, state='working')),
+      'wakeable() is the one rule: waiting, not Codex')
+board = {x['login']: x['wakeable'] for x in syn.ui_data(k)['sessions']}
+check(board == {'alex-gh': True, 'kim-gh': False, 'jule-gh': False, 'lee-gh': False, 'sam-gh': False, 'alice-gh': False},
+      'and the board uses it', str(board))
+for name in ('others.json',):
+    (HOME / name).unlink(missing_ok=True)
+
+outbox = HOME / 'outbox'
+outbox.mkdir(parents=True, exist_ok=True)
+for old in outbox.glob('*'):
+    old.unlink()
+check(syn.outbox_state() == {'waiting': 0, 'since': None, 'dropped': []}, 'the outbox: nothing waits, nothing was dropped')
+old_line = f"{syn.iso(syn.now() - syn.timedelta(days=5))} outbox: dropped 1-a.json: invite of mission m-1 to alex-gh, not signed within 24 h"
+new_line = f"{syn.iso()} outbox: dropped 2-b.json: invite of mission m-2 to kim-gh, not signed within 24 h"
+(outbox / 'dropped.log').write_text(old_line + '\n' + new_line + '\nnot a log line\n', encoding='utf-8')
+(outbox / '3-c.json').write_text(json.dumps({'time': t}), encoding='utf-8')
+state = syn.outbox_state()
+check(state['waiting'] == 1 and state['since'] == t and [x['why'] for x in state['dropped']]
+      == ['invite of mission m-2 to kim-gh, not signed within 24 h'],
+      'the outbox: what waits for a signature, and what was dropped in the last days', str(state))
+check(syn.ui_data(k)['outbox'] == state, 'and the board gets the same')
+for old in outbox.glob('*'):
+    old.unlink()
+
+# `send` ends with 0 when the message is uploaded and with 3 when it is only written: the clock runs on without waiting
+import contextlib
+import io
+
+
+class Clock:
+    now = time.time()
+
+    def time(self):
+        Clock.now += 10
+        return Clock.now
+
+    def sleep(self, seconds):
+        pass
+
+
+def send_with(pushed):
+    saved = {n: getattr(syn, n) for n in ('time', 'alive', 'ensure_watcher', 'await_fetch', 'create_message', 'unsigned_why',
+                                         'can_sign', 'vouched', 'clock_line')}
+    syn.time, syn.alive, syn.ensure_watcher, syn.await_fetch = Clock(), lambda *a: None, lambda *a: None, lambda *a: None
+    syn.create_message = lambda *a: ({'id': 'late-1', 'to': ['alex-gh'], 'repo': '', 'sig': 'x'}, 'Alex', [])
+    syn.unsigned_why, syn.can_sign, syn.vouched, syn.clock_line = lambda: '', lambda k: False, lambda k: True, lambda: ''
+    syn.save(HOME / 'pushed.json', ['late-1'] if pushed else [])
+    out = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(out):
+            rc = syn.cmd_send(k, 'alex', 'hi')
+    finally:
+        for n, v in saved.items():
+            setattr(syn, n, v)
+    return rc, out.getvalue()
+
+
+rc, said = send_with(True)
+check(rc == 0 and said.startswith('Ready for Alex.'), 'send: uploaded ends with exit code 0', f'{rc} {said}')
+rc, said = send_with(False)
+check(rc == syn.EXIT_PENDING == 3 and 'but not uploaded yet' in said, 'send: written but not uploaded ends with exit code 3',
+      f'{rc} {said}')
+(HOME / 'pushed.json').unlink(missing_ok=True)
+
+here = str(Path.cwd().resolve())
+syn.save(HOME / 'task.json', {'text': 'Mine', 'at': time.time(), 'cwd': here})
+check(syn.take_task('s1', str(TMP)) is None and (HOME / 'task.json').exists(),
+      'a task noted outside a session is not taken by a session in another folder')
+check(syn.take_task('s1', here) == 'Mine' and not (HOME / 'task.json').exists(), 'but by one in the folder where it was noted')
+syn.save(HOME / 'task.json', {'text': 'Late', 'at': time.time() - syn.TASK_NOTE - 1, 'cwd': here})
+check(syn.take_task('s1', here) is None and not (HOME / 'task.json').exists(), 'and not after a few seconds: it is thrown away')
+
 # An invitation to a room: found in the background, told once, never accepted without the human
 for name in ('invites.json', 'invites-told.json'):
     (HOME / name).unlink(missing_ok=True)
