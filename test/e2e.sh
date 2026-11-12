@@ -29,7 +29,7 @@ cleanup() {
   exit $rc
 }
 trap cleanup EXIT
-unset CLAUDE_PID CLAUDE_CODE_ENTRYPOINT CLAUDE_CODE_SESSION_ID CDPATH  # with CDPATH the hooks cannot follow a cd
+unset CLAUDECODE CLAUDE_PID CLAUDE_CODE_ENTRYPOINT CLAUDE_CODE_SESSION_ID CDPATH  # with CDPATH the hooks cannot follow a cd
 export SYN_REMOTE="$T/remote.git" SYN_ORGS=acme SYN_TICK=0.3 SYN_IDLE=120 SYN_CONFLICT_TICK=1
 # acme/conf on "GitHub" is a local bare repo, for the conflict check against a teammate's pushed work
 export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="url.$T/conf.git.insteadOf" GIT_CONFIG_VALUE_0=https://github.com/acme/conf.git
@@ -72,6 +72,11 @@ no_session() { "$PY" -c 'import json,sys; d=json.load(open(sys.argv[1])); sys.ex
 state_of() { "$PY" -c 'import json,sys; sys.stdout.write(str(json.load(open(sys.argv[1]))["sessions"][sys.argv[2]].get("state")))' "$T/home-$1/status.json" "$2"; }
 state_is() { [ "$(state_of "$1" "$2")" = "$3" ]; }
 notify() { echo "{\"session_id\":\"$2\",\"cwd\":\"$T/alex-demo\",\"notification_type\":\"$3\",\"message\":\"Claude needs your permission\"}" | as_user "$1" "$PY" "$HOOK" Notification; }
+# A Stop hook that waits for mail: begin it with `T0=$(now_s); hook <user> Stop ... & W=$!`, then `await_waiter <user>
+# <sid> $T0` returns once that hook has registered as waiting (its session file says so)
+now_s() { "$PY" -c 'import time; print(time.time())' | crlf_safe; }
+waits_since() { "$PY" -c 'import json,sys; s = json.load(open(sys.argv[1])); sys.exit(not (s.get("waiter") and s.get("waiting_since", 0) >= float(sys.argv[2])))' "$T/home-$1/sessions/$2.json" "$3" 2>/dev/null; }
+await_waiter() { local end=$((SECONDS + 10)); until waits_since "$1" "$2" "$3"; do [ $SECONDS -lt $end ] || fail "the Stop hook of $2 never began to wait"; sleep 0.1; done; }
 exit_of() { local i; for i in $(seq 1 $(($2 * 5))); do kill -0 "$1" 2>/dev/null || { wait "$1"; return $?; }; sleep 0.2; done; return 124; }
 
 # --- Shared helpers of the blocks below ---
@@ -198,6 +203,37 @@ check "$out" 'systemMessage' 'and the human sees it too'
 [ -z "$(git -C "$T/sam-demo" diff --cached --name-only)" ] && [ -z "$(git -C "$T/sam-demo" stash list)" ] \
   && ok 'the check leaves index and stash alone' || fail 'the check touched the repo' "$(git -C "$T/sam-demo" status)"
 git -C "$T/sam-demo" checkout -q -- src/a.ts; git -C "$T/sam-demo-wt" checkout -q -- src/a.ts
+# Git older than 2.38 has no `merge-tree --write-tree`. A git in front of the real one answers as that Git does (usage
+# text, exit 129, and it says 2.30.0): the check stays silent, raises nothing, and the other warnings still work. A shell
+# script is not found as git.exe by Windows, so this runs on macOS and Linux only
+if [ -z "$WIN" ]; then
+  mkdir "$T/oldgit"; REAL_GIT=$(command -v git)
+  cat > "$T/oldgit/git" <<EOF
+#!/bin/sh
+case "\$*" in
+  --version) echo 'git version 2.30.0' ;;
+  *merge-tree*--write-tree*) echo called >> "$T/oldgit/calls"; echo 'usage: git merge-tree <base-tree> <branch1> <branch2>' >&2; exit 129 ;;
+  *) exec "$REAL_GIT" "\$@" ;;
+esac
+EOF
+  chmod +x "$T/oldgit/git"
+  [ "$(PATH="$T/oldgit:$PATH" git --version)" = 'git version 2.30.0' ] && ok 'the git in front of the real one says 2.30.0' || fail 'the git in front of the real one'
+  printf 'main\n' > "$T/sam-demo/src/a.ts"; printf 'feature\n' > "$T/sam-demo-wt/src/a.ts"
+  T0=$(now_s)
+  seen=  # a warning is shown once, so what the hooks said is collected
+  old_hook() { out=$(PATH="$T/oldgit:$PATH" solo PostToolUse "$(edit solo2222 "$T/sam-demo-wt" "$T/sam-demo-wt/src/a.ts")"); seen="$seen$out"; test -s "$T/oldgit/calls"; }
+  until_ok 20 'the check ran with the old git (merge-tree was asked)' old_hook
+  conflicts_after() { "$PY" -c 'import json,sys; from datetime import datetime; d = json.load(open(sys.argv[1])); sys.exit(not (datetime.fromisoformat(d["time"]).timestamp() >= int(float(sys.argv[2])) and d["sessions"] == {}))' "$T/home-solo/conflicts.json" "$T0"; }
+  until_ok 20 'and ended with no conflict reported' conflicts_after
+  lacks "$seen" 'would conflict' 'with Git older than 2.38 the hook stays silent about conflicts'
+  out=$(PATH="$T/oldgit:$PATH" solo PostToolUse "$(edit solo4444 "$T/sam-demo-wt" "$T/sam-demo-wt/src/a.ts")")  # a session that has seen no warning yet
+  check "$out" '⚠️ Your other session is editing the same files in demo' 'and the other warnings still work'
+  [ ! -s "$T/home-solo/conflicts.log" ] && ok 'the check logs no error with the old git' || fail 'conflict check log' "$(cat "$T/home-solo/conflicts.log")"
+  rm -rf "$T/oldgit"
+  git -C "$T/sam-demo" checkout -q -- src/a.ts; git -C "$T/sam-demo-wt" checkout -q -- src/a.ts
+else
+  echo 'ok   skipped: the check with Git older than 2.38 (a shell script is not git.exe)'
+fi
 out=$(SYN_REMOTE= SYN_HOME="$T/home-solo" "$PY" "$SYN" send alex hello 2>&1) && fail 'send without a room' "$out" \
   || check "$out" 'needs a room' 'send without a room explains itself'
 rc=0; SYN_REMOTE= SYN_HOME="$T/home-solo" "$PY" "$SYN" send alex hello >/dev/null 2>&1 || rc=$?
@@ -686,6 +722,128 @@ sys.exit(not (syn.missions(syn.config()).get(sys.argv[2]) or {}).get("ended"))' 
 fi
 fi
 
+
+# The ends of a mission (S8), in a room of its own with Jule and Kim, both with a key file. Gap 1: a mission can be ended
+# when the session that joined it is gone (from a session that is not in it only by --id and only when no session of
+# this machine in it still runs, from the human's terminal, and never from a shell that lost its session id). Gap 2: the
+# last session of a machine in a mission tells the others that the person left, not while another one still runs, and
+# a join after it puts the person back. Gap 3: a lost or replaced approve.key is said, and nothing is dropped
+if block b 'mission ends: a mission whose session is gone, left at SessionEnd, a lost approve.key'; then
+R8="$T/m8room.git"; git init -q --bare "$R8"
+# m8 <j|k> <cmd...>: in the room of this block, as Jule or Kim; m8is <j|k> <python expression over m (the missions) and k>
+m8() { local who=$1 login name; shift; case "$who" in j) login=jule; name=Jule ;; *) login=kim; name=Kim ;; esac
+  SYN_REMOTE="$R8" SYN_HOME="$T/home-m8$who" SYN_ME=$login-gh SYN_NAME=$name SYN_MACHINE=one SYN_SIGNING_KEY="$T/$login-key" "$@"; }
+m8is() { m8 "$1" "$PY" -c 'import sys; sys.path.insert(0, sys.argv[1]); import syn; k = syn.config(); m = syn.missions(k); sys.exit(not eval(sys.argv[2]))' "$ROOT" "$2"; }
+m8hook() { session "$2" "$T" | m8 "$1" "$PY" "$HOOK" "$3"; }  # m8hook <j|k> <sid> <event>
+# m8yes <j|k> <sid> <mission id>: the human's yes to `mission approve`, as Claude Code's prompt and the hook after it
+m8yes() { local g="$T/home-m8$1/syn mission approve $3" tool="toolu_m8$2$3"
+  callc "$2" "$T" "$tool" auto "$g" | m8 "$1" "$PY" "$HOOK" PreToolUse >/dev/null
+  from_session "$2" m8 "$1" "$PY" "$SYN" mission approve "$3" >/dev/null
+  callc "$2" "$T" "$tool" auto "$g" | m8 "$1" "$PY" "$HOOK" PostToolUse; }
+m8 j "$PY" "$SYN" setup >/dev/null; m8 k "$PY" "$SYN" setup >/dev/null
+m8hook k m8k00000 SessionStart >/dev/null; m8hook j m8j00000 SessionStart >/dev/null
+until_ok 20 'Jule and Kim see each other in the room' grep -q kim-gh "$T/home-m8j/others.json"
+# a mission of Jule and Kim, joined by Jule's session m8j00000 and Kim's m8k00000 and m8k11111
+out=$(from_session m8j00000 m8 j "$PY" "$SYN" mission propose --with kim --hours 1 'Move the price import: Jule writes it, Kim reviews it.')
+M8=$(sed -n 's/^Draft \([^.]*\)\..*/\1/p' <<<"$out")
+m8yes j m8j00000 "$M8" >/dev/null
+until_ok 20 "Kim sees Jule's invite" m8is k "'$M8' in m"
+m8hook k m8k11111 SessionStart >/dev/null
+m8yes k m8k00000 "$M8" >/dev/null; m8yes k m8k11111 "$M8" >/dev/null
+until_ok 20 'Jule sees that Kim joined' m8is j "'kim-gh' in m['$M8']['joined']"
+
+# Gap 2: Kim's first session ends while the second still runs: nobody left. The last one ends: Kim left
+m8hook k m8k00000 SessionEnd >/dev/null
+[ "$(ls "$T/home-m8k/outbox" 2>/dev/null | grep -c json)" = 0 ] && ok 'one of Kim'"'"'s two sessions ends: nothing is queued, nobody left' \
+  || fail 'left announced while another session runs' "$(ls "$T/home-m8k/outbox")"
+m8hook k m8k11111 SessionEnd >/dev/null
+left_mail() { "$PY" -c 'import json, sys
+sys.exit(not [n for n in json.load(open(sys.argv[1])) if n.get("mission") == sys.argv[2] and n.get("kind") == "left" and n.get("sig")])' \
+  "$T/home-m8$1/mail.json" "$M8"; }
+until_ok 20 'the last session of Kim ends: her signed "left" goes out through the outbox' left_mail k
+until_ok 20 'Jule sees that Kim left: she is no longer among the people of the mission' m8is j "'kim-gh' not in m['$M8']['joined']"
+m8is j "m['$M8']['by'] == 'jule-gh' and syn.live(m['$M8'])" && ok 'and the mission goes on' || fail 'mission over after a left'
+out=$(echo '{"session_id":"m8j00000","cwd":"'"$T"'","prompt":"go on"}' | m8 j "$PY" "$HOOK" UserPromptSubmit)
+check "$out" 'Kim left mission' "Jule's session in the mission is told that Kim left"
+out=$(from_session m8j00000 m8 j "$PY" "$SYN" send kim 'Are you there?' 2>&1)
+last_plain() { "$PY" -c 'import json, sys; sys.exit("mission" in json.load(open(sys.argv[1]))[-1])' "$T/home-m8j/mail.json"; }
+last_plain && ok 'a message to somebody who left is plain mail, not mission mail' || fail 'message to somebody who left carries the mission'
+# a join after the leave puts the person back
+m8hook k m8k22222 SessionStart >/dev/null
+m8yes k m8k22222 "$M8" >/dev/null
+until_ok 20 'a later join puts Kim back' m8is j "'kim-gh' in m['$M8']['joined']"
+m8hook k m8k22222 SessionEnd >/dev/null
+until_ok 20 'and her next leave takes her out again' m8is j "'kim-gh' not in m['$M8']['joined']"
+[ "$(ls "$T/home-m8k/outbox" 2>/dev/null | grep -c json)" = 0 ] && ok 'nothing is left in the outbox' || fail 'outbox' "$(ls "$T/home-m8k/outbox")"
+
+# Gap 1: Jule's session that proposed ends. A session that is not in the mission, a shell without a session id
+m8hook j m8j00000 SessionEnd >/dev/null
+until_ok 20 'Jule ends her last session: she left too' left_mail j
+m8hook j m8j11111 SessionStart >/dev/null
+rc=0; out=$(from_session m8j11111 m8 j "$PY" "$SYN" mission end 'Done.' 2>&1) || rc=$?
+[ $rc = 1 ] && ok 'a session that is not in the mission ends nothing without --id' || fail "mission end without --id: exit $rc" "$out"
+check "$out" "mission end --id <id>" 'and says how, with the id of the mission'
+rc=0; out=$(from_session m8j11111 m8 j "$PY" "$SYN" mission end --id jule-gh-nope 'Done.' 2>&1) || rc=$?
+[ $rc = 1 ] && check "$out" 'No active mission jule-gh-nope' 'an id that is no mission of hers ends nothing' || fail "end of an unknown id: exit $rc" "$out"
+rc=0; out=$(from_session m8j11111 m8 j "$PY" "$SYN" mission end --id "$M8" 2>&1) || rc=$?
+[ $rc = 2 ] && ok '--id without a result is a wrong call (exit 2)' || fail "--id without result: exit $rc" "$out"
+rc=0; out=$(CLAUDECODE=1 m8 j "$PY" "$SYN" mission end 'Done.' 2>&1) || rc=$?
+[ $rc = 1 ] && check "$out" 'belongs to Claude Code but has no session id' 'a shell of Claude Code without its session id is refused' || fail "end without session id in Claude Code: exit $rc" "$out"
+m8is j "syn.live(m['$M8'])" && ok 'and the mission still runs' || fail 'mission ended by a refused call'
+# a person's session joins again (the proposer too: none of her sessions runs), and another one may not end it
+m8yes j m8j11111 "$M8" >/dev/null
+until_ok 20 'the proposer joins again with her yes: Kim sees her back' m8is k "'jule-gh' in m['$M8']['joined']"
+m8hook j m8j22222 SessionStart >/dev/null
+rc=0; out=$(from_session m8j22222 m8 j "$PY" "$SYN" mission end --id "$M8" 'Done.' 2>&1) || rc=$?
+[ $rc = 1 ] && check "$out" 'still runs' 'a third session cannot end it while the session that is in it runs' || fail "end by a third session: exit $rc" "$out"
+rc=0; out=$(m8 j "$PY" "$SYN" mission end 'The price import is in, Kim reviewed it.' 2>&1) || rc=$?
+[ $rc = 0 ] && check "$out" "Mission $M8 ended" "Jule's terminal ends the mission, the only one that is live" || fail "end from the terminal: exit $rc" "$out"
+until_ok 20 'Kim sees the end, a signed message of Jule' m8is k "m['$M8']['ended'] and m['$M8']['ended']['by'] == 'jule-gh'"
+rc=0; out=$(m8 j "$PY" "$SYN" mission end 'Again.' 2>&1) || rc=$?
+[ $rc = 1 ] && check "$out" 'No active mission of yours' 'with no mission live, a terminal ends nothing' || fail "end of nothing: exit $rc" "$out"
+# a mission whose sessions are all gone (a crash leaves no leave, here: ended) ends from a session that is not in it
+out=$(from_session m8j22222 m8 j "$PY" "$SYN" mission propose --with kim --hours 1 'Second round.')
+M8B=$(sed -n 's/^Draft \([^.]*\)\..*/\1/p' <<<"$out")
+m8yes j m8j22222 "$M8B" >/dev/null
+m8hook j m8j22222 SessionEnd >/dev/null
+m8hook j m8j33333 SessionStart >/dev/null
+check "$(from_session m8j33333 m8 j "$PY" "$SYN" mission end --id "$M8B" 'Nobody is on it any more.' 2>&1)" "Mission $M8B ended" 'a mission without a running session of this machine ends from an unrelated session, by its id'
+until_ok 20 'Kim sees that end too' m8is k "m['$M8B']['ended']"
+until_ok 20 'a leave queued for the ended mission waits in no outbox' eval '! ls "$T/home-m8j/outbox" | grep -q json'
+
+# Gap 3: approve.key is lost. A mission of Jule runs; the key is deleted
+out=$(from_session m8j33333 m8 j "$PY" "$SYN" mission propose --with kim --hours 1 'Third round.')
+M8C=$(sed -n 's/^Draft \([^.]*\)\..*/\1/p' <<<"$out")
+m8yes j m8j33333 "$M8C" >/dev/null
+lacks "$(m8 j "$PY" "$SYN" status)" 'Not verified' 'with a key that seals everything, status says nothing about seals'
+cp "$T/home-m8j/approve.key" "$T/m8-oldkey"; rm "$T/home-m8j/approve.key"
+out=$(m8 j "$PY" "$SYN" status)
+check "$out" "Not verified: 1 mission(s) ($M8C)" 'a deleted approve.key: status names the mission that no longer counts'
+check "$out" 'approve.key is missing' 'and why'
+check "$out" "mission end --id <id>" 'and how it can still be ended'
+check "$out" 'brings all of it back' 'and that the old key brings it back'
+out=$(m8hook j m8j33333 SessionStart)
+check "$out" 'not verified: approve.key changed' 'the next session start tells the human, not Claude'
+lacks "$out" '"additionalContext": "[^"]*not verified' 'Claude gets none of it'
+out=$(from_session m8j33333 m8 j "$PY" "$SYN" mission propose --with kim --hours 1 'Fourth round.')
+check "$out" "Not verified: 1 mission(s) ($M8C)" 'a new draft makes a new key and still says so'
+check "$(cat "$T/home-m8j/missions.json")" "$M8C" 'and the record of the old one stays in missions.json'
+check "$(m8 j "$PY" "$SYN" status)" 'not the key that sealed them' 'a replaced approve.key is told apart from a missing one'
+lacks "$(m8 j "$PY" "$SYN" status | sed -n '/^Missions:/,$p')" "$M8C" 'a mission that the key does not seal counts for nothing'
+cp "$T/home-m8j/approve.key" "$T/m8-newkey"; cp "$T/m8-oldkey" "$T/home-m8j/approve.key"
+check "$(m8 j "$PY" "$SYN" status | sed -n '/^Missions:/,$p')" "$M8C by Jule, until" 'the old key makes the record count again'
+cp "$T/m8-newkey" "$T/home-m8j/approve.key"
+rc=0; out=$(from_session m8j33333 m8 j "$PY" "$SYN" mission end --id "$M8C" 'Key lost, stopping.' 2>&1) || rc=$?
+[ $rc = 0 ] && check "$out" "Mission $M8C ended" 'a mission of hers that the key no longer seals can still be ended' || fail "end of a mission with a lost key: exit $rc" "$out"
+until_ok 20 'and Kim sees the end' m8is k "m['$M8C']['ended']"
+lacks "$(m8 j "$PY" "$SYN" status)" "Not verified: 1 mission" 'after it, the mission is not on the list any more'
+# no seal weakened: a record written by hand does not count, with the right key either
+"$PY" -c 'import json, sys
+p = sys.argv[1]; d = json.load(open(p)); d["jule-gh-forged"] = {"id": "jule-gh-forged", "by": "jule-gh", "with": ["jule-gh", "kim-gh"], "plan": "x", "start": "2026-01-01T00:00:00+00:00", "until": "2099-01-01T00:00:00+00:00", "joined": {"m8j33333": "2026-01-01T00:00:00+00:00"}, "mac": "0" * 32}
+json.dump(d, open(p, "w"))' "$T/home-m8j/missions.json"
+m8is j "'jule-gh-forged' not in m" && ok 'a record without its seal still counts for nothing' || fail 'forged record counted'
+for w in j k; do stop "$("$PY" -c 'import json,sys; sys.stdout.write(str(json.load(open(sys.argv[1]))["pid"]))' "$T/home-m8$w/watcher.json")"; done
+fi
 # The board's server and its pairing (S7), in a home of its own without a room, so that a restart here touches no key
 # of the other blocks. The key is new at every start and lives in the server only; `syn ui` writes a one-time code to
 # ui-pair.json (`--pair` prints it), and the page swaps it for the key at /api/pair
@@ -992,8 +1150,8 @@ until_ok 10 "Sam's state is in the remote" sh -c "git -C '$T/remote.git' show sy
 lacks "$(git -C "$T/remote.git" show syn/sam-gh/one:state.json)" 'private' 'repos of other owners stay out'
 
 # Alex's session waits after its turn (Stop hook, async): mail from Sam wakes it
-hook alex Stop "$(session ale11111 "$T/alex-demo")" 2>"$T/wake1" & W1=$!
-sleep 0.5
+T0=$(now_s); hook alex Stop "$(session ale11111 "$T/alex-demo")" 2>"$T/wake1" & W1=$!
+await_waiter alex ale11111 "$T0"
 out=$(as_user sam "$PY" "$SYN" send alex "$(printf '%01600d' 0)" 2>&1) && fail 'a message that is too long went through' "$out" \
   || check "$out" 'Too long' 'a message that is too long is rejected instead of cut'
 rc=0; out=$(as_user sam "$PY" "$SYN" send kim 'hello' 2>&1) || rc=$?
@@ -1026,9 +1184,9 @@ lacks "$out" 'please leave it alone' 'after the wake-up it does not come again'
 
 # Two waiting sessions in two repos: mail to demo wakes the session in demo, although the other one is younger
 hook alex SessionStart "$(session ale33333 "$T/alex-other")" >/dev/null
-hook alex Stop "$(session ale11111 "$T/alex-demo")" 2>"$T/wake2a" & W2A=$!
+T0=$(now_s); hook alex Stop "$(session ale11111 "$T/alex-demo")" 2>"$T/wake2a" & W2A=$!
 hook alex Stop "$(session ale33333 "$T/alex-other")" 2>"$T/wake2b" & W2B=$!
-sleep 0.5
+await_waiter alex ale11111 "$T0"; await_waiter alex ale33333 "$T0"
 check "$(as_user sam "$PY" "$SYN" send alex@demo 'The tests in demo are red for me.')" 'session in demo' 'send to a session via @repo'
 rc=0; exit_of $W2A 10 || rc=$?
 [ $rc = 2 ] && ok 'the session in the named repo is woken' || fail "wake: exit $rc" "$(cat "$T/wake2a" "$T/wake2b")"
@@ -1044,11 +1202,13 @@ check "$(as_user sam "$PY" "$SYN" send alex@nowhere 'Anyone in nowhere?')" 'Alex
   'mail to a repo without a session says who gets it instead'
 
 # Without a repo the most recently active session shows the mail, no other one. If it is working, none is woken
-hook alex Stop "$(session ale11111 "$T/alex-demo")" 2>"$T/wake3" & W3=$!
-sleep 0.5
+T0=$(now_s); hook alex Stop "$(session ale11111 "$T/alex-demo")" 2>"$T/wake3" & W3=$!
+await_waiter alex ale11111 "$T0"
 as_user sam "$PY" "$SYN" send alex 'Quick question: who builds the tests?' >/dev/null
-sleep 3
-kill -0 $W3 2>/dev/null && ok 'while the most recently active session works, no other one is woken' || fail 'wrong session woken' "$(cat "$T/wake3")"
+# the mail is on Alex's machine (positive sign), then the waiting hook, which looks every second, gets two looks
+until_ok 20 'the mail is at Alex' grep -q 'who builds the tests' "$T/home-alex/notifications.log"
+rc=0; exit_of $W3 2 || rc=$?
+[ $rc = 124 ] && ok 'while the most recently active session works, no other one is woken' || fail 'wrong session woken' "$(cat "$T/wake3")"
 out=$(hook alex PostToolUse "$(bash_call ale44444 "$T/alex-demo")")
 check "$out" 'who builds the tests' 'the working session shows it at its next step'
 check "$out" '📨 Sam:' 'Alex sees it in the terminal'
@@ -1084,6 +1244,38 @@ check "$(hook sam PreToolUse "$(edit sam33333 "$T/sam-demo" "$T/sam-demo/src/lib
 out=$(from_session sam33333 as_user sam "$PY" "$SYN" claim "$T/sam-demo/src/lib/util.ts" 2>&1) && fail 'claimed twice' "$out" \
   || check "$out" 'Alex has claimed src/lib/ already' 'what another session claimed cannot be claimed again'
 check "$(hook sam UserPromptSubmit "$(session sam33333 "$T/sam-demo")")" '(claimed: src/claimed.ts, src/lib/)' 'the picture shows the claims'
+# Edits through Bash: a shell command cannot be asked about beforehand; after it, the files it changed count like edits
+# (file list), and a claimed one is told to the session. Files that were dirty before and untouched do not count.
+bash_id() { echo "{\"session_id\":\"$1\",\"cwd\":\"$2\",\"tool_use_id\":\"$3\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"true\"}}"; }
+files_of() { "$PY" -c 'import json,sys; sys.stdout.write("\n".join(json.load(open(sys.argv[1]))["sessions"][sys.argv[2]]["repos"]["acme/demo"]["files"]))' "$T/home-$1/status.json" "$2"; }
+echo 'out.cache' >> "$T/sam-demo/.git/info/exclude"
+echo x > "$T/sam-demo/src/old.ts"; echo a > "$T/sam-demo/src/again.ts"; echo a > "$T/sam-demo/src/gone.ts"
+hook sam PreToolUse "$(bash_id sam77777 "$T/sam-demo" toolu_sh1)" >/dev/null
+echo changed > "$T/sam-demo/src/claimed.ts"; echo 'more text' >> "$T/sam-demo/src/again.ts"; rm "$T/sam-demo/src/gone.ts"
+echo x > "$T/sam-demo/src/mü ller.ts"; echo x > "$T/sam-demo/out.cache"; git -C "$T/sam-demo" mv src/a.ts src/a2.ts
+out=$(hook sam PostToolUse "$(bash_id sam77777 "$T/sam-demo" toolu_sh1)")
+check "$out" 'Alex has claimed src/claimed.ts in demo; a shell command changed it' 'a claimed file that a shell command changed is told to the session afterwards'
+lacks "$out" 'src/again.ts;' 'a file nobody claimed gets no such note'
+files=$(files_of sam sam77777 | crlf_safe)
+check "$files" 'src/claimed.ts' 'a file written by a shell command counts as edited'
+check "$files" 'src/mü ller.ts' 'also one with a space and an accent'
+check "$files" 'src/again.ts' 'a file that was dirty before and written again counts'
+check "$files" 'src/gone.ts' 'a file that the command deleted counts'
+check "$files" 'src/a2.ts' 'a renamed file counts with its new name'
+check "$files" 'src/a.ts' 'and with its old one'
+lacks "$files" 'src/old.ts' 'a file that was dirty before and not touched does not count'
+lacks "$files" 'out.cache' 'an ignored file does not count'
+[ -z "$(ls "$T/home-sam/snaps" 2>/dev/null)" ] && ok 'the snapshot is removed after the call' || fail 'snapshot left' "$(ls "$T/home-sam/snaps")"
+out=$(hook sam PreToolUse "{\"session_id\":\"sam77777\",\"cwd\":\"$T/sam-demo\",\"tool_use_id\":\"toolu_sh3\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"echo x > src/new.ts && syn leave --yes\"}}")
+check "$out" '"permissionDecision": "ask"' 'a chain with syn leave in it is asked about'
+[ -n "$(ls "$T/home-sam/snaps" 2>/dev/null)" ] && ok 'and what else the chain changes is still followed' || fail 'no snapshot for a call that is asked about'
+hook sam PostToolUse "$(bash_id sam77777 "$T/sam-demo" toolu_sh3)" >/dev/null
+[ -z "$(ls "$T/home-sam/snaps" 2>/dev/null)" ] && ok 'its snapshot goes after the call as well' || fail 'snapshot left' "$(ls "$T/home-sam/snaps")"
+git -C "$T/sam-demo" mv src/a2.ts src/a.ts; rm -f "$T/sam-demo/src/old.ts" "$T/sam-demo/src/again.ts" "$T/sam-demo/src/mü ller.ts" "$T/sam-demo/out.cache"
+git -C "$T/sam-demo" checkout -q -- src/claimed.ts 2>/dev/null || rm -f "$T/sam-demo/src/claimed.ts"
+hook sam SessionEnd "$(session sam77777 "$T/sam-demo")" >/dev/null
+out=$(hook sam PostToolUse "$(bash_id sam77777 "$T/plain" toolu_sh2)")
+[ -z "$out" ] && ok 'a Bash call without a snapshot (not in a repo of the team) says nothing' || fail 'Bash without snapshot' "$out"
 from_session sam55555 as_user sam "$PY" "$SYN" claim "$T/sam-demo/src/own.ts" >/dev/null
 check "$(hook sam PreToolUse "$(edit sam33333 "$T/sam-demo" "$T/sam-demo/src/own.ts")")" 'Your other session has claimed src/own.ts' 'a claim of an own other session is asked about too'
 check "$(from_session ale11111 as_user alex "$PY" "$SYN" claim --release)" 'Released all claims' 'Alex releases the claims'
@@ -1105,16 +1297,17 @@ check "$(as_user alex "$PY" "$SYN" status)" 'Sam → Alex' 'status lists the mai
 # State and history for the UI. An open permission prompt reports via Notification without ending the waiting Stop hook
 hook alex UserPromptSubmit "$(session ale11111 "$T/alex-demo")" >/dev/null
 state_is alex ale11111 working && ok 'a prompt sets the state to working' || fail 'state after the prompt' "$(state_of alex ale11111)"
-hook alex Stop "$(session ale11111 "$T/alex-demo")" 2>"$T/wake5" & W5=$!
+T0=$(now_s); hook alex Stop "$(session ale11111 "$T/alex-demo")" 2>"$T/wake5" & W5=$!
 until_ok 5 'after the turn the session waits' state_is alex ale11111 waiting
+await_waiter alex ale11111 "$T0"
 notify alex ale11111 idle_prompt >/dev/null
 state_is alex ale11111 waiting && ok 'idle_prompt does not change the state' || fail 'idle_prompt' "$(state_of alex ale11111)"
 notify alex ale11111 permission_prompt >/dev/null
 state_is alex ale11111 approval && ok 'an open permission prompt sets the state to approval' || fail 'approval' "$(state_of alex ale11111)"
 echo "{\"session_id\":\"ale44444\",\"cwd\":\"$T/alex-demo\"}" | as_user alex "$PY" "$HOOK" StopFailure
 state_is alex ale44444 error && ok 'an API error sets the state to error' || fail 'StopFailure' "$(state_of alex ale44444)"
-sleep 1.5
-kill -0 $W5 2>/dev/null && ok 'the notification does not end the waiting Stop hook' || fail 'Stop hook ended' "$(cat "$T/wake5")"
+rc=0; exit_of $W5 2 || rc=$?  # two looks of the waiting hook, which looks every second
+[ $rc = 124 ] && ok 'the notification does not end the waiting Stop hook' || fail 'Stop hook ended' "$(cat "$T/wake5")"
 check "$(cat "$T/home-alex/events.json")" '"kind": "approval"' 'the approval is in the history'
 check "$(cat "$T/home-sam/events.json")" '"kind": "warning"' 'warnings to Claude are in the history'
 check "$(cat "$T/home-sam/events.json")" '"src/a.ts"' 'edited files are in the history'
@@ -1181,12 +1374,33 @@ g -C "$T/c-alex" checkout -q -b main 2>/dev/null; g -C "$T/c-alex" add -A && g -
 g clone -q https://github.com/acme/conf.git "$T/c-sam"
 echo alex > "$T/c-alex/src/x.ts" && g -C "$T/c-alex" commit -q -am 'alex' && g -C "$T/c-alex" push -q origin main
 echo sam > "$T/c-sam/src/x.ts"
+# what a check must not change in a work repo: the object files, their count, and every ref
+repo_state() { { git -C "$1" count-objects -v; git -C "$1" for-each-ref; find "$1/.git/objects" -type f | sort; } | crlf_safe; }
+sam_before=$(repo_state "$T/c-sam")
 hook alex PostToolUse "$(edit ale55555 "$T/c-alex" "$T/c-alex/src/x.ts")" >/dev/null
 alex_tip() { hook alex PostToolUse "$(bash_call ale55555 "$T/c-alex")" >/dev/null; grep -q '"tip"' "$T/home-sam/others.json"; }
 until_ok 20 "what Alex pushed reaches Sam" alex_tip
 sam_conflict() { out=$(hook sam PostToolUse "$(edit sam99999 "$T/c-sam" "$T/c-sam/src/x.ts")"); grep -q 'would conflict' <<<"$out"; }
 until_ok 20 "a conflict with Alex's pushed work is reported" sam_conflict
 check "$out" "Merging Alex's session (conf@main) with this session's work would conflict in: src/x.ts" 'with the teammate, branch and file'
+[ "$(repo_state "$T/c-sam")" = "$sam_before" ] && ok 'the check wrote no object and no ref into the work repo' \
+  || fail 'the check changed the work repo' "$(diff <(echo "$sam_before") <(repo_state "$T/c-sam"))"
+[ -n "$(find "$T/home-sam/conflict-objects" -type f ! -name since)" ] && ok "Alex's fetched commit is in the store of Synchronauts" || fail 'no fetched commit in the store'
+until_ok 10 'a finished check leaves no snapshot or merge object behind' test ! -e "$T/home-sam/conflict-run"
+# a second clone of the same repo on this machine: the checks of both sessions merge the two working trees
+g clone -q https://github.com/acme/conf.git "$T/c-sam2"; echo sam2 > "$T/c-sam2/src/x.ts"
+sam2_before=$(repo_state "$T/c-sam2"); sam_before=$(repo_state "$T/c-sam")
+hook sam PostToolUse "$(edit sam88888 "$T/c-sam2" "$T/c-sam2/src/x.ts")" >/dev/null
+sam_clone() { out=$(hook sam PostToolUse "$(edit sam99999 "$T/c-sam" "$T/c-sam/src/x.ts")"); grep -q 'Merging your other session (conf@main)' <<<"$out"; }
+until_ok 20 'two separate clones of one repo are merged against each other' sam_clone
+[ "$(repo_state "$T/c-sam2")" = "$sam2_before" ] && [ "$(repo_state "$T/c-sam")" = "$sam_before" ] \
+  && ok 'and neither clone gets an object or a ref' || fail 'the clone check changed a repo'
+# the store deleted between two checks: the next one makes it again and fetches what it needs, no traceback
+rm -rf "$T/home-sam/conflict-objects"
+store_back() { hook sam PostToolUse "$(bash_call sam99999 "$T/c-sam")" >/dev/null; test -f "$T/home-sam/conflict-objects/since"; }
+until_ok 20 'a store that was deleted is made again by the next check' store_back
+[ ! -e "$T/home-sam/conflicts.log" ] || ! grep -q Traceback "$T/home-sam/conflicts.log" && ok 'and the deletion leaves no traceback' || fail 'traceback in conflicts.log' "$(cat "$T/home-sam/conflicts.log")"
+hook sam SessionEnd "$(session sam88888 "$T/c-sam2")" >/dev/null
 data=$(curl -s -H "X-SYN-Token: $tok" "$U/api/state")
 ui_check 'any(o["kind"] == "conflict" and o["files"] == ["src/x.ts"] for o in d["overlaps"])' 'the UI shows the conflict'
 # A conflict concerns the session that touched the file. Sam commits the change on a branch of his own and pushes it:
@@ -1232,8 +1446,8 @@ check "$out" 'Plan: Make the ticket tests green' 'the prompt shows the plan'
 hook sam PostToolUse "$(call sam33333 "$T/sam-demo" toolu_other auto "$MID")" >/dev/null
 lacks "$(cat "$T/home-sam/missions.json")" '"joined"' 'another call does not count as the approval'
 hook alex UserPromptSubmit "$(session ale11111 "$T/alex-demo")" >/dev/null
-hook alex Stop "$(session ale11111 "$T/alex-demo")" 2>"$T/wake6" & W6=$!
-sleep 0.5
+T0=$(now_s); hook alex Stop "$(session ale11111 "$T/alex-demo")" 2>"$T/wake6" & W6=$!
+await_waiter alex ale11111 "$T0"
 check "$(from_session sam33333 as_user sam "$PY" "$SYN" mission approve "$MID")" 'Sam approved' 'the command after the yes'
 out=$(hook sam PostToolUse "$(call sam33333 "$T/sam-demo" toolu_2 auto "$MID")")
 check "$out" "mission $MID is approved until" 'the yes starts the mission'
@@ -1245,8 +1459,8 @@ check "$(cat "$T/wake6")" 'Do what the proposal says' 'a valid signed proposal g
 check "$(cat "$T/wake6")" "mission approve $MID" 'with the command that asks Alex'
 
 # Alex says yes: Sam's waiting session is woken and goes on without Sam
-hook sam Stop "$(session sam33333 "$T/sam-demo")" 2>"$T/wake7" & W7=$!
-sleep 0.5
+T0=$(now_s); hook sam Stop "$(session sam33333 "$T/sam-demo")" 2>"$T/wake7" & W7=$!
+await_waiter sam sam33333 "$T0"
 [ ! -e "$T/home-alex/approve.key" ] && ok 'Alex has no approve.key before her first approval' || fail 'approve.key before the first approval'
 out=$(hook alex PreToolUse "$(call ale11111 "$T/alex-demo" toolu_3 auto "$MID")")
 check "$out" "Join Sam (@sam-gh)'s mission until" 'Claude Code asks Alex'
@@ -1268,8 +1482,8 @@ mission_is sam "m['$MID']['by'] == 'sam-gh' and parse(m['$MID']['until']) > pars
 out=$(hook sam PreToolUse "$(edit sam33333 "$T/sam-demo" "$T/sam-demo/src/a.test.ts")")
 [ -z "$out" ] && ok "within the mission, Alex's file needs no question" || fail 'question within the mission' "$out"
 check "$(hook sam PreToolUse "$(edit sam55555 "$T/sam-demo" "$T/sam-demo/src/a.test.ts")")" '"ask"' 'a session outside the mission is still asked'
-hook sam Stop "$(session sam33333 "$T/sam-demo")" 2>"$T/wake8" & W8=$!
-sleep 0.5
+T0=$(now_s); hook sam Stop "$(session sam33333 "$T/sam-demo")" 2>"$T/wake8" & W8=$!
+await_waiter sam sam33333 "$T0"
 from_session ale11111 as_user alex "$PY" "$SYN" send sam 'Tests are in src/a.test.ts, three of them fail on the id check.' >/dev/null
 rc=0; exit_of $W8 15 || rc=$?
 [ $rc = 2 ] && ok 'a mission message wakes the session that joined' || fail "wake: exit $rc" "$(cat "$T/wake8")"
@@ -1630,6 +1844,11 @@ refused() { local out; out=$(gate toolu_t5 "$T/sam-demo" "$2")
   if grep -q '"permissionDecision": "deny"' <<<"$out" && grep -q 'must be the whole command' <<<"$out" \
     && ! grep -q '"approving"' "$T/home-sam/sessions/sam33333.json"; then ok "refused: $1"; else fail "not refused: $1" "$out"; fi; }
 refused 'the gate, then && touch' "$G && touch $T/pwned"
+lacks "$(gate toolu_t5 "$T/sam-demo" "$G && touch $T/pwned")" 'own terminal' 'a chained call of syn gets the short text'
+# a command that has nothing to do with syn and names both words is refused too (the guard cannot tell), and is told so
+out=$(gate toolu_t5 "$T/sam-demo" "sed -i 's/approve/confirm/' docs/mission.md")
+check "$out" 'could hide an approval' 'a sed that names mission and approve is refused with the reason'
+check "$out" 'can run it in their own terminal' 'and with what the human can do instead'
 refused 'the gate, then ; touch' "$G; touch $T/pwned"
 refused 'the gate into a pipe' "$G | cat"
 refused 'the gate with a command substitution' "$G \$(touch $T/pwned)"

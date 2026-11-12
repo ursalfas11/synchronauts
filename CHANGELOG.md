@@ -168,6 +168,13 @@ This file is in English only; the README and the guide exist in English and Germ
 
 ### Added
 
+- Edits made through Bash are tracked. The hooks compare the changed files of the repo (`git status`, 1.5 s at most,
+  read-only, ignored files left out) before and after each Bash command, and what the command changed counts like an
+  Edit or Write: it enters the session's file list and the overlap warnings. A command cannot be asked about before it
+  runs, so when it changed a file somebody claimed, Claude is told afterwards. Slow `git status` or more than 3000
+  changed files: that call goes untracked silently, and the repo is left alone for ten minutes, so that in a huge repo
+  one command waits and not every one. Not seen: other repos entered by `cd`, ignored files, committed changes, a
+  command that runs in the background. Only paths go to the room.
 - An invitation finds its way. On a machine without a room, a session start looks in the background (through `gh`, at
   most once an hour) whether GitHub holds an invitation to a room for the account, and the next prompt tells Claude
   and you who invites you to which room. Claude joins after your yes, never on its own: anybody on GitHub can send such
@@ -244,6 +251,11 @@ This file is in English only; the README and the guide exist in English and Germ
   `~/.synchronauts/syn` exists once a session has started, shows the line that invites a teammate, and says in three
   sentences what the room sees. Commands carry their full path, and a line says that the project is not affiliated
   with Anthropic or OpenAI.
+- The conflict check no longer writes into your repo. Its snapshot and merge objects go into a temporary folder under
+  `~/.synchronauts` that is deleted after each run, and the commits it fetches from teammates into
+  `~/.synchronauts/conflict-objects` (emptied after a day or at 100 MB); no object and no ref is added to the work
+  repository's `.git`. It also compares two separate clones of one repo on the same machine now, not only worktrees.
+  Objects that earlier versions left in a repo stay there until `git gc` removes them.
 - **Breaking:** the board's key is no longer in `~/.synchronauts/ui-key` (`syn ui` deletes the file) or in an address
   (`#k=`); a script that read it to call the board's API stops working. Use `syn state` for the board's data, and
   `syn ui` or `syn ui --pair` to pair a browser.
@@ -295,9 +307,15 @@ This file is in English only; the README and the guide exist in English and Germ
   `syn codex` with a sentence instead of a traceback, and is not rewritten.
 - On Windows a state file that another process replaced at that moment read as empty: a teammate's name fell back to
   the login, a session could miss from the picture for one hook. Such a read is tried again for up to half a second.
+- A harmless command that names `mission` and `approve` (a `sed`, a `curl`, a script that holds both words) is still
+  refused, since the guard cannot tell it from a hidden approval, but the refusal now says so and that the human can
+  run it in their own terminal; before, it only said that `mission approve` must be the whole command.
 - Two sessions with a detached HEAD in one repo no longer count as being on the same branch: git names every
   detached HEAD `HEAD`. A session in a repo without a commit shows up now, with the branch its first commit will be
   on; before, it did not show at all.
+- The conflict check missed an edit made in the same second as the last `git add` or commit when it left the file's
+  size as it was: the snapshot worked on a copy of the index with the time of the copy, and git then trusts the file's
+  time and size instead of reading it. The copy keeps the index's time now.
 - A clock that is off no longer makes mail vanish without a word. Mail dated up to a day ahead of the clock here is
   delivered with the note "dated ahead: a clock is off"; before, anything more than ten minutes ahead was left out.
   The machine whose clock is off learns it: the background service compares the clock with the time of GitHub's
@@ -360,6 +378,21 @@ This file is in English only; the README and the guide exist in English and Germ
   changed and has not pushed yet. Two branches that changed the same README weeks ago no longer warn every new
   session in the repo; the board keeps showing every conflict. System notifications follow the same rule. File names
   with letters outside ASCII show as they are, not as `\303\234`.
+- A mission can be ended when the session that joined it is gone (closed, a crash, `/clear`). `mission end` works in a
+  plain terminal for the one live mission of this machine, or with `mission end --id <id> "<result>"`; a Claude session
+  that is not in the mission must name it, and may end it only when no session of this machine in it still runs. A
+  shell of Claude Code without its session id is refused. Before, such a mission ran to its end time. `mission end`
+  without a result or with `--id` alone is a wrong call (exit 2); exit 3 is unchanged.
+- The others now learn that a person left a mission: when the last session of a person in it ends (also `/clear`), a
+  signed `left` message goes out through the outbox, and the others' Claudes are told, so they stop sending mission mail
+  to nobody; messages to that person are plain mail until a session joins again with `mission approve <id>` and the
+  person's yes. That includes the proposer, who was refused before ("already approved"). Sessions of one machine count
+  together: nothing is announced while another one is still in the mission.
+- A lost, deleted or replaced `approve.key` no longer makes records vanish silently. `status` and the next session
+  start say that mission records and queued messages cannot be verified, name the missions and why, and what to do;
+  the records stay in `missions.json` (the old key brings them back), `mission propose` and `approve` say it too, and
+  a mission of yours that the key no longer seals can still be ended with `mission end --id`. Before, the records
+  counted for nothing without a word and the next mission erased them. Nothing without its seal is accepted.
 - A session with a detached HEAD no longer reports the default branch at origin as the work it pushed.
 
 ### Compatibility
@@ -370,6 +403,7 @@ How 0.6 and 0.5 peers in one room get along.
 |---|---|---|
 | Presence, files, claims, plain mail, board data | works | works |
 | Missions: invite, joined, end, mission work messages | 0.5 shows them as forged (it cannot verify `crew`, `until` and `room`) | information only: a 0.5 invite has no people and no end time, so it cannot be joined |
+| Missions: `left` (the last session of a person ended) | 0.6 builds from before it drop `left` as an unknown kind: the person stays listed in the mission until its end; 0.5 shows it as forged like all mission mail | does not occur: 0.5 sends no missions |
 | Mail signed with a key in an ssh-agent or on a security key | works: the signature is the same `ssh-keygen -Y sign` as from a key file | does not occur: 0.5 signs with key files only |
 | File and claim names with a `:`, a quote, a shell sign, more than four spaces, over 240 characters or a start like `~`, `-` or `$NAME` | 0.6 does not publish them, and `syn claim` refuses them | 0.6 leaves them out: such files and claims of a 0.5 teammate do not show |
 

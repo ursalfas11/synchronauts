@@ -22,6 +22,7 @@ jobs:
       matrix:
         include:
           - {os: ubuntu-24.04, python: '3.9'}  # ubuntu-latest has no 3.9 any more
+          - {os: ubuntu-latest, python: '3.12'}
           - {os: ubuntu-latest, python: '3.14'}
           - {os: macos-latest, python: '3.14'}
           - {os: windows-latest, python: '3.14'}
@@ -38,3 +39,17 @@ jobs:
       - name: Token budget
         if: matrix.os == 'ubuntu-latest' && matrix.python == '3.14'
         run: python3 test/measure.py --check test/budget.json syn.py skills/synchronauts/SKILL.md
+
+  board:
+    name: board in a browser
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+      - name: Board in headless Chrome
+        env:
+          SYN_REQUIRE_CHROME: '1'  # a runner without Chrome is a failure here, not a skip
+        run: python3 test/board_check.py
