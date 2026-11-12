@@ -2505,7 +2505,7 @@ def rmtree_quiet(path):
             func(p)
         except OSError:
             pass
-    shutil.rmtree(path, onerror=unlock)
+    shutil.rmtree(path, **{'onexc' if sys.version_info >= (3, 12) else 'onerror': unlock})  # onerror: deprecated in 3.12
 
 
 def open_store():
