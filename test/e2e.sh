@@ -1022,7 +1022,8 @@ refused() { local rc=0 out; out=$(SYN_HOME="$1" HOME="$LV/home" USERPROFILE="$LV
   [ $rc = 1 ] && grep -q 'Not removed' <<<"$out" && grep -q "$3" <<<"$out" && ok "uninstall refuses $2" || fail "uninstall of $2: exit $rc" "$out"; }
 refused "$LV/foreign" 'a folder with a file of someone else' 'did not write (notes.txt)'
 [ -e "$LV/foreign/notes.txt" ] && [ -e "$LV/foreign/config.json" ] && ok 'and leaves it as it was' || fail 'foreign folder touched'
-refused / 'the root of the file system' 'root of the file system'
+FSROOT=/; [ -n "$WIN" ] && FSROOT="${T%%/*}/"  # Git Bash turns a lone / in a variable into its own install folder
+refused "$FSROOT" 'the root of the file system' 'root of the file system'
 refused "$LV/home" 'the home folder' 'home folder'
 refused "$LV" 'a folder above the home folder' 'home folder'
 refused "relative/folder" 'a relative path' 'absolute path'
