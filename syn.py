@@ -4592,9 +4592,17 @@ def sid_set(command, cwd, st=None):
 
 
 def gate_refusal(command):
-    m = re.search(r'\bapprove\s+(' + ID_RE + ')', flat(command))
-    return (f"Synchronauts: `mission approve` must be the whole command. Run exactly "
-            f"`{CMD} mission approve {m.group(1) if m else '<id>'}`, alone.")
+    """What Claude is told when a command may hide `mission approve`. A command without a call of syn in sight (a sed
+    or a curl that names both words, a script that holds them) is refused all the same, and told why and what else
+    can be done: the short text alone was no help there."""
+    text = flat(command)
+    m = re.search(r'\bapprove\s+(' + ID_RE + ')', text)
+    run = f"`{CMD} mission approve {m.group(1) if m else '<id>'}`, alone"
+    if not re.search(r'\bsyn\b', text):
+        return (f"Synchronauts: refused. This command, or a script it runs, names `mission` and `approve` and could "
+                f"hide an approval: `mission approve` must be the whole command. If it has nothing to do with a "
+                f"mission, the human can run it in their own terminal. To approve one, run exactly {run}.")
+    return f"Synchronauts: `mission approve` must be the whole command. Run exactly {run}."
 
 
 def gate_is_syn(gate, cwd):

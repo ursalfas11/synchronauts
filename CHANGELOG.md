@@ -291,6 +291,9 @@ This file is in English only; the README and the guide exist in English and Germ
 
 - On Windows a state file that another process replaced at that moment read as empty: a teammate's name fell back to
   the login, a session could miss from the picture for one hook. Such a read is tried again for up to half a second.
+- A harmless command that names `mission` and `approve` (a `sed`, a `curl`, a script that holds both words) is still
+  refused, since the guard cannot tell it from a hidden approval, but the refusal now says so and that the human can
+  run it in their own terminal; before, it only said that `mission approve` must be the whole command.
 - Two sessions with a detached HEAD in one repo no longer count as being on the same branch: git names every
   detached HEAD `HEAD`. A session in a repo without a commit shows up now, with the branch its first commit will be
   on; before, it did not show at all.
