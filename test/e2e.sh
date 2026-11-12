@@ -459,11 +459,11 @@ until_ok 15 "the watcher deletes Jule's next dead branch at its start" old2_gone
 until_ok 15 'and sets the gc settings of an old room' gc_set
 # 301 branches in the room: the watcher reports the cut, in the error text that `status` shows
 tip=$(FORGE_REMOTE="$T/b9room.git" forged names zbulk-gh)
-"$PY" -c 'import sys; sys.stdout.write("".join(f"create refs/heads/syn/zbulk-gh/m{i:03d} {sys.argv[1]}\n" for i in range(301)))' "$tip" | b9room update-ref --stdin
+"$PY" -c 'import sys; sys.stdout.write("".join(f"create refs/heads/syn/zbulk-gh/m{i:03d} {sys.argv[1]}\n" for i in range(301)))' "$tip" | crlf_safe | b9room update-ref --stdin
 cut_reported() { grep -q 'more than 300 branches' "$T/home-b9/errors.json"; }
 until_ok 30 'with more than 300 branches the watcher reports that some are not read' cut_reported
 check "$(crlf_safe < "$T/home-b9/others.json")" 'jule-gh/phone' 'and still reads the branch of the own login, however late in the alphabet the others are'
-"$PY" -c 'import sys; sys.stdout.write("".join(f"delete refs/heads/syn/zbulk-gh/m{i:03d}\n" for i in range(301)))' | b9room update-ref --stdin
+"$PY" -c 'import sys; sys.stdout.write("".join(f"delete refs/heads/syn/zbulk-gh/m{i:03d}\n" for i in range(301)))' | crlf_safe | b9room update-ref --stdin
 cut_gone() { ! cut_reported; }
 until_ok 30 'once they are gone the report goes too' cut_gone
 for x in jule-gh/phone alex-gh/dead alex-gh/live; do b9room update-ref -d refs/heads/syn/$x; done
