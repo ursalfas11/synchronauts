@@ -7418,9 +7418,10 @@ ROOM_FILES = ('others.json', 'inbox.json', 'verified.json', 'keys.json', 'signer
               'ui.json', 'ui.log', 'ui-pair.json', 'ui-key')
 # every other name that syn writes into HOME: a folder holding anything else is not one that uninstall deletes
 HOME_NAMES = frozenset(ROOM_FILES) | frozenset(
-    'alive approve.key clock.json config.json conflicts-start conflicts.json conflicts.log events.json git hook.log '
-    'invites-start invites.log notifications.log notified.json outbox sessions setup-hint signing-agent.pub '
-    'signing-key signing-key.pub signing.json status.json syn task.json'.split())
+    'alive approve.key clock.json config.json conflict-objects conflict-run conflicts-start conflicts.json '
+    'conflicts.log defaults.json events.json git hook.log invites-start invites.log notifications.log notified.json '
+    'outbox sessions setup-hint signing-agent.pub signing-key signing-key.pub signing.json snaps status.json syn '
+    'task.json'.split())  # test/e2e.sh checks at its end that every name a run wrote is known here
 # what marks a folder as Synchronauts': at least one of these must be in it
 HOME_MARKS = ('config.json', 'status.json', 'sessions', 'git', 'syn', 'alive')
 LINK_START = '#!/bin/sh\n# Synchronauts: '  # how link() starts the launcher

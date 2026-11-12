@@ -804,7 +804,7 @@ lv lv "$PY" "$SYN" ui --no-browser >/dev/null
 until_ok 15 'Jule has a watcher and a board running here' test -s "$T/home-lv/watcher.json" -a -s "$T/home-lv/ui.json"
 WPID=$(lv_pid lv watcher); UPID=$(lv_pid lv ui)
 [ "$(lv_branches)" = 'syn/alex-gh/x syn/jule-gh/one syn/jule-gh/two ' ] && ok 'the room has the branches of both machines and of Alex' || fail 'branches' "$(lv_branches)"
-mkdir -p "$T/home-lv/outbox"; echo '{}' > "$T/home-lv/outbox/1-abc.json"
+mkdir -p "$T/home-lv/outbox"
 
 # a call that is not right, or has no yes, changes nothing
 rc=0; out=$(lv lv "$PY" "$SYN" leave </dev/null 2>&1) || rc=$?
@@ -827,7 +827,6 @@ check "$out" 'mission end' 'and how to end it first'
 rc=0; out=$(lv lv "$PY" "$SYN" leave --yes --force 2>&1 | crlf_safe) || rc=$?
 [ $rc = 0 ] && ok 'leave --yes --force leaves in spite of the mission: exit 0' || fail "leave: exit $rc" "$out"
 check "$out" 'Deleted syn/jule-gh/one in the room' 'it says that the branch is deleted'
-check "$out" 'Dropped 1 queued message' 'and how many queued messages were dropped'
 [ "$(lv_branches)" = 'syn/alex-gh/x syn/jule-gh/two ' ] && ok 'only the own branch of this machine went, not the other machine of Jule, not Alex' || fail 'branches' "$(lv_branches)"
 posix_only 'the watcher and the board are gone, waited for' sh -c "kill -0 $WPID 2>/dev/null || kill -0 $UPID 2>/dev/null && exit 1; exit 0"
 [ ! -e "$T/home-lv/git" ] && [ ! -e "$T/home-lv/outbox" ] && [ ! -e "$T/home-lv/others.json" ] && [ ! -e "$T/home-lv/missions.json" ] \
@@ -845,13 +844,16 @@ rc=0; out=$(LV_REMOTE= lv lv "$PY" "$SYN" leave --yes 2>&1) || rc=$?
 out=$(lv lv "$PY" "$SYN" leave --yes 2>&1 | crlf_safe)
 check "$out" 'SYN_REMOTE is set in your environment' 'a SYN_REMOTE in the environment is named as what would join again'
 
-# the room out of reach: the leave still works, the branch stays and the output says so
+# the room out of reach: the leave still works, the branch stays and the output says so. A record waits in the outbox
+# of this machine (no watcher runs for it, which would drop a record that syn did not write)
+mkdir -p "$T/home-lv2/outbox"; echo '{}' > "$T/home-lv2/outbox/1-abc.json"
 mv "$T/lvroom.git" "$T/lvroom.away"
 rc=0; out=$(lv lv2 "$PY" "$SYN" leave --yes 2>&1 | crlf_safe) || rc=$?
 mv "$T/lvroom.away" "$T/lvroom.git"
 [ $rc = 0 ] && ok 'leave with the room out of reach works: exit 0' || fail "leave offline: exit $rc" "$out"
 check "$out" 'syn/jule-gh/two stays in it' 'it says that the branch stays'
 check "$out" '30 days' 'and that it counts as dead after 30 days'
+check "$out" 'Dropped 1 queued message' 'and how many queued messages were dropped'
 [ ! -e "$T/home-lv2/git" ] && ok 'and the local copy is gone' || fail 'lv2 git' "$(ls "$T/home-lv2")"
 git -C "$T/lvroom.git" update-ref -d refs/heads/syn/jule-gh/two
 
@@ -1900,4 +1902,21 @@ until_ok 10 'ended sessions drop out of the picture' no_session 'Build tickets A
 [ ! -s "$T/home-sam/hook.log" ] && [ ! -s "$T/home-alex/hook.log" ] && ok 'no errors in the hooks' || fail 'hook.log' "$(cat "$T"/home-*/hook.log)"
 fi
 block_end
+
+# Every name this run left at the top of a home folder is one that `uninstall` takes for Synchronauts' own (ours()):
+# a file that syn writes and the list does not know would make `uninstall` refuse the folder of everybody. Left out:
+# the homes of the unit tests, of the uninstall tests and of the clean-up test, which hold foreign files on purpose
+out=$("$PY" - "$ROOT" "$T" <<'PY' | crlf_safe
+import os, sys
+sys.path.insert(0, sys.argv[1])
+os.environ['SYN_HOME'] = os.path.join(sys.argv[2], 'home-none')
+import syn
+unknown = sorted({name for home in os.listdir(sys.argv[2])
+                  if home.startswith('home-') and not home.startswith(('home-units', 'home-lv', 'home-b4solo'))
+                  and os.path.isdir(os.path.join(sys.argv[2], home))
+                  for name in os.listdir(os.path.join(sys.argv[2], home)) if not syn.ours(name)})
+print(' '.join(unknown) or 'none')
+PY
+)
+[ "$out" = none ] && ok 'uninstall knows every file the run wrote into a home folder' || fail 'names in a home folder that ours() does not know' "$out"
 echo "all green (${SECONDS} s)"
