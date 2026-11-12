@@ -281,9 +281,10 @@ else:
     syn.save(HOME / 'others.json', {'sam-gh/one': {'login': 'sam-gh', 'name': 'Sam', 'machine': 'one', 'version': '',
                                                    'sessions': {}, 'events': [],
                                                    'mail': [{f: v for f, v in x.items() if f != 'from'}
-                                                            for x in (early, forged)]}})
+                                                            for x in (forged, early)]}})
+    (HOME / 'keys.json').unlink(missing_ok=True)  # no keys asked for lately; the forgery is checked first, as only a check that asks the keys URL itself is final
     syn.save(HOME / 'verified.json', {syn.seal(x, 'sam-gh'): {'v': syn.verify(x, k), 't': syn.iso(), 'id': x['id']}
-                                      for x in (early, forged)})
+                                      for x in (forged, early)})
     check(trusts(k) == {'Early plan': 'bad', 'Forged': 'bad'} and 'sam-gh-r00002' not in syn.missions(k),
           'before my side knows the new name, mail with the new id looks forged', str(trusts(k)))
     (BIN / 'gh-answer').write_text('')  # GitHub does not answer: the id stays
@@ -299,6 +300,7 @@ else:
                            timeout=60, env=dict(os.environ, PYTHONUTF8='1'))
         return r.stdout + r.stderr
 
+    (HOME / 'keys.json').unlink(missing_ok=True)
     out = refresh()
     stored = syn.load(HOME / 'config.json', {})
     check(stored.get('room') == 'github.com/acme/newroom' and stored.get('room_alt') == ['github.com/acme/room']
@@ -327,6 +329,7 @@ else:
     syn.save(HOME / 'verified.json', {**syn.load(HOME / 'verified.json', {}), syn.seal(late, 'sam-gh'): {
         'v': syn.verify(late, snapshot), 't': syn.iso(), 'id': late['id']}})
     check(trusts(k)['Late plan'] == 'bad', 'a verdict against the old id stays until it is checked again')
+    (HOME / 'keys.json').unlink(missing_ok=True)
     out = refresh()  # ... until the next refresh, which finds nothing new but checks the room's forged mail again
     check('Unchanged' in out and syn.load(HOME / 'config.json', {}).get('room_alt') == ['github.com/acme/room']
           and trusts(k) == {'Early plan': 'ok', 'Forged': 'bad', 'Late plan': 'ok'},
