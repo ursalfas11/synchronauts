@@ -776,6 +776,24 @@ check('hours ahead' in syn.clock_line(), 'an answer without a date changes nothi
 syn.note_clock(format_datetime(syn.now()))
 check(not (HOME / 'clock.json').exists() and syn.clock_line() == '', 'a clock that is right again takes the note away')
 
+# a detached HEAD is no branch two sessions share, and a repo without a commit is a repo with a branch
+check(syn.same_branch('feat', 'feat') and not syn.same_branch('HEAD', 'HEAD') and not syn.same_branch('feat', 'main')
+      and not syn.same_branch(None, None) and not syn.same_branch('', ''),
+      'two sessions with a detached HEAD are not on the same branch')
+two = [{'key': 'a-gh/one/s1', 'login': 'a-gh', 'repos': {'acme/x': {'branch': 'HEAD', 'files': []}}},
+       {'key': 'b-gh/one/s2', 'login': 'b-gh', 'repos': {'acme/x': {'branch': 'HEAD', 'files': []}}}]
+check([p['kind'] for p in syn.pairs(two)] == ['repo'], 'the board shows them as in the same repo', str(list(syn.pairs(two))))
+empty = TMP / 'unit-empty-repo'
+empty.mkdir()
+subprocess.run(['git', 'init', '-q', '-b', 'first', str(empty)], check=True, capture_output=True)
+found = syn.repo_of(str(empty), None)
+check(found and found[0] == 'local/unit-empty-repo' and found[2] == 'first',
+      'a repo without a commit is found, with the branch its first commit will be on', str(found))
+subprocess.run(['git', '-C', str(empty), '-c', 'user.name=t', '-c', 'user.email=t@example.com', 'commit', '-q',
+                '--allow-empty', '-m', 'one'], check=True, capture_output=True)
+subprocess.run(['git', '-C', str(empty), 'checkout', '-q', '--detach'], check=True, capture_output=True)
+check(syn.repo_of(str(empty), None)[2] == 'HEAD', 'a detached HEAD is named HEAD')
+
 check(callable(syn.dispatch) and callable(syn.main), 'main() and dispatch() exist')
 
 print(f"\nunits: {'all green' if not failures else str(len(failures)) + ' failed: ' + ', '.join(failures)}")

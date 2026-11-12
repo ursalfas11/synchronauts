@@ -1931,7 +1931,8 @@ def error_text():
 
 def repo_of(path, owners):
     """(name, root, branch) of the Git repo that contains path; only for team repos, otherwise None. owners None
-    (without a room): every repo, one without a GitHub remote as local/<folder>, the same for all its worktrees."""
+    (without a room): every repo, one without a GitHub remote as local/<folder>, the same for all its worktrees. The
+    branch is `HEAD` for a detached one (same_branch)."""
     d = Path(path)
     while not d.is_dir():
         if d == d.parent:
@@ -1941,7 +1942,11 @@ def repo_of(path, owners):
         root, branch, common = git('rev-parse', '--show-toplevel', '--abbrev-ref', 'HEAD', '--git-common-dir', cwd=d,
                                    timeout=3).splitlines()
     except (RuntimeError, ValueError, OSError, subprocess.TimeoutExpired):
-        return None
+        try:  # a repo without a commit has no HEAD to resolve, but a branch its first commit will be on
+            root, common = git('rev-parse', '--show-toplevel', '--git-common-dir', cwd=d, timeout=3).splitlines()
+            branch = git('symbolic-ref', '--short', '-q', 'HEAD', cwd=d, timeout=3).strip() or 'HEAD'
+        except (RuntimeError, ValueError, OSError, subprocess.TimeoutExpired):
+            return None
     try:
         gp = github_path(git('config', '--get', 'remote.origin.url', cwd=d, timeout=3))
     except (RuntimeError, OSError, subprocess.TimeoutExpired):
@@ -2142,6 +2147,12 @@ def allowed(key, asked):
     return kind == 'file' and all(f'{repo}|{f}' in asked for f in files.split(','))
 
 
+def same_branch(a, b):
+    """Whether two sessions of a repo are on one branch. A detached HEAD is none: git names it `HEAD` for every
+    session that has one, whatever commit each of them is on."""
+    return bool(a) and a == b and a != 'HEAD'
+
+
 def overlaps(k, mine, sid, asked=(), team=()):
     """(key, text) per contact of another session with the repos of this session, in the same repo with the files it
     edits there. Own sessions only count from the same file or the same branch on. With the people of the own mission
@@ -2167,7 +2178,7 @@ def overlaps(k, mine, sid, asked=(), team=()):
                 files = f"the same files in {short(repo)} (branch {r.get('branch')}): {', '.join(same[:6])}"
                 yield note, (f"{who} is editing {files}. {k.get('name')} knows and allowed the edit."
                              if allowed(note, asked) else f"⚠️ {who} is editing {files}")
-            elif r.get('branch') == m.get('branch'):
+            elif same_branch(r.get('branch'), m.get('branch')):
                 yield (f"branch|{key}|{repo}|{m.get('branch')}",
                        f"⚠️ {who} is on the same branch {m.get('branch')} in {short(repo)}{there}")
             elif not own:
@@ -6144,7 +6155,7 @@ def pairs(team, crews=()):
             for repo in sorted(set(a['repos']) & set(b['repos'])):
                 ra, rb = a['repos'][repo], b['repos'][repo]
                 same = sorted(set(ra.get('files') or []) & set(rb.get('files') or []))
-                kind = 'file' if same else 'branch' if ra.get('branch') == rb.get('branch') else 'repo'
+                kind = 'file' if same else 'branch' if same_branch(ra.get('branch'), rb.get('branch')) else 'repo'
                 if kind != 'repo' or a['login'] != b['login']:
                     yield {'a': a['key'], 'b': b['key'], 'repo': repo, 'kind': kind, 'files': same, 'mission': together}
 

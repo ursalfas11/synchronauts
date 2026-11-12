@@ -232,6 +232,9 @@ This file is in English only; the README and the guide exist in English and Germ
 
 ### Fixed
 
+- Two sessions with a detached HEAD in one repo no longer count as being on the same branch: git names every
+  detached HEAD `HEAD`. A session in a repo without a commit shows up now, with the branch its first commit will be
+  on; before, it did not show at all.
 - A clock that is off no longer makes mail vanish without a word. Mail dated up to a day ahead of the clock here is
   delivered with the note "dated ahead: a clock is off"; before, anything more than ten minutes ahead was left out.
   The machine whose clock is off learns it: the background service compares the clock with the time of GitHub's
