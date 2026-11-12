@@ -155,6 +155,16 @@ This file is in English only; the README and the guide exist in English and Germ
   Before, every hook was off there, so a session could start `claude -p` and have it read `approve.key` or rewrite the
   state. Such a run still reports nothing and gets no notices; `mission approve` is refused in it, since nobody can
   say yes.
+- A login that signed once no longer makes unsigned mail in its name forged for good. `signers.json` keeps the time of
+  each login's last good signature, and unsigned mail counts as forged only in the name of a login that signed within
+  the last 30 days: somebody who moved to a machine without a key shows as unsigned again after that. While another
+  machine of theirs still signs, it stays forged, in a room on GitHub the record of pushes decides before that, and
+  `syn key` gives the machine a key. The price: 30 days after a login's last signature, a forged unsigned message in
+  its name shows as unsigned, not as forged. The notification for forged mail no longer speaks of a signature that
+  does not match, since unsigned mail has none.
+- The keys URL is asked anew at most once per login in ten minutes; before, every message whose signature fitted no
+  cached key asked it again. Until then such a message has no verdict (unsigned, checked again), which does not hold up
+  the sender's other mail.
 
 ### Added
 
@@ -264,6 +274,8 @@ This file is in English only; the README and the guide exist in English and Germ
 
 ### Fixed
 
+- On Windows a state file that another process replaced at that moment read as empty: a teammate's name fell back to
+  the login, a session could miss from the picture for one hook. Such a read is tried again for up to half a second.
 - Two sessions with a detached HEAD in one repo no longer count as being on the same branch: git names every
   detached HEAD `HEAD`. A session in a repo without a commit shows up now, with the branch its first commit will be
   on; before, it did not show at all.
@@ -319,6 +331,17 @@ This file is in English only; the README and the guide exist in English and Germ
   for it, so signed mail under that login shows as forged at once instead of being asked about every minute. While the
   keys URL cannot be asked, the watcher looks for the own signing key again every hour, as it was meant to (before,
   only after a day).
+
+- Fewer notes that nobody needs. Two machines on the default branch (the one `origin/HEAD` names, otherwise `main`
+  or `master`) are in the same repo, no longer warned about "the same branch": everybody is on it. Two sessions of
+  one machine there still are, they share a checkout. A teammate's change of task no longer puts a new line into
+  every other session, and after the first picture a session hears only of sessions in the repos it works in or its
+  prompt names; `status` and the board show the rest.
+- A merge conflict is told to the session that touched one of its files: a file it edited, or one its checkout
+  changed and has not pushed yet. Two branches that changed the same README weeks ago no longer warn every new
+  session in the repo; the board keeps showing every conflict. System notifications follow the same rule. File names
+  with letters outside ASCII show as they are, not as `\303\234`.
+- A session with a detached HEAD no longer reports the default branch at origin as the work it pushed.
 
 ### Compatibility
 
