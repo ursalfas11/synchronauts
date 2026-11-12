@@ -970,7 +970,7 @@ const I18N = {
     'mail.ui.tip': "To the recipient's UI, not to one of their sessions. Claude replies to a UI with {0}",
     'mail.session.tip': 'To the session in this repo',
     'mail.human': 'Human',
-    'mail.signed': 'Signed with {0}\u2019s SSH key from GitHub',
+    'mail.signed': 'Sender checked: signed with {0}\u2019s SSH key, or pushed by {0}\u2019s GitHub account',
     'mail.forged': 'Signature does not match',
     'mail.forged.tip': 'This message is not signed with a key GitHub lists for {0}. Someone else may have written it.',
     'mail.unsigned': 'unsigned',
@@ -1145,7 +1145,7 @@ const I18N = {
     'mail.ui.tip': 'An die UI des Empfängers, nicht an eine seiner Sessions. Claude antwortet einer UI mit {0}',
     'mail.session.tip': 'An die Session in diesem Repo',
     'mail.human': 'Mensch',
-    'mail.signed': 'Signiert mit {0}s SSH-Schlüssel von GitHub',
+    'mail.signed': 'Absender geprüft: mit {0}s SSH-Schlüssel signiert oder von {0}s GitHub-Konto gepusht',
     'mail.forged': 'Signatur passt nicht',
     'mail.forged.tip': 'Diese Nachricht ist nicht mit einem Schlüssel signiert, den GitHub für {0} führt. Jemand anderes könnte sie geschrieben haben.',
     'mail.unsigned': 'unsigniert',
@@ -1557,7 +1557,7 @@ const SCHEMA = [
     label: ['Time on messages', 'Zeit an Nachrichten'] },
   { k: 'daySeps', cat: 'messages', type: 'switch', def: true, label: ['Day separators', 'Tagestrenner'] },
   { k: 'showSeals', cat: 'messages', type: 'switch', def: true, label: ['Signature marks', 'Signatur-Zeichen'],
-    hint: ['A shield on messages signed with the sender’s GitHub key', 'Ein Schild an Nachrichten mit dem GitHub-Schlüssel des Absenders'] },
+    hint: ['A shield on messages whose sender GitHub confirms', 'Ein Schild an Nachrichten, deren Absender GitHub bestätigt'] },
 
   // Notifications
   { k: 'notifyOn', cat: 'notifications', type: 'switch', def: true, label: ['Notifications', 'Benachrichtigungen'],

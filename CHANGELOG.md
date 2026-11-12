@@ -158,6 +158,12 @@ This file is in English only; the README and the guide exist in English and Germ
 
 ### Added
 
+- No key is needed in a room on GitHub. GitHub records which account pushed what, forced pushes too, and a recipient
+  now checks the sender of a message without a signature against that record: the message is the sender's when their
+  account pushed it, and forged when another account did, which the warning names. Missions work that way as well,
+  and a second machine without a key no longer makes its owner's mail show as forged. Setup says "No key needed"; it
+  names `syn key` only for a room on another Git host, or when GitHub does not show the account the record.
+  Signatures stay and count as before.
 - One sentence sets a team up. `syn setup <owner/repo> --invite <login>` makes the room if it is a repo of your own
   account and not there yet, joins it, invites the teammates and says how they join; before, the room and each
   invitation were `gh` lines of their own. A room that is public is named with a warning.

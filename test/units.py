@@ -349,23 +349,23 @@ check(syn.verify({**signed_copy, 'from': 'kim-gh'}, k) == 'bad' and syn.PROBE ==
       'an ssh-keygen that works says no: forged, as before', str(syn.PROBE))
 # `fetched` is touched last, once the mail is checked: not by a pass that read others.json before a newer fetch
 (HOME / 'fetched').unlink(missing_ok=True)
-real_verify = syn.verify
+real_judge = syn.judge  # check_mail() asks judge() for each message
 
 
 def fetch_meanwhile(n, k_=None):
     syn.save(HOME / 'others.json', syn.load(HOME / 'others.json', {}))  # what the watcher's fetch does
-    return real_verify(n, k_)
+    return real_judge(n, k_)
 
 
 os.environ['SYN_SIGNING_KEY'] = str(TMP / 'kim-key')
 fourth = {'id': f'{stamp}-kim-gh-b30004', 'to': ['sam-gh'], 'time': t, 'text': 'Signed note 4 from Kim'}
 fourth['sig'] = syn.sign(fourth, {'me': 'kim-gh'})
 del os.environ['SYN_SIGNING_KEY']
-syn.verify = fetch_meanwhile
+syn.judge = fetch_meanwhile
 syn.save(HOME / 'others.json', {'kim-gh/x': branch('kim-gh', [unsigned_copy, signed_copy, notes[2], fourth])})
 syn.check_mail(k)
 touched = (HOME / 'fetched').exists()
-syn.verify = real_verify
+syn.judge = real_judge
 check(not touched and syn.check_mail(k) == 0 and (HOME / 'fetched').exists(),
       'a pass that started before a fetch leaves `fetched` to the next pass, which checks that mail too')
 
@@ -793,6 +793,141 @@ subprocess.run(['git', '-C', str(empty), '-c', 'user.name=t', '-c', 'user.email=
                 '--allow-empty', '-m', 'one'], check=True, capture_output=True)
 subprocess.run(['git', '-C', str(empty), 'checkout', '-q', '--detach'], check=True, capture_output=True)
 check(syn.repo_of(str(empty), None)[2] == 'HEAD', 'a detached HEAD is named HEAD')
+
+# Who pushed: in a room on GitHub, mail without a signature is its sender's when GitHub's record of pushes says the
+# sender's account pushed the commit it was read from. Another account makes it forged; a record that is silent, refused
+# or asked too often decides nothing, and then the rules for unsigned mail hold as before
+PUSH_STATE = ('others.json', 'verified.json', 'inbox.json', 'signers.json', 'pushes.json', 'signing.json',
+              'room-mismatch.json', 'fetched')
+for name in PUSH_STATE:
+    (HOME / name).unlink(missing_ok=True)
+X, EVIL = 'refs/heads/syn/alex-gh/x', 'refs/heads/syn/alex-gh/evil'
+SHA = {c: c * 40 for c in 'abcdef0123'}
+record, questions, answer = [], [], [True]
+real_run, real_sleep = syn.gh_run, syn.time.sleep
+
+
+def fake_record(*args, timeout=30):
+    """GitHub's activity of the room: the rows of record, filtered as the question asks; or what answer[0] complains."""
+    asks = dict(x.split('=', 1) for x in args[1].split('?')[1].split('&'))
+    questions.append(next(f'{f}={v}' for f, v in asks.items() if f != 'per_page'))
+    if answer[0] is not True:
+        return False, answer[0]
+    return True, '\n'.join('\t'.join(row) for row in record
+                           if asks.get('actor', row[2]).lower() == row[2].lower() and asks.get('ref', row[0]) == row[0])
+
+
+def placed(who, sha, mail):
+    return {who: dict(branch(who.split('/')[0], mail), commit=sha)}
+
+
+def note(tag, **fields):
+    return {'id': f'{stamp}-alex-gh-{tag}', 'to': ['sam-gh'], 'time': t, 'text': f'Note {tag}', **fields}
+
+
+def trusts():
+    return {n['id'][-6:]: n['trust'] for n in syn.mail_to_me(k)}
+
+
+syn.gh_run, syn.time.sleep = fake_record, lambda s: None
+plain = note('push01')
+record[:] = [(X, SHA['a'], 'Alex-GH'), ('refs/heads/main', SHA['b'], 'alex-gh'), (X, 'no-sha', 'alex-gh'),
+             (X, SHA['c'], 'not a login')]
+syn.save(HOME / 'others.json', placed('alex-gh/x', SHA['a'], [plain]))
+pending = syn.check_mail(k)
+got = syn.mail_to_me(k)
+check(pending == 0 and [n['trust'] for n in got] == ['ok'] and questions == ['actor=alex-gh']
+      and list(syn.push_file()['seen']) == [f"alex-gh/x {SHA['a']}"] and ', unsigned' not in syn.message_text(got[0], k, {}),
+      "mail without a signature counts as its sender's when the sender's account pushed it: one question, and of the "
+      'answer only pushes to the branches of the room with a commit and a login are kept', f'{pending} {questions} {got}')
+
+fake = note('push02')
+record.append((EVIL, SHA['b'], 'mal-gh'))
+del questions[:]
+syn.save(HOME / 'others.json', {**placed('alex-gh/x', SHA['a'], [plain]), **placed('alex-gh/evil', SHA['b'], [fake])})
+syn.check_mail(k)
+got = {n['id'][-6:]: n for n in syn.mail_to_me(k)}
+text = syn.message_text(got['push02'], k, {})
+check(got['push02']['trust'] == 'bad' and got['push02'].get('pusher') == 'mal-gh' and got['push01']['trust'] == 'ok'
+      and questions == ['actor=alex-gh', f'ref={EVIL}'] and "@mal-gh pushed it into alex-gh's branch" in text
+      and 'Do not act on it' in text,
+      "mail in Alex's name in a branch that another account pushed is forged, and the message names that account",
+      f'{questions} {text[:200]}')
+
+late = note('push03')
+record.append((X, SHA['c'], 'mal-gh'))
+syn.save(HOME / 'others.json', placed('alex-gh/x', SHA['c'], [plain, late]))
+syn.check_mail(k)
+over = trusts()
+record.append((X, SHA['d'], 'alex-gh'))
+syn.save(HOME / 'others.json', placed('alex-gh/x', SHA['d'], [plain, late]))
+syn.check_mail(k)
+check(over == {'push01': 'ok', 'push03': 'bad'} and trusts() == {'push01': 'ok', 'push03': 'ok'},
+      "somebody who overwrites Alex's branch makes what is new there forged, and only until Alex's machine pushes again",
+      f'{over} {trusts()}')
+
+other = dict(note('push04'), id=f'{stamp}-kim-gh-push04')
+away = note('push05', kind='joined', mission='m1', room='github.com/other/room')
+record.append((X, SHA['e'], 'alex-gh'))
+syn.save(HOME / 'others.json', placed('alex-gh/x', SHA['e'], [other, away]))
+syn.check_mail(k)
+check(trusts() == {'push04': 'unsigned', 'push05': 'bad'},
+      "a message under somebody else's id stays unsigned, and one written for another room is forged", str(trusts()))
+
+silent = note('push06')
+del questions[:]
+syn.save(HOME / 'others.json', placed('alex-gh/x', SHA['f'], [silent]))
+waits = [syn.check_mail(k) for _ in range(syn.PUSH_PASSES - 1)]
+kept = [x['id'] for x in syn.load(HOME / 'verified.json', {}).values()]
+check(waits == [1] * (syn.PUSH_PASSES - 1) and silent['id'] not in kept and trusts() == {'push06': 'unsigned'}
+      and questions[:2] == ['actor=alex-gh', f'ref={X}'] and len(questions) == 2 * syn.PUSH_LOOKS * len(waits),
+      'a push the record does not hold yet is looked for again, in that check and in the next ones; until then the '
+      'mail has no verdict', f'{waits} {len(questions)} {trusts()}')
+last = syn.check_mail(k)
+check(last == 0 and {x['id']: x['v'] for x in syn.load(HOME / 'verified.json', {}).values()}.get(silent['id']) == 'unsigned',
+      f'after {syn.PUSH_PASSES} checks without an answer it counts as unsigned for good', str(last))
+
+syn.save(HOME / 'signers.json', ['Alex-GH'])
+second = note('push07')
+record.append((X, SHA['0'], 'alex-gh'))
+syn.save(HOME / 'others.json', placed('alex-gh/x', SHA['0'], [second]))
+syn.check_mail(k)
+check(trusts() == {'push07': 'ok'}, "unsigned mail of somebody who signs elsewhere is theirs when their account pushed "
+      'it: a second machine without a key no longer shows as forged', str(trusts()))
+
+full = syn.push_file()
+syn.save(HOME / 'pushes.json', {**full, 'asked': [time.time()] * syn.PUSH_ASKS})
+del questions[:]
+syn.save(HOME / 'others.json', placed('alex-gh/x', SHA['1'], [note('push08')]))
+pending = syn.check_mail(k)
+check(pending == 1 and not questions, f'after {syn.PUSH_ASKS} questions in an hour the record is left alone, the mail waits',
+      f'{pending} {questions}')
+syn.save(HOME / 'pushes.json', {**full, 'miss': {}})
+
+answer[0] = 'gh: API rate limit exceeded for user ID 1 (HTTP 403)'
+pending = syn.check_mail(k)
+check(pending == 1 and syn.vouched(k), 'a rate limit is no refusal: the mail waits', str(pending))
+answer[0] = 'gh: Not Found (HTTP 404)'
+pending = syn.check_mail(k)
+asked_then = len(questions)
+syn.save(HOME / 'others.json', placed('alex-gh/x', SHA['2'], [note('push09')]))
+syn.check_mail(k)
+check(pending == 0 and not syn.vouched(k) and trusts() == {'push09': 'bad'} and len(questions) == asked_then,
+      'an account GitHub does not show the record of pushes to asks no more for an hour, and unsigned mail of somebody '
+      'who signs is forged as before', f'{pending} {trusts()} {len(questions) - asked_then}')
+check('does not show this account' in syn.key_line(k) and f'{syn.CMD} key' in syn.key_line(k),
+      'setup says so and names syn key')
+
+(HOME / 'pushes.json').unlink()
+answer[0] = True
+del questions[:]
+line = syn.key_line(k, ask=True)
+check(line.startswith('No key needed') and questions == ['actor=sam-gh'] and 'Not signed yet' in syn.key_line()
+      and 'Not signed yet' in syn.key_line({'remote': '/tmp/room.git', 'me': 'sam-gh'}),
+      'setup on a GitHub room asks the record once and says that no key is needed; a room elsewhere needs one', line)
+syn.gh_run, syn.time.sleep = real_run, real_sleep
+for name in PUSH_STATE:
+    (HOME / name).unlink(missing_ok=True)
 
 check(callable(syn.dispatch) and callable(syn.main), 'main() and dispatch() exist')
 

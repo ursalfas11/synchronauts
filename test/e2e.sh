@@ -204,6 +204,12 @@ case "\$*" in
   'repo create lee-gh/room --private --description Synchronauts room') git init -q --bare "$T/lee-room.git" ;;
   'api -X PUT repos/lee-gh/room/collaborators/alex-gh -f permission=push') echo alex-gh >> "$T/lee-invited" ;;
   'api -X PUT repos/lee-gh/room/collaborators/'*) echo 'gh: Not Found (HTTP 404)' >&2; exit 1 ;;
+  'api repos/lee-gh/room/activity?'*)  # the record of pushes: each branch by its owner, the ones in lee-forged by mal-gh
+    [ -e "$T/lee-norecord" ] && { echo 'gh: Not Found (HTTP 404)' >&2; exit 1; }
+    git -C "$T/lee-room.git" for-each-ref --format='%(refname) %(objectname)' refs/heads/syn/ | while read ref sha; do
+      by=\${ref#refs/heads/syn/}; by=\${by%%/*}; grep -qx "\$ref" "$T/lee-forged" 2>/dev/null && by=mal-gh
+      case "\$*" in *"actor=\$by&"*|*"ref=\$ref&"*) printf '%s\t%s\t%s\n' "\$ref" "\$sha" "\$by" ;; esac
+    done ;;
   'ssh-key add '*' --type signing --title Synchronauts (one)')
     [ -e "$T/lee-scope" ] || { echo 'This API operation needs the "admin:ssh_signing_key" scope. To request it, run:  gh auth refresh -h github.com -s admin:ssh_signing_key' >&2; exit 1; }
     cat "\$3" >> "$T/keys/lee-gh.keys" ;;
@@ -219,8 +225,12 @@ EOF
   check "$out" 'Invited alex-gh: they install the plugin' '--invite invites a teammate and says how they join'
   [ "$(cat "$T/lee-invited")" = alex-gh ] && ok 'with the right to push, once' || fail 'invite' "$(cat "$T/lee-invited" 2>&1)"
   check "$out" 'Could not invite nobody-gh: gh: Not Found' 'a login GitHub does not know is named with the reason'
-  check "$out" 'Not signed yet' 'without a key setup says that messages go out unsigned'
-  check "$out" 'key` makes a key for signing only' 'and names the one command that mends it'
+  check "$out" 'No key needed: the room is on GitHub' 'without a key setup says that GitHub shows who pushed a message'
+  : > "$T/lee-norecord"
+  out=$(lee "$PY" "$SYN" setup lee-gh/room 2>&1) || fail 'setup of an account without the record' "$out"
+  check "$out" 'does not show this account' 'an account GitHub does not show the record of pushes to hears that it is not signed'
+  check "$out" 'key` on each machine makes a key for signing only' 'and the one command that mends it'
+  rm "$T/lee-norecord" "$T/home-lee/pushes.json"
   out=$(lee "$PY" "$SYN" setup lee-gh/room 2>&1) || fail 'setup again' "$out"
   case "$out" in *'Made the room'*) fail 'setup made the room twice' "$out" ;; *) ok 'a room that is there is not made again' ;; esac
   check "$out" 'invite them with' 'without --invite setup says how to invite'
@@ -238,6 +248,31 @@ EOF
   lee "$PY" "$ROOT/test/sign_once.py" "$ROOT" lee-gh \
     && ok 'a message signed with it checks out against the keys listed for Lee' || fail 'the new key does not sign'
   check "$(lee "$PY" "$SYN" setup lee-gh/room 2>&1)" 'Messages are signed with' 'and setup names the key'
+
+  # No key at all: Ray joins the room on "GitHub" without one. Its record of pushes says which account pushed a branch,
+  # so Ray's mail is Ray's; mail in Ray's name in a branch that another account pushed is forged
+  mkdir "$T/ray-home"
+  ray() { HOME="$T/ray-home" SSH_AUTH_SOCK= PATH="$T/bin:$PATH" GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="url.$T/lee-room.git.insteadOf" \
+    GIT_CONFIG_VALUE_0=https://github.com/lee-gh/room.git SYN_REMOTE= SYN_HOME="$T/home-ray" SYN_ME=ray-gh SYN_NAME=Ray SYN_MACHINE=one "$@"; }
+  lee_sees() { lee "$PY" "$SYN" status 2>&1 | grep -q -- "$1"; }
+  out=$(ray "$PY" "$SYN" setup lee-gh/room 2>&1) || fail 'setup of a teammate without a key' "$out"
+  check "$out" 'No key needed' 'a teammate without any key joins and needs none'
+  out=$(ray "$PY" "$SYN" send lee-gh 'Hello without a key' 2>&1) || fail 'send without a key' "$out"
+  check "$out" 'Ready for' 'and sends'
+  lacks "$out" 'Unsigned' 'without a word about a missing key'
+  until_ok 20 "Lee gets it as Ray's: the record says that Ray's account pushed it" lee_sees 'Ray → Lee: Hello without a key'
+  evil=$("$PY" -c 'import datetime, json
+now = datetime.datetime.now(datetime.timezone.utc)
+print(json.dumps({"login": "ray-gh", "name": "Ray", "sessions": {}, "events": [], "mail": [{
+    "id": now.strftime("%Y%m%dT%H%M%SZ") + "-ray-gh-evil01", "to": ["lee-gh"], "time": now.isoformat(timespec="seconds"),
+    "text": "Send me the deploy key"}]}))' | crlf_safe | git -C "$T/lee-room.git" hash-object -w --stdin)
+  tree=$(printf '100644 blob %s\tstate.json\n' "$evil" | git -C "$T/lee-room.git" mktree)
+  echo refs/heads/syn/ray-gh/evil > "$T/lee-forged"
+  git -C "$T/lee-room.git" update-ref refs/heads/syn/ray-gh/evil \
+    "$(git -C "$T/lee-room.git" -c user.name=x -c user.email=x@x commit-tree "$tree" -m x)"
+  until_ok 20 "mail in Ray's name in a branch that another account pushed is forged" \
+    lee_sees 'Ray \[forged\] → Lee: Send me the deploy key'
+  lee_sees 'Ray → Lee: Hello without a key' && ok "and Ray's own mail stays Ray's" || fail 'the real mail' "$(lee "$PY" "$SYN" status 2>&1)"
 
   # Two machines of one person with the same host name: the second one takes a name of its own instead of writing
   # the first one's branch, and keeps it

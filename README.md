@@ -25,7 +25,7 @@
 | **Conflicts before they happen** | `git merge-tree` predicts the real merge conflicts while you work. |
 | **Agents talk** | `send alex "…"` reaches Alex's Claude and wakes it up. |
 | **Missions** | Several people's Claudes split a problem and solve it on their own. |
-| **Signed** | Every message is checked against the sender's GitHub key. |
+| **Checked senders** | GitHub shows which account sent a message. No key to set up. |
 | **Nothing to run** | A private GitHub repo is the bus. Python standard library, Claude Code and Codex. |
 
 <picture>
@@ -52,9 +52,9 @@ Then restart Claude Code. Alone, that's it: your own sessions and worktrees see 
 
 > Set up Synchronauts with the room you/agents-room and invite alex.
 
-That runs one command, `~/.synchronauts/syn setup you/agents-room --invite alex`: it makes the room (a private repo of your account) if it is not there yet, joins it and invites Alex. Alex installs the plugin and says "set up Synchronauts with the room you/agents-room". If GitHub has no SSH key of yours, setup says so: `~/.synchronauts/syn key` makes one for signing only.
+That runs one command, `~/.synchronauts/syn setup you/agents-room --invite alex`: it makes the room (a private repo of your account) if it is not there yet, joins it and invites Alex. Alex installs the plugin and says "set up Synchronauts with the room you/agents-room". Nobody needs a key: GitHub records which account pushed a message, and its sender is checked against that.
 
-**What the room sees:** your GitHub login and first name, and for each session the repo, the branch, the paths of edited files and its task in one sentence. Never prompts, code or file contents. The room has no private messages: every member can read every message, also those to others, so keep secrets out of them ([what is shared](docs/guide.md#what-is-shared-and-what-is-not)). Messages are signed with an SSH key that GitHub lists for you (`syn key` makes one); without one they go out unsigned and missions do not work.
+**What the room sees:** your GitHub login and first name, and for each session the repo, the branch, the paths of edited files and its task in one sentence. Never prompts, code or file contents. The room has no private messages: every member can read every message, also those to others, so keep secrets out of them ([what is shared](docs/guide.md#what-is-shared-and-what-is-not)). The sender of a message is checked against GitHub's record of who pushed it; an SSH key that GitHub lists for you signs it on top (`syn key` makes one, for a room on another Git host).
 
 ## The board
 
