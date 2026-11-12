@@ -168,6 +168,13 @@ This file is in English only; the README and the guide exist in English and Germ
 
 ### Added
 
+- Edits made through Bash are tracked. The hooks compare the changed files of the repo (`git status`, 1.5 s at most,
+  read-only, ignored files left out) before and after each Bash command, and what the command changed counts like an
+  Edit or Write: it enters the session's file list and the overlap warnings. A command cannot be asked about before it
+  runs, so when it changed a file somebody claimed, Claude is told afterwards. Slow `git status` or more than 3000
+  changed files: that call goes untracked silently, and the repo is left alone for ten minutes, so that in a huge repo
+  one command waits and not every one. Not seen: other repos entered by `cd`, ignored files, committed changes, a
+  command that runs in the background. Only paths go to the room.
 - An invitation finds its way. On a machine without a room, a session start looks in the background (through `gh`, at
   most once an hour) whether GitHub holds an invitation to a room for the account, and the next prompt tells Claude
   and you who invites you to which room. Claude joins after your yes, never on its own: anybody on GitHub can send such
@@ -270,13 +277,34 @@ This file is in English only; the README and the guide exist in English and Germ
   says that the others learn it once the key signs. Before, the end went out unsigned, counted for nobody, and the
   mission was over on your side only.
 
+- `send` says how the message arrives: "Waiting, will be woken" for a session that waits, "At work, gets it with the
+  next step" for one that is working, and "Sees it at its next prompt" with the reason (Codex, wake window over, no
+  open session) for the rest, so a Claude does not wait for an answer that cannot come. `status` marks each teammate's
+  session the same way. The board and `send` decide it by one rule.
+- `status` says when no room is set up, and shows mail that waits in the outbox for a signature and mail that was
+  dropped in the last 3 days; `syn state` carries both as `outbox`.
+- Exit codes: 2 for a wrong call (a missing argument, an unknown command, a value that is not allowed), with the usage
+  of that command instead of the list of all, also before a room or a session is looked at, and 3 for `send` and
+  `mission end` when the message is written but not uploaded yet; 1 stays for a call that could not be done. `--help`
+  lists them.
+- `claim` refuses a claim over the 30 a session may hold in a repo and says which ones, with exit code 1; it used to
+  cut the list in alphabetical order without a word, which could drop a claim that was there. A task noted with `task`
+  outside a session is taken only by a Bash hook in the same folder within 10 seconds, no longer by whichever session
+  runs a command next.
+
 ### Fixed
 
 - On Windows a state file that another process replaced at that moment read as empty: a teammate's name fell back to
   the login, a session could miss from the picture for one hook. Such a read is tried again for up to half a second.
+- A harmless command that names `mission` and `approve` (a `sed`, a `curl`, a script that holds both words) is still
+  refused, since the guard cannot tell it from a hidden approval, but the refusal now says so and that the human can
+  run it in their own terminal; before, it only said that `mission approve` must be the whole command.
 - Two sessions with a detached HEAD in one repo no longer count as being on the same branch: git names every
   detached HEAD `HEAD`. A session in a repo without a commit shows up now, with the branch its first commit will be
   on; before, it did not show at all.
+- The conflict check missed an edit made in the same second as the last `git add` or commit when it left the file's
+  size as it was: the snapshot worked on a copy of the index with the time of the copy, and git then trusts the file's
+  time and size instead of reading it. The copy keeps the index's time now.
 - A clock that is off no longer makes mail vanish without a word. Mail dated up to a day ahead of the clock here is
   delivered with the note "dated ahead: a clock is off"; before, anything more than ten minutes ahead was left out.
   The machine whose clock is off learns it: the background service compares the clock with the time of GitHub's
