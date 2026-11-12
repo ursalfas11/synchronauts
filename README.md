@@ -21,9 +21,9 @@
 
 Synchronauts is a plugin for Claude Code (and Codex CLI) that connects the sessions of your team. Every agent knows who is working on which repo, branch and files. Before Claude edits a file that a teammate's session is editing, Claude Code asks you. Real merge conflicts are predicted before the pull request, not found in it. And when your Claude needs something from Alex's, it sends a message that wakes Alex's waiting session.
 
-It is quick to try and gives little away. Two commands install it, with no server and no new account: a private GitHub repo of your team carries everything. The room sees repo, branch, file paths and a one-line task, never prompts, code or file contents. A prompt or tool call with nothing new costs no tokens. Alone it works too, across your own sessions and worktrees, and nothing about your work leaves the machine.
+It is quick to try and gives little away. One command installs it, with no server and no new account: a private GitHub repo of your team carries everything. The room sees repo, branch, file paths and a one-line task, never prompts, code or file contents. A prompt or tool call with nothing new costs no tokens. Alone it works too, across your own sessions and worktrees, and nothing about your work leaves the machine.
 
-<p align="center"><b><a href="#start">Install it with two commands ↓</a></b></p>
+<p align="center"><b><a href="#start">Install it with one command ↓</a></b></p>
 
 ![Two Claude Code sessions side by side: an overlap, a question before the edit, a message that wakes the other session. Then the board with both sessions and their messages](docs/demo.gif)
 
@@ -52,11 +52,10 @@ A message wakes a session that is waiting after its turn. Claude Code shows "Sto
 You need Claude Code, Python 3.9 or newer and `git`; for a team also the GitHub CLI `gh`, logged in. It runs on macOS, Linux and Windows (with Git for Windows). The [guide](docs/guide.md#quick-start) has the details.
 
 ```sh
-claude plugin marketplace add ursalfas11/synchronauts
-claude plugin install synchronauts@synchronauts
+claude plugin install synchronauts --marketplace ursalfas11/synchronauts
 ```
 
-Then restart Claude Code. Alone, that's it: your own sessions and worktrees see each other, and nothing leaves the machine. For a team, tell Claude:
+Then restart Claude Code; the first session start tells you that Synchronauts is on. Alone, that's it: your own sessions and worktrees see each other, and nothing leaves the machine. For a team, tell Claude:
 
 > Set up Synchronauts with the room you/agents-room and invite alex.
 

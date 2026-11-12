@@ -492,6 +492,21 @@ def invite(remote, logins):
     return out
 
 
+def no_room(k, error):
+    """Why setup cannot reach the room, with the next step where git's words name none: GitHub answers "not found"
+    for a private repo that is missing and for one this account may not read."""
+    said, gp = str(getattr(error, 'output', '') or error).lower(), github_path(k['remote'])
+    if gp and 'not found' in said:
+        room = f'{gp[0]}/{gp[1]}'
+        return (f"the room {room} is not there, or {k['me']} has no access to it: its owner invites you with "
+                f"`{CMD} setup {room} --invite {k['me']}`")
+    if gp and ('could not read username' in said or 'authentication failed' in said):
+        return 'git cannot log in to GitHub: run `gh auth setup-git` first'
+    if 'does not appear to be a git repository' in said:
+        return f"{k['remote']} is no Git repo: name the room as owner/repo"
+    return str(error)
+
+
 def setup(k, derive=True, agents=True):
     """Find out who and where, create the bare repo, check access, push the own branch, fetch the others and check
     their mail. True if it accepted an invitation to the room on the way. A machine name it takes from the host name
@@ -503,7 +518,9 @@ def setup(k, derive=True, agents=True):
     if not k.get('me'):
         k['me'] = gh('api', 'user', '--jq', '.login')
         if not k['me']:
-            raise RuntimeError('cannot find the GitHub login, run `gh auth login` first')
+            raise RuntimeError('cannot find the GitHub login: ' + (
+                'run `gh auth login` first' if shutil.which('gh')
+                else 'install the GitHub CLI (https://cli.github.com), then run `gh auth login`'))
     if not k.get('name'):
         k['name'] = (gh('api', 'user', '--jq', '.name') or k['me']).split()[0]
     derived = not k.get('machine')  # from the host name, which another machine of mine may have as well
@@ -523,10 +540,10 @@ def setup(k, derive=True, agents=True):
         accepted = False
         try:
             listing = ls_remote()  # without access this fails clearly
-        except RuntimeError:
+        except RuntimeError as error:
             accepted = accept_invitation(k['remote'])
             if not accepted:
-                raise
+                raise RuntimeError(no_room(k, error)) from None
             time.sleep(1)
             listing = ls_remote()
         # a branch of that name that this installation never wrote is another machine's (two laptops of one name, or
@@ -5795,6 +5812,7 @@ def hook(event, agent='claude', got=None):
         return wait_for_mail(k, sid)
     if event in ('Notification', 'StopFailure'):
         return report_state(sid, event, e)
+    first = event == 'SessionStart' and k.get('solo') and not LINK.exists()  # the first start after the install
     link(always=event == 'SessionStart')
     alive()
     ensure_watcher()
@@ -5923,11 +5941,18 @@ def hook(event, agent='claude', got=None):
     if invited[0]:
         lines.append(invited[0])
         for_user.append(invited[1])
+    if first:  # for the human only: the install worked, and what a team does next
+        for_user.append(WELCOME)
     emit(event, '\n'.join(lines), ' · '.join(for_user) or None)
     return 0
 
 
 # --- Commands -----------------------------------------------------------------
+
+# what the human reads at the first session start after the install, once per machine; Claude gets none of it
+WELCOME = (f'Synchronauts {VERSION} is on: your sessions on this machine see each other, nothing leaves it. For a team, '
+           f'tell Claude "set up Synchronauts with the room <you>/agents-room and invite <login>". The board: '
+           f'`{CMD} ui`.')
 
 CODEX_HOOKS = {'SessionStart': 15, 'UserPromptSubmit': 10, 'PreToolUse': 10, 'PostToolUse': 10, 'Stop': 10,
                'SessionEnd': 3}  # event → timeout in seconds; Codex has no Notification and no StopFailure
