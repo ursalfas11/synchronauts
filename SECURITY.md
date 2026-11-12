@@ -166,8 +166,8 @@ Things that work as designed or as far as tested, so that nobody counts on more 
   before and after it (1.5 s each; slower, or more than 3000 changed files: not tracked, and not tried again for ten minutes). A claimed file cannot be asked
   about beforehand, Claude is told afterwards. Ignored files, a command that changes into another repo and changes that
   arrive committed (`git pull`) are not seen. Only paths go to the room.
-- The conflict check writes objects (a snapshot commit and merge results, referenced by no branch) into the `.git`
-  folder of the work repository; they are unreferenced and removed by Git's own garbage collection.
+- Versions before 0.6.0 left the objects of the conflict check (a snapshot commit and merge results, referenced by no
+  branch) in the `.git` folder of the work repository; `git gc` removes them. The check no longer writes there.
 - There is no `leave` or `uninstall` command yet. See the guide for removing the plugin by hand.
 
 ## Hardening checklist for a room

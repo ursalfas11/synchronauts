@@ -1200,12 +1200,33 @@ g -C "$T/c-alex" checkout -q -b main 2>/dev/null; g -C "$T/c-alex" add -A && g -
 g clone -q https://github.com/acme/conf.git "$T/c-sam"
 echo alex > "$T/c-alex/src/x.ts" && g -C "$T/c-alex" commit -q -am 'alex' && g -C "$T/c-alex" push -q origin main
 echo sam > "$T/c-sam/src/x.ts"
+# what a check must not change in a work repo: the object files, their count, and every ref
+repo_state() { { git -C "$1" count-objects -v; git -C "$1" for-each-ref; find "$1/.git/objects" -type f | sort; } | crlf_safe; }
+sam_before=$(repo_state "$T/c-sam")
 hook alex PostToolUse "$(edit ale55555 "$T/c-alex" "$T/c-alex/src/x.ts")" >/dev/null
 alex_tip() { hook alex PostToolUse "$(bash_call ale55555 "$T/c-alex")" >/dev/null; grep -q '"tip"' "$T/home-sam/others.json"; }
 until_ok 20 "what Alex pushed reaches Sam" alex_tip
 sam_conflict() { out=$(hook sam PostToolUse "$(edit sam99999 "$T/c-sam" "$T/c-sam/src/x.ts")"); grep -q 'would conflict' <<<"$out"; }
 until_ok 20 "a conflict with Alex's pushed work is reported" sam_conflict
 check "$out" "Merging Alex's session (conf@main) with this session's work would conflict in: src/x.ts" 'with the teammate, branch and file'
+[ "$(repo_state "$T/c-sam")" = "$sam_before" ] && ok 'the check wrote no object and no ref into the work repo' \
+  || fail 'the check changed the work repo' "$(diff <(echo "$sam_before") <(repo_state "$T/c-sam"))"
+[ -n "$(find "$T/home-sam/conflict-objects" -type f ! -name since)" ] && ok "Alex's fetched commit is in the store of Synchronauts" || fail 'no fetched commit in the store'
+until_ok 10 'a finished check leaves no snapshot or merge object behind' test ! -e "$T/home-sam/conflict-run"
+# a second clone of the same repo on this machine: the checks of both sessions merge the two working trees
+g clone -q https://github.com/acme/conf.git "$T/c-sam2"; echo sam2 > "$T/c-sam2/src/x.ts"
+sam2_before=$(repo_state "$T/c-sam2"); sam_before=$(repo_state "$T/c-sam")
+hook sam PostToolUse "$(edit sam88888 "$T/c-sam2" "$T/c-sam2/src/x.ts")" >/dev/null
+sam_clone() { out=$(hook sam PostToolUse "$(edit sam99999 "$T/c-sam" "$T/c-sam/src/x.ts")"); grep -q 'Merging your other session (conf@main)' <<<"$out"; }
+until_ok 20 'two separate clones of one repo are merged against each other' sam_clone
+[ "$(repo_state "$T/c-sam2")" = "$sam2_before" ] && [ "$(repo_state "$T/c-sam")" = "$sam_before" ] \
+  && ok 'and neither clone gets an object or a ref' || fail 'the clone check changed a repo'
+# the store deleted between two checks: the next one makes it again and fetches what it needs, no traceback
+rm -rf "$T/home-sam/conflict-objects"
+store_back() { hook sam PostToolUse "$(bash_call sam99999 "$T/c-sam")" >/dev/null; test -f "$T/home-sam/conflict-objects/since"; }
+until_ok 20 'a store that was deleted is made again by the next check' store_back
+[ ! -e "$T/home-sam/conflicts.log" ] || ! grep -q Traceback "$T/home-sam/conflicts.log" && ok 'and the deletion leaves no traceback' || fail 'traceback in conflicts.log' "$(cat "$T/home-sam/conflicts.log")"
+hook sam SessionEnd "$(session sam88888 "$T/c-sam2")" >/dev/null
 data=$(curl -s -H "X-SYN-Token: $tok" "$U/api/state")
 ui_check 'any(o["kind"] == "conflict" and o["files"] == ["src/x.ts"] for o in d["overlaps"])' 'the UI shows the conflict'
 # A conflict concerns the session that touched the file. Sam commits the change on a branch of his own and pushes it:
@@ -1649,6 +1670,11 @@ refused() { local out; out=$(gate toolu_t5 "$T/sam-demo" "$2")
   if grep -q '"permissionDecision": "deny"' <<<"$out" && grep -q 'must be the whole command' <<<"$out" \
     && ! grep -q '"approving"' "$T/home-sam/sessions/sam33333.json"; then ok "refused: $1"; else fail "not refused: $1" "$out"; fi; }
 refused 'the gate, then && touch' "$G && touch $T/pwned"
+lacks "$(gate toolu_t5 "$T/sam-demo" "$G && touch $T/pwned")" 'own terminal' 'a chained call of syn gets the short text'
+# a command that has nothing to do with syn and names both words is refused too (the guard cannot tell), and is told so
+out=$(gate toolu_t5 "$T/sam-demo" "sed -i 's/approve/confirm/' docs/mission.md")
+check "$out" 'could hide an approval' 'a sed that names mission and approve is refused with the reason'
+check "$out" 'can run it in their own terminal' 'and with what the human can do instead'
 refused 'the gate, then ; touch' "$G; touch $T/pwned"
 refused 'the gate into a pipe' "$G | cat"
 refused 'the gate with a command substitution' "$G \$(touch $T/pwned)"

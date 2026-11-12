@@ -243,6 +243,11 @@ This file is in English only; the README and the guide exist in English and Germ
   `~/.synchronauts/syn` exists once a session has started, shows the line that invites a teammate, and says in three
   sentences what the room sees. Commands carry their full path, and a line says that the project is not affiliated
   with Anthropic or OpenAI.
+- The conflict check no longer writes into your repo. Its snapshot and merge objects go into a temporary folder under
+  `~/.synchronauts` that is deleted after each run, and the commits it fetches from teammates into
+  `~/.synchronauts/conflict-objects` (emptied after a day or at 100 MB); no object and no ref is added to the work
+  repository's `.git`. It also compares two separate clones of one repo on the same machine now, not only worktrees.
+  Objects that earlier versions left in a repo stay there until `git gc` removes them.
 - **Breaking:** the board's key is no longer in `~/.synchronauts/ui-key` (`syn ui` deletes the file) or in an address
   (`#k=`); a script that read it to call the board's API stops working. Use `syn state` for the board's data, and
   `syn ui` or `syn ui --pair` to pair a browser.
@@ -291,9 +296,15 @@ This file is in English only; the README and the guide exist in English and Germ
 
 - On Windows a state file that another process replaced at that moment read as empty: a teammate's name fell back to
   the login, a session could miss from the picture for one hook. Such a read is tried again for up to half a second.
+- A harmless command that names `mission` and `approve` (a `sed`, a `curl`, a script that holds both words) is still
+  refused, since the guard cannot tell it from a hidden approval, but the refusal now says so and that the human can
+  run it in their own terminal; before, it only said that `mission approve` must be the whole command.
 - Two sessions with a detached HEAD in one repo no longer count as being on the same branch: git names every
   detached HEAD `HEAD`. A session in a repo without a commit shows up now, with the branch its first commit will be
   on; before, it did not show at all.
+- The conflict check missed an edit made in the same second as the last `git add` or commit when it left the file's
+  size as it was: the snapshot worked on a copy of the index with the time of the copy, and git then trusts the file's
+  time and size instead of reading it. The copy keeps the index's time now.
 - A clock that is off no longer makes mail vanish without a word. Mail dated up to a day ahead of the clock here is
   delivered with the note "dated ahead: a clock is off"; before, anything more than ten minutes ahead was left out.
   The machine whose clock is off learns it: the background service compares the clock with the time of GitHub's
