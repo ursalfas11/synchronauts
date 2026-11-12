@@ -1464,6 +1464,11 @@ refused() { local out; out=$(gate toolu_t5 "$T/sam-demo" "$2")
   if grep -q '"permissionDecision": "deny"' <<<"$out" && grep -q 'must be the whole command' <<<"$out" \
     && ! grep -q '"approving"' "$T/home-sam/sessions/sam33333.json"; then ok "refused: $1"; else fail "not refused: $1" "$out"; fi; }
 refused 'the gate, then && touch' "$G && touch $T/pwned"
+lacks "$(gate toolu_t5 "$T/sam-demo" "$G && touch $T/pwned")" 'own terminal' 'a chained call of syn gets the short text'
+# a command that has nothing to do with syn and names both words is refused too (the guard cannot tell), and is told so
+out=$(gate toolu_t5 "$T/sam-demo" "sed -i 's/approve/confirm/' docs/mission.md")
+check "$out" 'could hide an approval' 'a sed that names mission and approve is refused with the reason'
+check "$out" 'can run it in their own terminal' 'and with what the human can do instead'
 refused 'the gate, then ; touch' "$G; touch $T/pwned"
 refused 'the gate into a pipe' "$G | cat"
 refused 'the gate with a command substitution' "$G \$(touch $T/pwned)"
