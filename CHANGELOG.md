@@ -315,6 +315,17 @@ This file is in English only; the README and the guide exist in English and Germ
   keys URL cannot be asked, the watcher looks for the own signing key again every hour, as it was meant to (before,
   only after a day).
 
+- Fewer notes that nobody needs. Two machines on the default branch (the one `origin/HEAD` names, otherwise `main`
+  or `master`) are in the same repo, no longer warned about "the same branch": everybody is on it. Two sessions of
+  one machine there still are, they share a checkout. A teammate's change of task no longer puts a new line into
+  every other session, and after the first picture a session hears only of sessions in the repos it works in or its
+  prompt names; `status` and the board show the rest.
+- A merge conflict is told to the session that touched one of its files: a file it edited, or one its checkout
+  changed and has not pushed yet. Two branches that changed the same README weeks ago no longer warn every new
+  session in the repo; the board keeps showing every conflict. System notifications follow the same rule. File names
+  with letters outside ASCII show as they are, not as `\303\234`.
+- A session with a detached HEAD no longer reports the default branch at origin as the work it pushed.
+
 ### Compatibility
 
 How 0.6 and 0.5 peers in one room get along.

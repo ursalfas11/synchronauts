@@ -794,8 +794,8 @@ check "$out" 'Build tickets API' 'a prompt that names a team repo brings the pic
 out=$(hook sam SessionStart "$(session sam33333 "$T/sam-demo")")
 check "$out" '- Alex: demo@main' "the session start shows Alex's session"
 check "$out" 'Build tickets API' "the session start shows Alex's task"
-check "$out" '⚠️ Alex is on the same branch main in demo' 'the same branch is reported'
-check "$out" 'main in demo (last .*): src/a.ts' "the overlap names Alex's files there"
+check "$out" 'Alex is also in demo, branch main (last .*): src/a.ts' "two machines on the default branch are in the same repo, with Alex's files there"
+lacks "$out" 'Alex is on the same branch' 'and are not warned about the same branch: everybody is on main (units.py has the other branches)'
 check "$out" 'send <name|all>' 'usage is included'
 
 # Before Sam's first edit of a file Alex is editing, Claude Code asks Sam. The reason is for Sam, Claude gets no text
@@ -1014,6 +1014,21 @@ until_ok 20 "a conflict with Alex's pushed work is reported" sam_conflict
 check "$out" "Merging Alex's session (conf@main) with this session's work would conflict in: src/x.ts" 'with the teammate, branch and file'
 data=$(curl -s -H "X-SYN-Token: $tok" "$U/api/state")
 ui_check 'any(o["kind"] == "conflict" and o["files"] == ["src/x.ts"] for o in d["overlaps"])' 'the UI shows the conflict'
+# A conflict concerns the session that touched the file. Sam commits the change on a branch of his own and pushes it:
+# the two pushed branches still conflict, but a new session there that changed nothing hears nothing of it (the board
+# keeps showing it), until it edits the file itself
+g -C "$T/c-sam" checkout -q -b sams && g -C "$T/c-sam" commit -q -am sam && g -C "$T/c-sam" push -q -u origin sams
+hook sam SessionStart "$(session sam88888 "$T/c-sam")" >/dev/null
+pushed_conflict() { hook sam PostToolUse "$(bash_call sam88888 "$T/c-sam")" >/dev/null
+  "$PY" -c 'import json,sys; c = json.load(open(sys.argv[1], encoding="utf-8"))["sessions"]["sam88888"]; sys.exit(not any(x["files"] == ["src/x.ts"] and x.get("own") == [] and x["branch"] == "main" for x in c))' "$T/home-sam/conflicts.json"; }
+until_ok 20 'the check finds the conflict of the two pushed branches, in no file that Sam has not pushed' pushed_conflict
+out=$(hook sam PostToolUse "$(bash_call sam88888 "$T/c-sam")")
+lacks "$out" 'would conflict' 'a session that touched none of the files is not warned about it'
+data=$(curl -s -H "X-SYN-Token: $tok" "$U/api/state")
+ui_check 'any(o["kind"] == "conflict" and o["files"] == ["src/x.ts"] for o in d["overlaps"])' 'the UI keeps showing it'
+out=$(hook sam PostToolUse "$(edit sam88888 "$T/c-sam" "$T/c-sam/src/x.ts")")
+check "$out" "with this session's work would conflict in: src/x.ts" 'once the session edits the file, it is warned'
+hook sam SessionEnd "$(session sam88888 "$T/c-sam")" >/dev/null
 hook sam SessionEnd "$(session sam99999 "$T/c-sam")" >/dev/null; hook alex SessionEnd "$(session ale55555 "$T/c-alex")" >/dev/null
 
 # Missions: Sam's and Alex's Claudes solve one problem together without their humans. Each human approves once, in

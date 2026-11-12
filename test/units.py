@@ -869,6 +869,117 @@ subprocess.run(['git', '-C', str(empty), '-c', 'user.name=t', '-c', 'user.email=
 subprocess.run(['git', '-C', str(empty), 'checkout', '-q', '--detach'], check=True, capture_output=True)
 check(syn.repo_of(str(empty), None)[2] == 'HEAD', 'a detached HEAD is named HEAD')
 
+# The default branch is a shared branch only on one machine: the one origin/HEAD names, otherwise main or master
+check(syn.default_branch('acme/x', 'main') and syn.default_branch('acme/x', 'master')
+      and not syn.default_branch('acme/x', 'feat'),
+      'in a repo that no checkout here told about, main and master count as the default branch')
+trunk = TMP / 'unit-trunk-repo'
+subprocess.run(['git', 'init', '-q', '-b', 'trunk', str(trunk)], check=True, capture_output=True)
+subprocess.run(['git', '-C', str(trunk), 'symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/trunk'],
+               check=True, capture_output=True)
+syn.note_default('acme/x', str(trunk))
+check(syn.default_branch('acme/x', 'trunk') and not syn.default_branch('acme/x', 'main'),
+      'a checkout tells the default branch: the one origin/HEAD names')
+syn.note_default('acme/x', str(empty))
+check(syn.default_branch('acme/x', 'trunk'), 'which is asked once a day, not whenever a session enters the repo')
+syn.note_default('acme/none', str(empty))  # its only branch is `first`: no origin, no main, no master
+check(not syn.default_branch('acme/none', 'main') and not syn.default_branch('acme/none', 'first'),
+      'a repo with no origin/HEAD, no main and no master has no default branch')
+
+
+def at(where, files=(), **more):
+    return {'repos': {'acme/x': {'branch': where, 'files': list(files), 'last': syn.minute()}}, 'last': syn.iso(),
+            'start': syn.iso(), **more}
+
+
+def contacts(mine, alex, own=None):
+    """The kinds of notes a session of Sam on the branch `mine` gets about Alex's session and Sam's other one."""
+    syn.save(HOME / 'others.json', {'alex-gh/x': syn.tidy({'login': 'alex-gh', 'name': 'Alex', 'mail': [], 'events': [],
+                                                           'sessions': {'s1': at(alex)}}, 'alex-gh', 'x')})
+    syn.save(HOME / 'status.json', {'sessions': {'own2': at(own)} if own else {}})
+    return sorted(f"{key.split('|')[0]} {key.split('|')[1].split('/')[0]}" for key, _ in syn.overlaps(k, at(mine), 'own1'))
+
+
+check(contacts('trunk', 'trunk') == ['repo alex-gh'],
+      'two machines on the default branch are in the same repo, without a warning')
+check(contacts('feat', 'feat') == ['branch alex-gh'], 'on any other branch they are warned as before')
+check(contacts('main', 'main') == ['branch alex-gh'],
+      'main is a branch like any other where the checkout names another default branch')
+check(contacts('trunk', 'trunk', own='trunk') == ['branch sam-gh', 'repo alex-gh'],
+      'two sessions of this machine on the default branch share a checkout: they are warned')
+syn.save(HOME / 'others.json', {'alex-gh/x': syn.tidy({'login': 'alex-gh', 'name': 'Alex', 'mail': [], 'events': [],
+                                                       'sessions': {'s1': at('trunk', ['a.ts'])}}, 'alex-gh', 'x')})
+syn.save(HOME / 'status.json', {'sessions': {}})
+check([key.split('|')[0] for key, _ in syn.overlaps(k, at('trunk', ['a.ts']), 'own1')] == ['file'],
+      'and the same file is a warning on every branch')
+
+
+def board(a_key, b_key, where):
+    two = [{'key': a_key, 'login': a_key.split('/')[0], 'repos': {'acme/x': {'branch': where, 'files': []}}},
+           {'key': b_key, 'login': b_key.split('/')[0], 'repos': {'acme/x': {'branch': where, 'files': []}}}]
+    return [p['kind'] for p in syn.pairs(two)]
+
+
+check(board('a-gh/one/s1', 'b-gh/one/s2', 'trunk') == ['repo'] and board('a-gh/one/s1', 'a-gh/two/s2', 'trunk') == []
+      and board('a-gh/one/s1', 'a-gh/one/s2', 'trunk') == ['branch'] and board('a-gh/one/s1', 'b-gh/one/s2', 'feat') == ['branch'],
+      'the board draws the same line: the default branch joins two sessions of one machine only')
+
+# A change of task shows no line again, and after the first picture a session hears of the repos it works in
+syn.save(HOME / 'others.json', {
+    'alex-gh/x': syn.tidy({'login': 'alex-gh', 'name': 'Alex', 'mail': [], 'events': [],
+                           'sessions': {'s1': at('feat', task='Ticket routes')}}, 'alex-gh', 'x'),
+    'kim-gh/x': syn.tidy({'login': 'kim-gh', 'name': 'Kim', 'mail': [], 'events': [], 'sessions': {'s1': {
+        'repos': {'acme/other': {'branch': 'main', 'files': [], 'last': syn.minute()}}, 'last': syn.iso(),
+        'start': syn.iso(), 'task': 'Price import'}}}, 'kim-gh', 'x')})
+syn.save(HOME / 'status.json', {'sessions': {}})
+first = dict(syn.situation_lines(k, 'own1'))
+check(len(first) == 2 and any('Ticket routes' in x for x in first.values()) and any('Price import' in x for x in first.values()),
+      'the first picture has every session with its task, also the one in another repo', str(first))
+check(list(dict(syn.situation_lines(k, 'own1', {'acme/x'})).values()) == ['- Alex: x@feat · "Ticket routes"'],
+      'after it, only the sessions in the repos this session works in', str(dict(syn.situation_lines(k, 'own1', {'acme/x'}))))
+others_ = syn.load(HOME / 'others.json', {})
+others_['alex-gh/x']['sessions']['s1']['task'] = 'Something else'
+syn.save(HOME / 'others.json', others_)
+again = dict(syn.situation_lines(k, 'own1'))
+check(set(again) == set(first) and any('Something else' in x for x in again.values()),
+      "a teammate's change of task changes the line, not its key: no session is told again", str(again))
+others_['alex-gh/x']['sessions']['s1']['repos']['acme/x']['branch'] = 'feat-2'
+syn.save(HOME / 'others.json', others_)
+check({key for key, _ in syn.situation_lines(k, 'own1')} != set(first), 'a change of branch does tell it')
+
+# A conflict concerns the session that touched the file: one it edited, or one its checkout changed and has not pushed
+c = {'with': 'alex-gh/x/s1', 'repo': 'acme/x', 'branch': 'main', 'files': ['README.md', 'src/a.ts', 'src/b.ts']}
+check(syn.conflict_files(c, at('feat')) == c['files'] and syn.conflict_files(dict(c, own='x'), None) == c['files'],
+      'a conflict whose check could not tell what is pushed concerns every session there')
+check(syn.conflict_files(dict(c, own=[]), at('feat')) == [],
+      'a conflict in what both branches pushed concerns no session that touched none of the files')
+check(syn.conflict_files(dict(c, own=['src/b.ts']), at('feat', ['src/a.ts', 'other.ts'])) == ['src/a.ts', 'src/b.ts'],
+      'it concerns a session in the files it edited and in those its checkout has not pushed')
+work = TMP / 'unit-unpushed'
+subprocess.run(['git', 'init', '-q', '-b', 'main', str(work)], check=True, capture_output=True)
+commit = ['git', '-C', str(work), '-c', 'user.name=t', '-c', 'user.email=t@example.com', 'commit', '-q', '-m']
+for name in ('pushed.md', 'Ü.md'):
+    (work / name).write_text('one\n', encoding='utf-8')
+subprocess.run(['git', '-C', str(work), 'add', '-A'], check=True, capture_output=True)
+subprocess.run(commit + ['base'], check=True, capture_output=True)
+tip = syn.git('rev-parse', 'HEAD', cwd=work)
+(work / 'Ü.md').write_text('two\n', encoding='utf-8')
+(work / 'new.md').write_text('new\n', encoding='utf-8')
+snap = syn.snapshot(str(work))
+check(syn.unpushed(str(work), tip, snap) == {'Ü.md', 'new.md'},
+      'what a checkout has not pushed: changed and new files against its branch at origin, names as they are',
+      str(syn.unpushed(str(work), tip, snap)))
+check(syn.unpushed(str(work), tip, tip) == set() and syn.unpushed(str(work), None, snap) is None
+      and syn.unpushed(str(work), '0' * 40, snap) is None,
+      'nothing when all is pushed, and no answer for a branch that was never pushed')
+check(syn.upstream(str(work)) is None, 'a branch that was never pushed has no commit at its remote')
+subprocess.run(['git', '-C', str(work), 'update-ref', 'refs/remotes/origin/main', tip], check=True, capture_output=True)
+check(syn.upstream(str(work)) == tip, 'origin/<branch> is the commit a branch has at its remote')
+subprocess.run(['git', '-C', str(work), 'checkout', '-q', '--detach'], check=True, capture_output=True)
+check(syn.upstream(str(work)) is None, 'and a detached HEAD has none')
+for name in ('others.json', 'status.json', 'defaults.json'):
+    (HOME / name).unlink(missing_ok=True)
+
 # Who pushed: in a room on GitHub, mail without a signature is its sender's when GitHub's record of pushes says the
 # sender's account pushed the commit it was read from. Another account makes it forged; a record that is silent, refused
 # or asked too often decides nothing, and then the rules for unsigned mail hold as before

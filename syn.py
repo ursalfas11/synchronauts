@@ -91,6 +91,7 @@ STATUS_TEXT = 300                   # characters of a message that `syn status` 
 CLOCK_SKEW = timedelta(minutes=5)   # an invite dated further ahead of the clock here proposes nothing
 CLOCK_OFF = 300                     # seconds the clock here may differ from GitHub's before syn says so
 EDIT_TOOLS = ('Edit', 'Write', 'MultiEdit', 'NotebookEdit')
+DEFAULT_NAMES = ('main', 'master')  # the default branch of a repo that no checkout on this machine has told about
 CONFLICT_TICK = setting('SYN_CONFLICT_TICK', 60.0)  # seconds between two conflict checks
 EVENTS_KEEP = timedelta(hours=24)   # an event stays in the UI's history this long
 MAX_EVENTS = 100
@@ -2413,12 +2414,15 @@ def line(who, s, full=False):
     return f"- {who}{last}: {body[:cap] + '…' if len(body) > cap else body}{task}"
 
 
-def situation_lines(k, sid):
-    """(key, text) per other active session; the key changes with the label (a clash marks it), repo, branch, claims
-    or task."""
+def situation_lines(k, sid, repos=None):
+    """(key, text) per other active session; the key changes with the label (a clash marks it), repo, branch or
+    claims. Not with the task: every change of task of anybody would put a line into every other session, and `status`
+    and the board have it. repos: only the sessions in one of these repos; None for all of them, the first picture."""
     for who, key, s, _ in others(k, sid):
-        repos = ','.join(f"{r}@{x.get('branch')}:{'+'.join(x.get('claims', []))}" for r, x in sorted(s['repos'].items()))
-        yield f"line|{key}|{who}|{repos}|{s.get('task')}", line(who, s)
+        if repos is None or repos & set(s['repos']):
+            where = ','.join(f"{r}@{x.get('branch')}:{'+'.join(x.get('claims', []))}"
+                             for r, x in sorted(s['repos'].items()))
+            yield f'line|{key}|{who}|{where}', line(who, s)
 
 
 def allowed(key, asked):
@@ -2433,10 +2437,45 @@ def same_branch(a, b):
     return bool(a) and a == b and a != 'HEAD'
 
 
+def note_default(repo, root):
+    """Notes the default branch of a repo in defaults.json when a session enters it, asked at most once a day: the one
+    origin/HEAD names, otherwise main or master if the checkout has it, '' if it has neither."""
+    known = load(HOME / 'defaults.json', {})
+    seen = known.get(repo) if isinstance(known, dict) else None
+    if isinstance(seen, list) and len(seen) == 2 and time.time() - seen[1] < 86400:
+        return
+    try:
+        branch = git('symbolic-ref', '--short', '-q', 'refs/remotes/origin/HEAD', cwd=root, timeout=3).partition('/')[2]
+    except (RuntimeError, OSError, subprocess.TimeoutExpired):
+        branch = ''
+    if not branch:
+        try:
+            have = git('for-each-ref', '--format=%(refname:short)', *(f'refs/heads/{n}' for n in DEFAULT_NAMES),
+                       cwd=root, timeout=3).split()
+        except (RuntimeError, OSError, subprocess.TimeoutExpired):
+            return
+        branch = next((n for n in DEFAULT_NAMES if n in have), '')
+    with Lock('defaults'):
+        known = load(HOME / 'defaults.json', {})
+        known = {r: x for r, x in (known.items() if isinstance(known, dict) else ()) if r != repo}
+        known[repo] = [branch, time.time()]
+        save(HOME / 'defaults.json', dict(sorted(known.items(), key=lambda x: x[1][1])[-200:]))
+
+
+def default_branch(repo, branch):
+    """Whether branch is the one everybody in repo starts from: what a checkout on this machine told (note_default),
+    otherwise main or master. Two machines on it are no overlap: everybody is there, each in a clone of their own."""
+    seen = load(HOME / 'defaults.json', {}).get(repo)
+    known = seen[0] if isinstance(seen, list) and seen and isinstance(seen[0], str) else None
+    return branch in DEFAULT_NAMES if known is None else bool(known) and branch == known
+
+
 def overlaps(k, mine, sid, asked=(), team=()):
     """(key, text) per contact of another session with the repos of this session, in the same repo with the files it
-    edits there. Own sessions only count from the same file or the same branch on. With the people of the own mission
-    (team) the Claudes coordinate themselves: a note without a warning."""
+    edits there. Own sessions only count from the same file or the same branch on. The default branch is a shared
+    branch only between two sessions of this machine, which work in one checkout: on another machine it is the same
+    repo, no more. With the people of the own mission (team) the Claudes coordinate themselves: a note without a
+    warning."""
     for who, key, s, own in others(k, sid):
         if key.split('/')[0] in team:
             for repo, r in s['repos'].items():
@@ -2458,7 +2497,7 @@ def overlaps(k, mine, sid, asked=(), team=()):
                 files = f"the same files in {short(repo)} (branch {r.get('branch')}): {', '.join(same[:6])}"
                 yield note, (f"{who} is editing {files}. {k.get('name')} knows and allowed the edit."
                              if allowed(note, asked) else f"⚠️ {who} is editing {files}")
-            elif same_branch(r.get('branch'), m.get('branch')):
+            elif same_branch(r.get('branch'), m.get('branch')) and (own or not default_branch(repo, m.get('branch'))):
                 yield (f"branch|{key}|{repo}|{m.get('branch')}",
                        f"⚠️ {who} is on the same branch {m.get('branch')} in {short(repo)}{there}")
             elif not own:
@@ -2488,14 +2527,48 @@ def snapshot(root):
     return git('commit-tree', tree, '-p', head, '-m', 'synchronauts: working tree', cwd=root, timeout=20, env=who)
 
 
+def git_names(out):
+    """The file names git printed one per line, as in_repo() writes them: accents composed (NFC)."""
+    import unicodedata  # only here, so the hooks start fast
+    return {x if x.isascii() else unicodedata.normalize('NFC', x)
+            for x in out.decode('utf-8', 'replace').splitlines() if x.strip()}
+
+
 def conflicted(root, a, b):
     """Files that would conflict if a and b were merged, [] if none, None if git cannot tell (older than 2.38,
-    unrelated histories)."""
-    r = subprocess.run(['git', 'merge-tree', '--write-tree', '--name-only', '--no-messages', a, b], cwd=root,
-                       capture_output=True, stdin=subprocess.DEVNULL, timeout=60)
+    unrelated histories). Names as git prints them with core.quotePath off: UTF-8 as it is, not as \303\234."""
+    r = subprocess.run(['git', '-c', 'core.quotePath=false', 'merge-tree', '--write-tree', '--name-only',
+                        '--no-messages', a, b], cwd=root, capture_output=True, stdin=subprocess.DEVNULL, timeout=60)
     if r.returncode not in (0, 1):
         return None
-    return sorted({x for x in r.stdout.decode('utf-8', 'replace').splitlines()[1:] if x.strip()})
+    return sorted(git_names(b'\n'.join(r.stdout.split(b'\n')[1:])))
+
+
+def upstream(root):
+    """The commit a checkout's branch has at its remote, as the checkout knows it: the upstream it is set to follow,
+    otherwise origin/<branch>. None for a detached HEAD and for a branch that was never pushed. Asked of the checkout,
+    not of what a session noted: a session that ran no hook since a `git switch` still names the old branch."""
+    try:
+        return git('rev-parse', '--verify', '-q', '@{upstream}^{commit}', cwd=root, timeout=10) or None
+    except (RuntimeError, OSError, subprocess.TimeoutExpired):
+        pass
+    try:
+        branch = git('symbolic-ref', '--short', '-q', 'HEAD', cwd=root, timeout=10)
+        return git('rev-parse', '--verify', '-q', f'refs/remotes/origin/{branch}^{{commit}}', cwd=root, timeout=10) or None
+    except (RuntimeError, OSError, subprocess.TimeoutExpired):
+        return None
+
+
+def unpushed(root, tip, snap):
+    """The files a checkout changed and has not pushed: its working tree (snap) against its branch at origin (tip, see
+    upstream()). None if that cannot be told, as for a branch that was never pushed: all its work is local then."""
+    if not tip or not snap:
+        return None
+    try:
+        return git_names(git_raw('-c', 'core.quotePath=false', 'diff', '--name-only', '--no-renames', tip, snap,
+                                 cwd=root, timeout=30))
+    except (RuntimeError, OSError, subprocess.TimeoutExpired):
+        return None
 
 
 def conflict_check():
@@ -2518,7 +2591,7 @@ def conflict_check():
             if parse(s.get('last')) > limit and not local.get('ended'):
                 mine[sid] = {r: (local['roots'][r], x.get('branch')) for r, x in s.get('repos', {}).items()
                              if r in local.get('roots', {}) and Path(local['roots'][r]).is_dir()}
-        snaps, tips, out = {}, {}, {}
+        snaps, tips, out, local = {}, {}, {}, {}
 
         def snap(root):
             if root not in snaps:
@@ -2547,6 +2620,8 @@ def conflict_check():
 
         for sid, repos in mine.items():
             for repo, (root, branch) in repos.items():
+                if not branch or branch == 'HEAD':  # a detached HEAD pushed nothing: origin/HEAD is the default branch
+                    continue
                 try:
                     tips.setdefault(sid, {})[repo] = git('rev-parse', '--verify', '-q', f'refs/remotes/origin/{branch}',
                                                          cwd=root, timeout=10)
@@ -2564,22 +2639,43 @@ def conflict_check():
                     b = get() if a else None
                     files = conflicted(root, a, b) if b and b != a else None
                     if files:
-                        out.setdefault(sid, []).append({'with': key, 'repo': repo, 'branch': other_branch,
-                                                        'files': files[:MAX_FILES]})
+                        c = {'with': key, 'repo': repo, 'branch': other_branch, 'files': files[:MAX_FILES]}
+                        if root not in local:
+                            local[root] = unpushed(root, upstream(root), a)
+                        if local[root] is not None:  # which of them this checkout changed itself, see conflict_files()
+                            c['own'] = [f for f in c['files'] if f in local[root]]
+                        out.setdefault(sid, []).append(c)
         save(HOME / 'conflicts.json', {'time': iso(), 'sessions': out, 'tips': tips, 'fetched': tried})
     finally:
         lock.__exit__()
 
 
+def conflict_files(c, s):
+    """The files of a conflict that concern the session s: those it edited, and those its checkout changed and has not
+    pushed (`own`; all of them where the check could not tell, as for a branch that was never pushed). The check merges
+    whole branches: two of them that changed the same README weeks ago would warn every session that opens the repo,
+    and a warning that comes that often is not read. The board shows every conflict."""
+    files, own = [f for f in c.get('files') or [] if isinstance(f, str)], c.get('own')
+    if not isinstance(own, list):
+        return files
+    edited = (((s or {}).get('repos') or {}).get(c.get('repo')) or {}).get('files') or []
+    return [f for f in files if f in own or f in edited]
+
+
 def conflict_lines(k, sid):
-    """(key, text) per session whose work would conflict with this session's, from the last conflict check."""
+    """(key, text) per session whose work would conflict with this session's in files that concern it
+    (conflict_files), from the last conflict check."""
     who = {key: name for name, key, _, _ in others(k, sid)}
+    mine = load(HOME / 'status.json', {}).get('sessions', {}).get(sid)
     for c in load(HOME / 'conflicts.json', {}).get('sessions', {}).get(sid, []):
+        files = conflict_files(c, mine)
+        if not files:
+            continue
         name = who.get(c['with'], c['with'].split('/')[0])
         whose = 'your other session' if name == 'Your other session' else f"{name}'s session"
-        yield (f"conflict|{c['with']}|{c['repo']}|{','.join(c['files'])}",
+        yield (f"conflict|{c['with']}|{c['repo']}|{','.join(files)}",
                f"⚠️ Merging {whose} ({short(c['repo'])}@{c.get('branch')}) with this session's work would conflict in: "
-               f"{', '.join(c['files'][:6])}")
+               f"{', '.join(files[:6])}")
 
 
 def sessions_here():
@@ -5798,6 +5894,8 @@ def hook(event, agent='claude', got=None):
     mine = update_status(sid, change, end=event == 'SessionEnd')
     for kind, repo, fields in history:
         log_event(sid, kind, repo or main_repo(mine), **fields)
+        if kind == 'repo' and repo in roots:
+            note_default(repo, roots[repo])
     if mine.get('repos') and min(age(HOME / 'conflicts.json'), age(HOME / 'conflicts-start')) > CONFLICT_TICK:
         touch('conflicts-start')
         spawn('conflicts', log=HOME / 'conflicts.log')
@@ -5816,8 +5914,9 @@ def hook(event, agent='claude', got=None):
     # The picture only comes once the session touches a team repo or the prompt names one somebody is working in right
     # now; before that only mail. The prompt stays on this machine.
     prompt = str(e.get('prompt') or '').lower()
-    in_team = bool(mine.get('repos')) or bool(prompt) and any(
-        len(short(r)) >= 4 and short(r).lower() in prompt for _, _, s, _ in others(k, sid) for r in s['repos'])
+    named = {r for _, _, s, _ in others(k, sid) for r in s['repos']
+             if len(short(r)) >= 4 and short(r).lower() in prompt} if prompt else set()
+    in_team = bool(mine.get('repos')) or bool(named)
     nm, error, ms = names(k), error_text(), missions(k)
     m = my_mission(k, sid, ms)
     with Lock('delivery'):
@@ -5825,8 +5924,11 @@ def hook(event, agent='claude', got=None):
         mail, _ = new_mail(k, sid, sess, ms)
         mark_delivered([n for n, first in mail if first])
         asked = set(sess.get('asked', []))
-        notes = [(key, x) for key, x in [*situation_lines(k, sid), *overlaps(k, mine, sid, asked, partners(k, m)),
-                                         *conflict_lines(k, sid)]
+        # the first picture shows every session, also the ones in other repos (the same topic from both ends); after
+        # it, a session hears of the repos it works in or its prompt names
+        scope = set(mine.get('repos', {})) | named if sess.get('introduced') else None
+        notes = [(key, x) for key, x in [*situation_lines(k, sid, scope),
+                                         *overlaps(k, mine, sid, asked, partners(k, m)), *conflict_lines(k, sid)]
                  if key not in sess['reported']] if in_team else []
         if error and in_team and f'error|{error}' not in sess['reported']:
             notes.append((f'error|{error}', f'Synchronauts: sync is failing ({error}); the picture may be stale.'))
@@ -6457,15 +6559,18 @@ def ui_session(login, machine, sid, s, local=None):
 
 
 def pairs(team, crews=()):
-    """Overlaps per pair of sessions: the same file, the same branch, otherwise the same repo (only between different
-    people, as in the hooks). Two sessions in the same mission (crews: their keys per mission) coordinate themselves."""
+    """Overlaps per pair of sessions: the same file, the same branch (the default branch only on one machine),
+    otherwise the same repo (only between different people, as in the hooks). Two sessions in the same mission
+    (crews: their keys per mission) coordinate themselves."""
     for i, a in enumerate(team):
         for b in team[i + 1:]:
             together = any(a['key'] in c and b['key'] in c for c in crews)
             for repo in sorted(set(a['repos']) & set(b['repos'])):
                 ra, rb = a['repos'][repo], b['repos'][repo]
                 same = sorted(set(ra.get('files') or []) & set(rb.get('files') or []))
-                kind = 'file' if same else 'branch' if same_branch(ra.get('branch'), rb.get('branch')) else 'repo'
+                one = a['key'].rsplit('/', 1)[0] == b['key'].rsplit('/', 1)[0]  # login/machine: one checkout
+                kind = 'file' if same else 'branch' if same_branch(ra.get('branch'), rb.get('branch')) and (
+                    one or not default_branch(repo, ra.get('branch'))) else 'repo'
                 if kind != 'repo' or a['login'] != b['login']:
                     yield {'a': a['key'], 'b': b['key'], 'repo': repo, 'kind': kind, 'files': same, 'mission': together}
 
@@ -6941,13 +7046,14 @@ def desktop_note(title, body):
 
 
 def my_conflicts(k):
-    """{key: (teammate, repo, files)} of the last conflict check: real conflicts between my work and a teammate's."""
-    out = {}
-    for cs in load(HOME / 'conflicts.json', {}).get('sessions', {}).values():
+    """{key: (teammate, repo, files)} of the last conflict check: real conflicts between my work and a teammate's, in
+    the files that concern one of my sessions (conflict_files)."""
+    out, sessions = {}, load(HOME / 'status.json', {}).get('sessions', {})
+    for sid, cs in load(HOME / 'conflicts.json', {}).get('sessions', {}).items():
         for c in cs:
             other = str(c.get('with', '')).split('/')[0]
-            if other and other != k['me']:
-                files = sorted(c.get('files') or [])
+            files = sorted(conflict_files(c, sessions.get(sid))) if other and other != k['me'] else []
+            if files:
                 out[f"{other}|{c.get('repo')}|{','.join(files)}"] = (other, c.get('repo'), files)
     return out
 
