@@ -29,7 +29,7 @@ cleanup() {
   exit $rc
 }
 trap cleanup EXIT
-unset CLAUDE_PID CLAUDE_CODE_ENTRYPOINT CLAUDE_CODE_SESSION_ID CDPATH  # with CDPATH the hooks cannot follow a cd
+unset CLAUDECODE CLAUDE_PID CLAUDE_CODE_ENTRYPOINT CLAUDE_CODE_SESSION_ID CDPATH  # with CDPATH the hooks cannot follow a cd
 export SYN_REMOTE="$T/remote.git" SYN_ORGS=acme SYN_TICK=0.3 SYN_IDLE=120 SYN_CONFLICT_TICK=1
 # acme/conf on "GitHub" is a local bare repo, for the conflict check against a teammate's pushed work
 export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="url.$T/conf.git.insteadOf" GIT_CONFIG_VALUE_0=https://github.com/acme/conf.git
@@ -722,6 +722,128 @@ sys.exit(not (syn.missions(syn.config()).get(sys.argv[2]) or {}).get("ended"))' 
 fi
 fi
 
+
+# The ends of a mission (S8), in a room of its own with Jule and Kim, both with a key file. Gap 1: a mission can be ended
+# when the session that joined it is gone (from a session that is not in it only by --id and only when no session of
+# this machine in it still runs, from the human's terminal, and never from a shell that lost its session id). Gap 2: the
+# last session of a machine in a mission tells the others that the person left, not while another one still runs, and
+# a join after it puts the person back. Gap 3: a lost or replaced approve.key is said, and nothing is dropped
+if block b 'mission ends: a mission whose session is gone, left at SessionEnd, a lost approve.key'; then
+R8="$T/m8room.git"; git init -q --bare "$R8"
+# m8 <j|k> <cmd...>: in the room of this block, as Jule or Kim; m8is <j|k> <python expression over m (the missions) and k>
+m8() { local who=$1 login name; shift; case "$who" in j) login=jule; name=Jule ;; *) login=kim; name=Kim ;; esac
+  SYN_REMOTE="$R8" SYN_HOME="$T/home-m8$who" SYN_ME=$login-gh SYN_NAME=$name SYN_MACHINE=one SYN_SIGNING_KEY="$T/$login-key" "$@"; }
+m8is() { m8 "$1" "$PY" -c 'import sys; sys.path.insert(0, sys.argv[1]); import syn; k = syn.config(); m = syn.missions(k); sys.exit(not eval(sys.argv[2]))' "$ROOT" "$2"; }
+m8hook() { session "$2" "$T" | m8 "$1" "$PY" "$HOOK" "$3"; }  # m8hook <j|k> <sid> <event>
+# m8yes <j|k> <sid> <mission id>: the human's yes to `mission approve`, as Claude Code's prompt and the hook after it
+m8yes() { local g="$T/home-m8$1/syn mission approve $3" tool="toolu_m8$2$3"
+  callc "$2" "$T" "$tool" auto "$g" | m8 "$1" "$PY" "$HOOK" PreToolUse >/dev/null
+  from_session "$2" m8 "$1" "$PY" "$SYN" mission approve "$3" >/dev/null
+  callc "$2" "$T" "$tool" auto "$g" | m8 "$1" "$PY" "$HOOK" PostToolUse; }
+m8 j "$PY" "$SYN" setup >/dev/null; m8 k "$PY" "$SYN" setup >/dev/null
+m8hook k m8k00000 SessionStart >/dev/null; m8hook j m8j00000 SessionStart >/dev/null
+until_ok 20 'Jule and Kim see each other in the room' grep -q kim-gh "$T/home-m8j/others.json"
+# a mission of Jule and Kim, joined by Jule's session m8j00000 and Kim's m8k00000 and m8k11111
+out=$(from_session m8j00000 m8 j "$PY" "$SYN" mission propose --with kim --hours 1 'Move the price import: Jule writes it, Kim reviews it.')
+M8=$(sed -n 's/^Draft \([^.]*\)\..*/\1/p' <<<"$out")
+m8yes j m8j00000 "$M8" >/dev/null
+until_ok 20 "Kim sees Jule's invite" m8is k "'$M8' in m"
+m8hook k m8k11111 SessionStart >/dev/null
+m8yes k m8k00000 "$M8" >/dev/null; m8yes k m8k11111 "$M8" >/dev/null
+until_ok 20 'Jule sees that Kim joined' m8is j "'kim-gh' in m['$M8']['joined']"
+
+# Gap 2: Kim's first session ends while the second still runs: nobody left. The last one ends: Kim left
+m8hook k m8k00000 SessionEnd >/dev/null
+[ "$(ls "$T/home-m8k/outbox" 2>/dev/null | grep -c json)" = 0 ] && ok 'one of Kim'"'"'s two sessions ends: nothing is queued, nobody left' \
+  || fail 'left announced while another session runs' "$(ls "$T/home-m8k/outbox")"
+m8hook k m8k11111 SessionEnd >/dev/null
+left_mail() { "$PY" -c 'import json, sys
+sys.exit(not [n for n in json.load(open(sys.argv[1])) if n.get("mission") == sys.argv[2] and n.get("kind") == "left" and n.get("sig")])' \
+  "$T/home-m8$1/mail.json" "$M8"; }
+until_ok 20 'the last session of Kim ends: her signed "left" goes out through the outbox' left_mail k
+until_ok 20 'Jule sees that Kim left: she is no longer among the people of the mission' m8is j "'kim-gh' not in m['$M8']['joined']"
+m8is j "m['$M8']['by'] == 'jule-gh' and syn.live(m['$M8'])" && ok 'and the mission goes on' || fail 'mission over after a left'
+out=$(echo '{"session_id":"m8j00000","cwd":"'"$T"'","prompt":"go on"}' | m8 j "$PY" "$HOOK" UserPromptSubmit)
+check "$out" 'Kim left mission' "Jule's session in the mission is told that Kim left"
+out=$(from_session m8j00000 m8 j "$PY" "$SYN" send kim 'Are you there?' 2>&1)
+last_plain() { "$PY" -c 'import json, sys; sys.exit("mission" in json.load(open(sys.argv[1]))[-1])' "$T/home-m8j/mail.json"; }
+last_plain && ok 'a message to somebody who left is plain mail, not mission mail' || fail 'message to somebody who left carries the mission'
+# a join after the leave puts the person back
+m8hook k m8k22222 SessionStart >/dev/null
+m8yes k m8k22222 "$M8" >/dev/null
+until_ok 20 'a later join puts Kim back' m8is j "'kim-gh' in m['$M8']['joined']"
+m8hook k m8k22222 SessionEnd >/dev/null
+until_ok 20 'and her next leave takes her out again' m8is j "'kim-gh' not in m['$M8']['joined']"
+[ "$(ls "$T/home-m8k/outbox" 2>/dev/null | grep -c json)" = 0 ] && ok 'nothing is left in the outbox' || fail 'outbox' "$(ls "$T/home-m8k/outbox")"
+
+# Gap 1: Jule's session that proposed ends. A session that is not in the mission, a shell without a session id
+m8hook j m8j00000 SessionEnd >/dev/null
+until_ok 20 'Jule ends her last session: she left too' left_mail j
+m8hook j m8j11111 SessionStart >/dev/null
+rc=0; out=$(from_session m8j11111 m8 j "$PY" "$SYN" mission end 'Done.' 2>&1) || rc=$?
+[ $rc = 1 ] && ok 'a session that is not in the mission ends nothing without --id' || fail "mission end without --id: exit $rc" "$out"
+check "$out" "mission end --id <id>" 'and says how, with the id of the mission'
+rc=0; out=$(from_session m8j11111 m8 j "$PY" "$SYN" mission end --id jule-gh-nope 'Done.' 2>&1) || rc=$?
+[ $rc = 1 ] && check "$out" 'No active mission jule-gh-nope' 'an id that is no mission of hers ends nothing' || fail "end of an unknown id: exit $rc" "$out"
+rc=0; out=$(from_session m8j11111 m8 j "$PY" "$SYN" mission end --id "$M8" 2>&1) || rc=$?
+[ $rc = 2 ] && ok '--id without a result is a wrong call (exit 2)' || fail "--id without result: exit $rc" "$out"
+rc=0; out=$(CLAUDECODE=1 m8 j "$PY" "$SYN" mission end 'Done.' 2>&1) || rc=$?
+[ $rc = 1 ] && check "$out" 'belongs to Claude Code but has no session id' 'a shell of Claude Code without its session id is refused' || fail "end without session id in Claude Code: exit $rc" "$out"
+m8is j "syn.live(m['$M8'])" && ok 'and the mission still runs' || fail 'mission ended by a refused call'
+# a person's session joins again (the proposer too: none of her sessions runs), and another one may not end it
+m8yes j m8j11111 "$M8" >/dev/null
+until_ok 20 'the proposer joins again with her yes: Kim sees her back' m8is k "'jule-gh' in m['$M8']['joined']"
+m8hook j m8j22222 SessionStart >/dev/null
+rc=0; out=$(from_session m8j22222 m8 j "$PY" "$SYN" mission end --id "$M8" 'Done.' 2>&1) || rc=$?
+[ $rc = 1 ] && check "$out" 'still runs' 'a third session cannot end it while the session that is in it runs' || fail "end by a third session: exit $rc" "$out"
+rc=0; out=$(m8 j "$PY" "$SYN" mission end 'The price import is in, Kim reviewed it.' 2>&1) || rc=$?
+[ $rc = 0 ] && check "$out" "Mission $M8 ended" "Jule's terminal ends the mission, the only one that is live" || fail "end from the terminal: exit $rc" "$out"
+until_ok 20 'Kim sees the end, a signed message of Jule' m8is k "m['$M8']['ended'] and m['$M8']['ended']['by'] == 'jule-gh'"
+rc=0; out=$(m8 j "$PY" "$SYN" mission end 'Again.' 2>&1) || rc=$?
+[ $rc = 1 ] && check "$out" 'No active mission of yours' 'with no mission live, a terminal ends nothing' || fail "end of nothing: exit $rc" "$out"
+# a mission whose sessions are all gone (a crash leaves no leave, here: ended) ends from a session that is not in it
+out=$(from_session m8j22222 m8 j "$PY" "$SYN" mission propose --with kim --hours 1 'Second round.')
+M8B=$(sed -n 's/^Draft \([^.]*\)\..*/\1/p' <<<"$out")
+m8yes j m8j22222 "$M8B" >/dev/null
+m8hook j m8j22222 SessionEnd >/dev/null
+m8hook j m8j33333 SessionStart >/dev/null
+check "$(from_session m8j33333 m8 j "$PY" "$SYN" mission end --id "$M8B" 'Nobody is on it any more.' 2>&1)" "Mission $M8B ended" 'a mission without a running session of this machine ends from an unrelated session, by its id'
+until_ok 20 'Kim sees that end too' m8is k "m['$M8B']['ended']"
+until_ok 20 'a leave queued for the ended mission waits in no outbox' eval '! ls "$T/home-m8j/outbox" | grep -q json'
+
+# Gap 3: approve.key is lost. A mission of Jule runs; the key is deleted
+out=$(from_session m8j33333 m8 j "$PY" "$SYN" mission propose --with kim --hours 1 'Third round.')
+M8C=$(sed -n 's/^Draft \([^.]*\)\..*/\1/p' <<<"$out")
+m8yes j m8j33333 "$M8C" >/dev/null
+lacks "$(m8 j "$PY" "$SYN" status)" 'Not verified' 'with a key that seals everything, status says nothing about seals'
+cp "$T/home-m8j/approve.key" "$T/m8-oldkey"; rm "$T/home-m8j/approve.key"
+out=$(m8 j "$PY" "$SYN" status)
+check "$out" "Not verified: 1 mission(s) ($M8C)" 'a deleted approve.key: status names the mission that no longer counts'
+check "$out" 'approve.key is missing' 'and why'
+check "$out" "mission end --id <id>" 'and how it can still be ended'
+check "$out" 'brings all of it back' 'and that the old key brings it back'
+out=$(m8hook j m8j33333 SessionStart)
+check "$out" 'not verified: approve.key changed' 'the next session start tells the human, not Claude'
+lacks "$out" '"additionalContext": "[^"]*not verified' 'Claude gets none of it'
+out=$(from_session m8j33333 m8 j "$PY" "$SYN" mission propose --with kim --hours 1 'Fourth round.')
+check "$out" "Not verified: 1 mission(s) ($M8C)" 'a new draft makes a new key and still says so'
+check "$(cat "$T/home-m8j/missions.json")" "$M8C" 'and the record of the old one stays in missions.json'
+check "$(m8 j "$PY" "$SYN" status)" 'not the key that sealed them' 'a replaced approve.key is told apart from a missing one'
+lacks "$(m8 j "$PY" "$SYN" status | sed -n '/^Missions:/,$p')" "$M8C" 'a mission that the key does not seal counts for nothing'
+cp "$T/home-m8j/approve.key" "$T/m8-newkey"; cp "$T/m8-oldkey" "$T/home-m8j/approve.key"
+check "$(m8 j "$PY" "$SYN" status | sed -n '/^Missions:/,$p')" "$M8C by Jule, until" 'the old key makes the record count again'
+cp "$T/m8-newkey" "$T/home-m8j/approve.key"
+rc=0; out=$(from_session m8j33333 m8 j "$PY" "$SYN" mission end --id "$M8C" 'Key lost, stopping.' 2>&1) || rc=$?
+[ $rc = 0 ] && check "$out" "Mission $M8C ended" 'a mission of hers that the key no longer seals can still be ended' || fail "end of a mission with a lost key: exit $rc" "$out"
+until_ok 20 'and Kim sees the end' m8is k "m['$M8C']['ended']"
+lacks "$(m8 j "$PY" "$SYN" status)" "Not verified: 1 mission" 'after it, the mission is not on the list any more'
+# no seal weakened: a record written by hand does not count, with the right key either
+"$PY" -c 'import json, sys
+p = sys.argv[1]; d = json.load(open(p)); d["jule-gh-forged"] = {"id": "jule-gh-forged", "by": "jule-gh", "with": ["jule-gh", "kim-gh"], "plan": "x", "start": "2026-01-01T00:00:00+00:00", "until": "2099-01-01T00:00:00+00:00", "joined": {"m8j33333": "2026-01-01T00:00:00+00:00"}, "mac": "0" * 32}
+json.dump(d, open(p, "w"))' "$T/home-m8j/missions.json"
+m8is j "'jule-gh-forged' not in m" && ok 'a record without its seal still counts for nothing' || fail 'forged record counted'
+for w in j k; do stop "$("$PY" -c 'import json,sys; sys.stdout.write(str(json.load(open(sys.argv[1]))["pid"]))' "$T/home-m8$w/watcher.json")"; done
+fi
 # The board's server and its pairing (S7), in a home of its own without a room, so that a restart here touches no key
 # of the other blocks. The key is new at every start and lives in the server only; `syn ui` writes a one-time code to
 # ui-pair.json (`--pair` prints it), and the page swaps it for the key at /api/pair
@@ -1117,12 +1239,33 @@ g -C "$T/c-alex" checkout -q -b main 2>/dev/null; g -C "$T/c-alex" add -A && g -
 g clone -q https://github.com/acme/conf.git "$T/c-sam"
 echo alex > "$T/c-alex/src/x.ts" && g -C "$T/c-alex" commit -q -am 'alex' && g -C "$T/c-alex" push -q origin main
 echo sam > "$T/c-sam/src/x.ts"
+# what a check must not change in a work repo: the object files, their count, and every ref
+repo_state() { { git -C "$1" count-objects -v; git -C "$1" for-each-ref; find "$1/.git/objects" -type f | sort; } | crlf_safe; }
+sam_before=$(repo_state "$T/c-sam")
 hook alex PostToolUse "$(edit ale55555 "$T/c-alex" "$T/c-alex/src/x.ts")" >/dev/null
 alex_tip() { hook alex PostToolUse "$(bash_call ale55555 "$T/c-alex")" >/dev/null; grep -q '"tip"' "$T/home-sam/others.json"; }
 until_ok 20 "what Alex pushed reaches Sam" alex_tip
 sam_conflict() { out=$(hook sam PostToolUse "$(edit sam99999 "$T/c-sam" "$T/c-sam/src/x.ts")"); grep -q 'would conflict' <<<"$out"; }
 until_ok 20 "a conflict with Alex's pushed work is reported" sam_conflict
 check "$out" "Merging Alex's session (conf@main) with this session's work would conflict in: src/x.ts" 'with the teammate, branch and file'
+[ "$(repo_state "$T/c-sam")" = "$sam_before" ] && ok 'the check wrote no object and no ref into the work repo' \
+  || fail 'the check changed the work repo' "$(diff <(echo "$sam_before") <(repo_state "$T/c-sam"))"
+[ -n "$(find "$T/home-sam/conflict-objects" -type f ! -name since)" ] && ok "Alex's fetched commit is in the store of Synchronauts" || fail 'no fetched commit in the store'
+until_ok 10 'a finished check leaves no snapshot or merge object behind' test ! -e "$T/home-sam/conflict-run"
+# a second clone of the same repo on this machine: the checks of both sessions merge the two working trees
+g clone -q https://github.com/acme/conf.git "$T/c-sam2"; echo sam2 > "$T/c-sam2/src/x.ts"
+sam2_before=$(repo_state "$T/c-sam2"); sam_before=$(repo_state "$T/c-sam")
+hook sam PostToolUse "$(edit sam88888 "$T/c-sam2" "$T/c-sam2/src/x.ts")" >/dev/null
+sam_clone() { out=$(hook sam PostToolUse "$(edit sam99999 "$T/c-sam" "$T/c-sam/src/x.ts")"); grep -q 'Merging your other session (conf@main)' <<<"$out"; }
+until_ok 20 'two separate clones of one repo are merged against each other' sam_clone
+[ "$(repo_state "$T/c-sam2")" = "$sam2_before" ] && [ "$(repo_state "$T/c-sam")" = "$sam_before" ] \
+  && ok 'and neither clone gets an object or a ref' || fail 'the clone check changed a repo'
+# the store deleted between two checks: the next one makes it again and fetches what it needs, no traceback
+rm -rf "$T/home-sam/conflict-objects"
+store_back() { hook sam PostToolUse "$(bash_call sam99999 "$T/c-sam")" >/dev/null; test -f "$T/home-sam/conflict-objects/since"; }
+until_ok 20 'a store that was deleted is made again by the next check' store_back
+[ ! -e "$T/home-sam/conflicts.log" ] || ! grep -q Traceback "$T/home-sam/conflicts.log" && ok 'and the deletion leaves no traceback' || fail 'traceback in conflicts.log' "$(cat "$T/home-sam/conflicts.log")"
+hook sam SessionEnd "$(session sam88888 "$T/c-sam2")" >/dev/null
 data=$(curl -s -H "X-SYN-Token: $tok" "$U/api/state")
 ui_check 'any(o["kind"] == "conflict" and o["files"] == ["src/x.ts"] for o in d["overlaps"])' 'the UI shows the conflict'
 # A conflict concerns the session that touched the file. Sam commits the change on a branch of his own and pushes it:

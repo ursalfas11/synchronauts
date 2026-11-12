@@ -96,6 +96,8 @@ CLOCK_OFF = 300                     # seconds the clock here may differ from Git
 EDIT_TOOLS = ('Edit', 'Write', 'MultiEdit', 'NotebookEdit')
 DEFAULT_NAMES = ('main', 'master')  # the default branch of a repo that no checkout on this machine has told about
 CONFLICT_TICK = setting('SYN_CONFLICT_TICK', 60.0)  # seconds between two conflict checks
+STORE_AGE = 86400                   # the commits that the conflict check fetched are kept this many seconds ...
+STORE_SIZE = 100 * 2**20            # ... or up to this many bytes, then the store is emptied
 EVENTS_KEEP = timedelta(hours=24)   # an event stays in the UI's history this long
 MAX_EVENTS = 100
 PUSH_GAP = TICK or 15               # seconds between two pushes when only state or history changed; mail goes at once
@@ -776,7 +778,7 @@ def tidy_mail(d):
                 and ('crew' not in n or isinstance(n['crew'], list) and 2 <= len(n['crew']) <= MAX_CREW
                      and all(fits(LOGIN_RE, x) for x in n['crew']))
                 and ('until' not in n or _stamp(n['until'])) and ('room' not in n or fits(ROOM_RE, n['room']))
-                and n.get('kind') in (None, 'invite', 'joined', 'end') and n.get('source') in (None, 'ui')
+                and n.get('kind') in (None, 'invite', 'joined', 'left', 'end') and n.get('source') in (None, 'ui')
                 and ('sig' not in n or isinstance(n['sig'], str) and len(n['sig']) < 4000 and utf8(n['sig']))):
             mail.append({f: n[f] for f in (*SIGNED, 'sig') if f in n})
     return mail
@@ -2565,9 +2567,10 @@ def overlaps(k, mine, sid, asked=(), team=()):
 
 # --- Conflicts ----------------------------------------------------------------
 
-def snapshot(root):
+def snapshot(root, objects=None):
     """A commit of the working tree as it is, uncommitted and new files included, written without touching the
-    repo's index, refs or files: `git add` goes into a copy of the index. The HEAD itself if nothing changed."""
+    repo's index, refs or files: `git add` goes into a copy of the index. The HEAD itself if nothing changed. Its
+    objects go where `objects` (object_env) says."""
     head = git('rev-parse', 'HEAD', cwd=root, timeout=10)
     index = Path(root, git('rev-parse', '--git-path', 'index', cwd=root, timeout=10))
     tmp = HOME / f'.index.{os.getpid()}'
@@ -2579,16 +2582,60 @@ def snapshot(root):
             # entry, unless the entry is as young as the index. A copy with the time of now would hide an edit made
             # in the second of the last `git add` or commit that left the size as it was
             os.utime(tmp, ns=(st.st_atime_ns, st.st_mtime_ns))
-        env = {'GIT_INDEX_FILE': str(tmp)}
+        env = dict(objects or {}, GIT_INDEX_FILE=str(tmp))
         git('add', '-A', cwd=root, timeout=60, env=env)
         tree = git('write-tree', cwd=root, timeout=20, env=env)
     finally:
         tmp.unlink(missing_ok=True)
     if tree == git('rev-parse', 'HEAD^{tree}', cwd=root, timeout=10):
         return head
-    who = {f'GIT_{x}_{y}': v for x in ('AUTHOR', 'COMMITTER') for y, v in (('NAME', 'synchronauts'),
-                                                                           ('EMAIL', 'synchronauts@localhost'))}
+    who = dict(objects or {}, **{f'GIT_{x}_{y}': v for x in ('AUTHOR', 'COMMITTER')
+                                 for y, v in (('NAME', 'synchronauts'), ('EMAIL', 'synchronauts@localhost'))})
     return git('commit-tree', tree, '-p', head, '-m', 'synchronauts: working tree', cwd=root, timeout=20, env=who)
+
+
+def object_env(primary, *others):
+    """Environment that makes git write new objects into the folder `primary` and read those of `others` (and of
+    GIT_ALTERNATE_OBJECT_DIRECTORIES, if set) as well: the repo gets none. OSError for a path that the variable cannot
+    carry (it is split at `:`, on Windows at `;`)."""
+    sep = ';' if WINDOWS else ':'
+    inherited = [x for x in os.environ.get('GIT_ALTERNATE_OBJECT_DIRECTORIES', '').split(sep) if x]
+    if any(sep in str(d) for d in (primary, *others)):
+        raise OSError(f'a folder name with {sep}')
+    return {'GIT_OBJECT_DIRECTORY': str(primary),
+            'GIT_ALTERNATE_OBJECT_DIRECTORIES': sep.join([str(d) for d in others] + inherited)}
+
+
+def rmtree_quiet(path):
+    """Deletes a folder with everything in it, Git's read-only object files too (on Windows rmtree stops at those);
+    what cannot be deleted stays, and the next run tries again."""
+    def unlock(func, p, _):
+        try:
+            os.chmod(p, stat.S_IWRITE)
+            func(p)
+        except OSError:
+            pass
+    shutil.rmtree(path, **{'onexc' if sys.version_info >= (3, 12) else 'onerror': unlock})  # onerror: deprecated in 3.12
+
+
+def open_store():
+    """The folder for the commits of teammates that the conflict check fetches, so that the work repo gets none of
+    them. Emptied when it is older than STORE_AGE or bigger than STORE_SIZE (what it held is fetched again). Returns
+    (folder, whether it was emptied or is new)."""
+    store, size = HOME / 'conflict-objects', 0
+    for folder, _, names in os.walk(store):
+        for name in names:
+            try:
+                size += os.path.getsize(os.path.join(folder, name))
+            except OSError:
+                pass
+    empty = age(store / 'since') > STORE_AGE or size > STORE_SIZE
+    if empty:
+        rmtree_quiet(store)
+    private_dir(store)
+    if empty or not (store / 'since').exists():
+        (store / 'since').write_text(iso(), encoding='utf-8')
+    return store, empty
 
 
 def git_names(out):
@@ -2598,11 +2645,13 @@ def git_names(out):
             for x in out.decode('utf-8', 'replace').splitlines() if x.strip()}
 
 
-def conflicted(root, a, b):
+def conflicted(root, a, b, objects=None):
     """Files that would conflict if a and b were merged, [] if none, None if git cannot tell (older than 2.38,
-    unrelated histories). Names as git prints them with core.quotePath off: UTF-8 as it is, not as \303\234."""
+    unrelated histories). Names as git prints them with core.quotePath off: UTF-8 as it is, not as \303\234. The
+    merge's objects go where `objects` (object_env) says."""
     r = subprocess.run(['git', '-c', 'core.quotePath=false', 'merge-tree', '--write-tree', '--name-only',
-                        '--no-messages', a, b], cwd=root, capture_output=True, stdin=subprocess.DEVNULL, timeout=60)
+                        '--no-messages', a, b], cwd=root, capture_output=True, stdin=subprocess.DEVNULL, timeout=60,
+                       env=dict(os.environ, **objects) if objects else None)
     if r.returncode not in (0, 1):
         return None
     return sorted(git_names(b'\n'.join(r.stdout.split(b'\n')[1:])))
@@ -2623,14 +2672,15 @@ def upstream(root):
         return None
 
 
-def unpushed(root, tip, snap):
+def unpushed(root, tip, snap, objects=None):
     """The files a checkout changed and has not pushed: its working tree (snap) against its branch at origin (tip, see
-    upstream()). None if that cannot be told, as for a branch that was never pushed: all its work is local then."""
+    upstream()). None if that cannot be told, as for a branch that was never pushed: all its work is local then.
+    objects (object_env): where the snapshot lies, which is not in the repo."""
     if not tip or not snap:
         return None
     try:
         return git_names(git_raw('-c', 'core.quotePath=false', 'diff', '--name-only', '--no-renames', tip, snap,
-                                 cwd=root, timeout=30))
+                                 cwd=root, timeout=30, env=objects))
     except (RuntimeError, OSError, subprocess.TimeoutExpired):
         return None
 
@@ -2646,9 +2696,19 @@ def conflict_check():
         lock = Lock('conflicts', wait=False).__enter__()
     except BlockingIOError:
         return
+    run = HOME / 'conflict-run'  # snapshots and merge results of this pass: they go here and are deleted at its end
     try:
         before, limit = load(HOME / 'conflicts.json', {}), now() - ACTIVE
-        tried = {x: t for x, t in before.get('fetched', {}).items() if time.time() - t < 3600}
+        rmtree_quiet(run)  # left by a pass that was killed
+        private_dir(run)
+        store, emptied = open_store()  # the commits fetched from teammates: not into the work repo
+        tried = {x: t for x, t in before.get('fetched', {}).items() if time.time() - t < 3600 and not emptied}
+        folders = {}  # root → its object folder (that of the common git dir, in a worktree)
+
+        def own(root):
+            if root not in folders:
+                folders[root] = Path(root, git('rev-parse', '--git-path', 'objects', cwd=root, timeout=10))
+            return folders[root]
         mine = {}  # sid → {repo: (root, branch)}
         for sid, s in load(HOME / 'status.json', {}).get('sessions', {}).items():
             local = load(SESSIONS / f'{sid}.json', {})
@@ -2660,7 +2720,7 @@ def conflict_check():
         def snap(root):
             if root not in snaps:
                 try:
-                    snaps[root] = snapshot(root)
+                    snaps[root] = snapshot(root, object_env(run, store, own(root)))
                 except (RuntimeError, OSError, subprocess.TimeoutExpired):
                     snaps[root] = None
             return snaps[root]
@@ -2669,16 +2729,22 @@ def conflict_check():
             """sha, if this repo has it or can fetch it from origin (once an hour per commit)."""
             if not sha or not re.fullmatch(r'[0-9a-f]{40,64}', sha) or not branch:
                 return None
+            try:
+                env = object_env(store, own(root))  # a fetch writes into the store
+            except (RuntimeError, OSError, subprocess.TimeoutExpired):
+                return None
             for attempt in (0, 1):
                 try:
-                    git('cat-file', '-e', f'{sha}^{{commit}}', cwd=root, timeout=10)
+                    git('cat-file', '-e', f'{sha}^{{commit}}', cwd=root, timeout=10, env=env)
                     return sha
                 except (RuntimeError, subprocess.TimeoutExpired):
                     if attempt or f'{repo}|{sha}' in tried:
                         return None
                     tried[f'{repo}|{sha}'] = time.time()
                     try:
-                        git('fetch', '-q', '--no-write-fetch-head', 'origin', f'refs/heads/{branch}', cwd=root, timeout=60)
+                        git('-c', 'gc.auto=0', '-c', 'maintenance.auto=false', 'fetch', '-q', '--no-write-fetch-head',
+                            '--no-tags', '--refmap=', '--no-prune', '--no-recurse-submodules', 'origin',
+                            f'refs/heads/{branch}', cwd=root, timeout=60, env=env)  # no ref of the repo moves
                     except (RuntimeError, subprocess.TimeoutExpired):
                         return None
 
@@ -2693,24 +2759,29 @@ def conflict_check():
                     pass
         for sid, repos in mine.items():
             for repo, (root, branch) in repos.items():
-                theirs = [(f"{k['me']}/{k['machine']}/{o}", x[repo][1], lambda r=x[repo][0]: snap(r))
+                theirs = [(f"{k['me']}/{k['machine']}/{o}", x[repo][1], lambda r=x[repo][0]: snap(r), x[repo][0])
                           for o, x in mine.items() if o != sid and repo in x and x[repo][0] != root]
                 theirs += [(key, s['repos'][repo].get('branch'),
-                            lambda r=s['repos'][repo]: pushed(root, repo, r.get('branch'), r.get('tip')))
+                            lambda r=s['repos'][repo]: pushed(root, repo, r.get('branch'), r.get('tip')), None)
                            for _, key, s, _ in others(k, own=False) if repo in s['repos']]
-                for key, other_branch, get in theirs:
+                for key, other_branch, get, there in theirs:
                     a = snap(root)
                     b = get() if a else None
-                    files = conflicted(root, a, b) if b and b != a else None
+                    try:  # the merge sees the objects of both checkouts, and writes into this pass's folder only
+                        env = object_env(run, store, own(root), *([own(there)] if there else []))
+                    except (RuntimeError, OSError, subprocess.TimeoutExpired):
+                        env = None
+                    files = conflicted(root, a, b, env) if b and b != a and env else None
                     if files:
                         c = {'with': key, 'repo': repo, 'branch': other_branch, 'files': files[:MAX_FILES]}
                         if root not in local:
-                            local[root] = unpushed(root, upstream(root), a)
+                            local[root] = unpushed(root, upstream(root), a, env)
                         if local[root] is not None:  # which of them this checkout changed itself, see conflict_files()
                             c['own'] = [f for f in c['files'] if f in local[root]]
                         out.setdefault(sid, []).append(c)
         save(HOME / 'conflicts.json', {'time': iso(), 'sessions': out, 'tips': tips, 'fetched': tried})
     finally:
+        rmtree_quiet(run)
         lock.__exit__()
 
 
@@ -2854,6 +2925,11 @@ def message_text(n, k, nm, shown=False, ms=None, m=None):
     if n.get('kind') == 'end' and ended and signed and n['from'] in ended['with'] and of_room(n, k):
         return (f"📨 Mission {ended['id']} ended by {who} ({origin}). Result:\n{quote}\n"
                 f"Tell {me} the result in a few sentences. From now on messages are information again.")
+    left = (ms or {}).get(n.get('mission'))
+    if n.get('kind') == 'left' and left and live(left) and signed and n['from'] in left['with'] and of_room(n, k):
+        return (f"📨 {sender} left mission {left['id']} ({clock(n.get('time'))}): no session of theirs is in it any "
+                f"more. Messages to them are plain mail until they join again; go on with what does not need them, or "
+                f"tell {me}.")
     if m and n.get('mission') == m['id'] and n['from'] in partners(k, m) and signed and of_room(n, k):
         if n.get('kind') == 'joined':
             return f"📨 {sender} joined mission {m['id']} ({clock(n.get('time'))}). Go on with your part of the plan."
@@ -2913,7 +2989,7 @@ def missions(k, mail=None):
     """id -> mission as signed data and my own records show it. People, plan and end time come from the signed invite
     (the oldest valid one defines the mission) or from my own record, which wins: once I joined, what I approved is
     frozen. Who joined and who ended it comes from signed `joined` and `end` mail of the crew and from my own record;
-    foreign sessions show as bare logins. What others write into their branch (unsigned) defines nothing. mail: the
+    foreign sessions show as bare logins; one who left (a signed `left`) is out until a later join. What others write into their branch (unsigned) defines nothing. mail: the
     result of mail_to_me(k) if the caller has it. Only my records that syn sealed count (own_missions)."""
     mail = mail_to_me(k) if mail is None else mail
     own, out = own_missions(), {}
@@ -2937,14 +3013,17 @@ def missions(k, mail=None):
         e = m.get('ended')
         if isinstance(e, dict):
             x['ended'] = {'time': e.get('time'), 'by': k['me'], 'summary': clean(e.get('summary', ''))}
-    for n in sorted(mail, key=lambda n: (n.get('time', ''), n['id'])):  # signed joins and ends of the crew
+    # signed joins, leaves and ends of the crew; stamps are seconds, so in one second a leave comes after the join
+    for n in sorted(mail, key=lambda n: (n.get('time', ''), n.get('kind') == 'left', n['id'])):
         x = out.get(n.get('mission'))
         if (not x or n.get('trust') != 'ok' or n['from'] not in x['with'] or n['from'] == k['me']
-                or n.get('kind') not in ('joined', 'end') or not of_room(n, k)
+                or n.get('kind') not in ('joined', 'left', 'end') or not of_room(n, k)
                 or parse(n.get('time')) < parse(x['start'])):
             continue
-        if n['kind'] == 'joined':
-            x['joined'].setdefault(n['from'], n['time'])
+        if n['kind'] == 'joined':  # in time order: a join after a leave puts them back
+            x['joined'][n['from']] = n['time']
+        elif n['kind'] == 'left':
+            x['joined'].pop(n['from'], None)
         elif not x['ended'] or n['time'] < x['ended']['time']:
             x['ended'] = {'time': n['time'], 'by': n['from'], 'summary': clean(n.get('text', ''))}
     return out
@@ -2977,6 +3056,19 @@ def joined_here(k, m):
     return {key[len(mine):] for key in (m or {}).get('joined', {}) if key.startswith(mine)} if live(m) else set()
 
 
+def session_running(sid):
+    """True if a session of this machine still runs as far as syn knows: it has a place in status.json (SessionEnd takes
+    it out) with a sign of life within ACTIVE, and its file does not say it ended. A crash leaves the place for ACTIVE."""
+    s = load(HOME / 'status.json', {}).get('sessions', {}).get(sid)
+    return (isinstance(s, dict) and parse(s.get('last')) > now() - ACTIVE
+            and not load(SESSIONS / f'{sid}.json', {}).get('ended'))
+
+
+def running_here(k, m):
+    """sids of this machine that joined the mission and still run."""
+    return {s for s in joined_here(k, m) if session_running(s)}
+
+
 def people(logins, nm, k, whole=False):
     """The others among logins as one phrase, by label; whole: each with its login (full())."""
     names_ = [full(x, nm) if whole else nm.get(x, x) for x in logins if x != k['me']]
@@ -2997,12 +3089,15 @@ def approvable(k, sid, mid):
             return None, (f'the invitation to {mid} is not a valid signed proposal for you (unsigned, a signature that '
                           f'does not fit, from an older version without people and end time, or not including you). '
                           f'Ask them in person.')
+        if mid in sealed_away():
+            return None, (f"there is no mission {mid}: its record on this machine is not sealed with this machine's "
+                          f"approve.key (lost, replaced or restored); `{CMD} status` says what to do.")
         return None, f'there is no mission {mid} (yet; the sync may still be on its way, try again in a minute).'
-    if m['by'] == k['me']:
+    if m['by'] == k['me'] and running_here(k, m):
         return None, f'{mid} is your own mission; it is already approved.'
     if not live(m):
         return None, f'mission {mid} is over.'
-    return m, None
+    return m, None  # also the proposer's once none of their sessions runs any more (left, /clear): they join again
 
 
 def mission_digest(m):
@@ -3019,7 +3114,8 @@ def approval_text(k, m):
         head = f"Start this mission with {people(m['with'], nm, k, True)} for up to {m['hours']:g} h?"
     else:
         rest = [x for x in m['with'] if x not in (m['by'], k['me'])]
-        head = (f"Join {full(m['by'], nm)}'s mission" + (f' with {people(rest, nm, k, True)}' if rest else '')
+        head = (("Join your own mission again" if m['by'] == k['me'] else f"Join {full(m['by'], nm)}'s mission")
+                + (f' with {people(rest, nm, k, True)}' if rest else '')
                 + f" until {clock(m['until'])}?")
     return (f"{head} Your Claude then works with theirs without asking you; within this plan their messages count as "
             f"approved. Plan: {clean(m['plan'])}")
@@ -3132,7 +3228,7 @@ def approved(k, sid, e):
             x.update(start=iso(), until=iso(now() + timedelta(hours=x.pop('hours', MISSION_HOURS))))
         x['joined'] = dict(x.get('joined') or {}, **{sid: iso()})
         own[m['id']] = with_mac(x)
-        save(HOME / 'missions.json', own)
+        save_missions(own)
     others_ = [x for x in m['with'] if x != k['me']]
     if start:
         waiting = hook_post(k, [([login], m['plan'], {'mission': m['id'], 'kind': 'invite', 'crew': m['with'],
@@ -3209,7 +3305,7 @@ def end_mission(k, m, summary, source=None):
             path = outbox_put(k, to, summary, **fields) if keyed else None
             x['ended'] = {'time': iso(), 'summary': clean(summary)}
             own[m['id']] = with_mac(x)
-            save(HOME / 'missions.json', own)
+            save_missions(own)
             n = new_message(k, to, summary, **fields)
         # what of this mission waits in the outbox before it (an invite, a join) is dropped by drain_outbox(): it checks
         # the mission and dates the message in one step under Lock('missions'), so nothing it posts is younger than this
@@ -5556,6 +5652,64 @@ def own_missions(raw=None):
             and re.fullmatch(r'[0-9a-f]{32}', x['mac']) and hmac.compare_digest(x['mac'], record_mac(x, key))}
 
 
+def sealed_away(raw=None):
+    """The records of missions.json that this machine's approve.key does not seal and that would still matter: a mission
+    before its end time, a draft of the last MAIL_KEEP, not ended. After a lost, replaced or restored key that is all of
+    them, or the ones of another key. own_missions() ignores them, never more than that: nothing counts without the
+    seal. id -> record, for status, for the hint of a command and for the end of one's own mission (lost_mission)."""
+    raw = load(HOME / 'missions.json', {}) if raw is None else raw
+    if not isinstance(raw, dict):
+        return {}
+    sealed = own_missions(raw)
+    return {i: x for i, x in raw.items() if i not in sealed and isinstance(x, dict) and x.get('id') == i
+            and not x.get('ended') and parse(x.get('until') or x.get('created')) > (
+                now() if x.get('until') else now() - MAIL_KEEP)}
+
+
+def save_missions(own):
+    """Writes missions.json: the sealed records (own) and, as they are, the ones sealed_away() finds there. A key that
+    was lost or replaced thus never takes a record with it silently: the human sees it (seal_notice), and the old
+    approve.key makes it count again. Under Lock('missions')."""
+    keep = {i: x for i, x in sealed_away().items() if i not in own}
+    save(HOME / 'missions.json', {**keep, **own})
+
+
+def seal_notice(short=False):
+    """What the human must know when approve.key does not seal everything syn wrote: '' if all is well. short: one
+    line, for the start of a session."""
+    gone = sealed_away()
+    key = approve_key(make=False)
+    queued = sum(1 for p in outbox_records() if not outbox_record(p, key))
+    if not (gone or queued):
+        return ''
+    ids = sorted(i for i, x in gone.items() if x.get('until'))
+    what = ', '.join(([f"{len(ids)} mission(s) ({', '.join(ids)})"] if ids else [])
+                     + ([f'{len(gone) - len(ids)} draft(s)'] if len(gone) > len(ids) else [])
+                     + ([f'{queued} queued message(s)'] if queued else []))
+    if short:
+        return f'Synchronauts: {what} of this machine are not verified: approve.key changed. `{CMD} status` says more.'
+    why = ('approve.key is missing' if key is None else
+           'approve.key is not the key that sealed them (replaced, or restored from a backup)')
+    return (f'Not verified: {what}, because {why}. They count for nothing, and syn never takes a record without its '
+            f'seal; queued messages are dropped. Missions of the others still work: join one again with `{CMD} mission '
+            f'approve <id>`. A mission of yours from this list can still be ended: `{CMD} mission end --id <id> '
+            f'"<result>"`. The old approve.key brings all of it back.')
+
+
+def lost_mission(k, mid):
+    """My own live mission whose record approve.key does not seal, as a mission for end_mission(), or None. Only the
+    people are used, to address the end: a signed message that its receivers check against the invite they hold.
+    Ending only reduces what is approved, so this opens nothing."""
+    x = sealed_away().get(mid)
+    crew = x.get('with') if isinstance(x, dict) else None
+    if not (x and x.get('until') and x.get('by') == k['me'] and isinstance(crew, list) and 2 <= len(crew) <= MAX_CREW
+            and len(set(crew)) == len(crew) and all(fits(LOGIN_RE, c) for c in crew) and k['me'] in crew
+            and fits(ID_RE, mid) and mid.rsplit('-', 1)[0] == k['me']):
+        return None
+    return {'id': mid, 'by': k['me'], 'with': list(crew), 'plan': clean(x.get('plan', '')),
+            'start': x.get('start') or iso(), 'until': x['until'], 'repos': {}, 'invite': x.get('invite'), 'joined': {}, 'ended': None}
+
+
 # --- Hooks --------------------------------------------------------------------
 
 def emit(event, context, user=None):
@@ -6090,6 +6244,7 @@ def hook(event, agent='claude', got=None):
     if event == 'SessionEnd':
         if mine.get('repos'):
             log_event(sid, 'end', main_repo(mine))
+        leave_mission(k, sid)
         return 0
     if event == 'SessionStart':
         if k.get('solo') and INVITES and age(HOME / 'invites-start') > INVITE_GAP:
@@ -6173,6 +6328,8 @@ def hook(event, agent='claude', got=None):
         for_user.append(invited[1])
     if first:  # for the human only: the install worked, and what a team does next
         for_user.append(WELCOME)
+    if event == 'SessionStart' and seal_notice(short=True):  # for the human only: a lost or replaced approve.key
+        for_user.append(seal_notice(short=True))
     emit(event, '\n'.join(lines), ' · '.join(for_user) or None)
     return 0
 
@@ -6279,7 +6436,7 @@ def put_mail(k, n, need_sig=False, quick=None):
 
 OUTBOX_KEEP = 86400   # seconds a queued message waits for its signature; then it is dropped
 OUTBOX_FIELDS = ('mission', 'kind', 'repo', 'crew', 'until', 'source')  # what a record may set
-OUTBOX_KINDS = ('invite', 'joined', 'end')  # the only messages that wait there
+OUTBOX_KINDS = ('invite', 'joined', 'left', 'end')  # the only messages that wait there
 
 
 def outbox_put(k, to, text, **fields):
@@ -6329,7 +6486,29 @@ def outbox_stale(k, r, own):
         return 'the mission is over'
     if f['kind'] == 'end':
         return None if m.get('ended') else 'the mission has not ended'
+    if f['kind'] == 'left' and any(parse(t) > parse(r.get('time')) for t in (m.get('joined') or {}).values()):
+        return 'a session joined again since'  # the join note went first; a later "left" would undo it
     return 'the mission has ended' if m.get('ended') else None
+
+
+def leave_mission(k, sid):
+    """SessionEnd: when the session that ends was the last one of this machine in a live mission, the others learn that
+    this person left (a signed `left`). It goes through the outbox, like the end of a mission: the hook has seconds,
+    and a key may want a touch. Another session of this machine still in the mission means nobody left. Only my own
+    sealed record is read, so the hook stays cheap. A session that was never in a mission, or whose mission ended or
+    ran out, sends nothing."""
+    if k.get('solo'):
+        return
+    with Lock('missions'):
+        for m in own_missions().values():
+            if (sid not in (m.get('joined') or {}) or m.get('ended') or not m.get('until')
+                    or parse(m['until']) <= now() or not isinstance(m.get('with'), list)):
+                continue
+            if any(s != sid and session_running(s) for s in m['joined']):
+                continue
+            to = [x for x in m['with'] if x != k['me']]
+            if to:
+                outbox_put(k, to, 'left', mission=m['id'], kind='left')
 
 
 def outbox_records():
@@ -6384,7 +6563,8 @@ def drain_outbox(k):
         for i, path in enumerate(records):
             r = outbox_record(path, key)
             if not r:
-                drop_record(path, 'unreadable, or not written by syn')
+                drop_record(path, "unreadable, or not sealed with this machine's approve.key (not written by syn, or "
+                                  "the key was lost or replaced)")
                 continue
             f = r['fields']
             what = f"{f['kind']} of mission {f['mission']} to {', '.join(r['to'])}"
@@ -6688,6 +6868,8 @@ def cmd_status(k):
     if held['waiting']:
         print(f"\nWaiting for your key to sign: {held['waiting']} mission message(s), since {clock(held['since'])}. "
               f"Unlock or touch the key; the watcher asks again, and after {OUTBOX_KEEP // 3600} h they are dropped.")
+    if seal_notice():
+        print(f'\n{seal_notice()}')
     if held['dropped']:
         print(f"\nNever sent, dropped in the last {DROPPED_SHOWN.days} days: {len(held['dropped'])}; last: "
               f"{held['dropped'][-1]['why']}. Propose again, or `{CMD} send`.")
@@ -6715,11 +6897,53 @@ def cmd_status(k):
         print(f"- {m['id']} by {nm.get(m['by'], m['by'])}, {state}. Joined: {', '.join(on)}\n  Plan: {clean(m['plan'])}")
 
 
+def endable(k, sid, mid):
+    """(mission, problem) for `mission end [--id <mid>]`: the mission the call ends, or why it cannot. A session in a
+    mission ends it as ever. Past that, ending is for the human of this machine and only reduces what is approved, so
+    any live mission of mine here can be ended, but not by just any Claude: a session that is not in the mission must
+    name it (--id) and may end it only when no session of this machine that is in it still runs (it ended, /clear, a
+    crash after ACTIVE): otherwise that session, the board or the human's own terminal ends it. A shell without a
+    session id is the human's terminal: it may leave --id out when exactly one mission is live; one that belongs to
+    Claude Code (CLAUDECODE) but has no id was stripped of it, and is refused. Someone else's mission cannot be ended
+    here, and a mail cannot end anything: the end is my signed message, sent by this call."""
+    ms = missions(k)
+    live_ = {i: x for i, x in ms.items() if k['me'] in x['with'] and live(x)}
+    m = my_mission(k, sid, ms) if sid else None
+    if m and mid in (None, m['id']):
+        return m, None
+    lost = sorted(i for i, x in sealed_away().items() if x.get('until') and lost_mission(k, i))
+    sealed = seal_notice(short=True)
+    sealed = ' ' + sealed if sealed else ''
+    if not sid and os.environ.get('CLAUDECODE'):
+        return None, ('This shell belongs to Claude Code but has no session id. Run it from the session that is in the '
+                      'mission, or in your own terminal.')
+    if mid is None:
+        ids = sorted(live_) + [i for i in lost if i not in live_]
+        if sid:
+            return None, ('This session is in no active mission.'
+                          + (f' To end one of this machine from here: `{CMD} mission end --id <id> "<result>"` '
+                             f'(active: {", ".join(ids)}).' if ids else sealed))
+        if len(ids) > 1:
+            wrong(f'More than one mission is active ({", ".join(ids)}). Name one: mission end --id <id> "<result>"')
+        if not ids:
+            return None, 'No active mission of yours on this machine.' + sealed
+        mid = ids[0]
+    m = live_.get(mid) or lost_mission(k, mid)
+    if not m:
+        return None, f'No active mission {mid} of yours.' + sealed
+    running = running_here(k, m) - {sid}
+    if sid and running:
+        return None, (f"Session {', '.join(sorted(running))} of this machine is in mission {mid} and still runs: end it "
+                      f"there, from the board (`{CMD} ui`) or in your own terminal.")
+    return m, None
+
+
 def cmd_mission(k, args):
     """propose: a draft that `approve` turns into a mission once the human says yes in Claude Code's prompt;
-    approve: starts the mission or joins it; end: ends it for everyone, with the result."""
+    approve: starts the mission or joins it; end: ends it for everyone, with the result, from a session that is in it,
+    and from any other session or a plain terminal for a mission of this machine (`--id`, see endable)."""
     sid, sub, rest, me = current_session(), (args or [''])[0], list(args[1:]), k.get('name')
-    if not sid:
+    if not sid and sub != 'end':
         sys.exit('Run it from a Claude Code session: a mission belongs to sessions.')
     if sub == 'propose':
         hours, invite, nm = MISSION_HOURS, {}, names(k)
@@ -6759,9 +6983,10 @@ def cmd_mission(k, args):
             own = {i: x for i, x in own_missions().items() if parse(x.get('start') or x.get('created')) > limit}
             own[mid] = with_mac({'id': mid, 'by': k['me'], 'with': [k['me'], *invite], 'plan': clean(plan),
                                  'hours': hours, 'repos': {x: r for x, r in invite.items() if r}, 'created': iso()})
-            save(HOME / 'missions.json', own)
+            save_missions(own)
         print(f'Draft {mid}. With {people(list(invite), nm, k, True)}. Now run `{CMD} mission approve {mid}` as a '
-              f'command of its own: Claude Code asks {me} once (the session must be in auto mode).')
+              f'command of its own: Claude Code asks {me} once (the session must be in auto mode).'
+              + (f'\n{seal_notice()}' if sealed_away() else ''))
     elif sub == 'approve' and len(rest) == 1:
         a = load(SESSIONS / f'{sid}.json', {}).get('approving') or {}
         if a.get('id') != rest[0]:
@@ -6772,13 +6997,19 @@ def cmd_mission(k, args):
             sys.exit(f'Synchronauts: {APPROVAL_MISMATCH}')
         print(f'{me} approved.')
     elif sub == 'end' and rest:
-        m, summary = my_mission(k, sid), ' '.join(rest)
-        if not m:
-            sys.exit('This session is in no active mission.')
+        mid = None
+        if rest[0] == '--id':
+            if len(rest) < 3:
+                wrong(f'--id <mission id> and then the result. Usage: {USAGE["mission"]}')
+            mid, rest = rest[1], rest[2:]
+        summary = ' '.join(rest)
         try:
             check_text(summary)
         except ValueError as f:
             wrong(f'Result: {f}')
+        m, problem = endable(k, sid, mid)
+        if problem:
+            sys.exit(problem)
         alive()
         ensure_watcher()  # before the key is asked: it sends the end that waits in the outbox, also after an interrupt
         try:
@@ -6787,7 +7018,8 @@ def cmd_mission(k, args):
             if not (own_missions().get(m['id']) or {}).get('ended'):
                 raise
             n, why = None, 'interrupted'
-        log_event(sid, 'mission', main_repo(load(HOME / 'status.json', {}).get('sessions', {}).get(sid, {})),
+        log_event(sid or 'none', 'mission',
+                  main_repo(load(HOME / 'status.json', {}).get('sessions', {}).get(sid, {})),
                   id=m['id'], step='end', text=summary[:200])
         if n:
             print(f"Mission {m['id']} ended; {people(m['with'], names(k), k)} get the result.")
@@ -7500,7 +7732,7 @@ def main(argv):
 USAGE = {'send': 'send <name|all>[@repo] "<text>"', 'task': 'task "<one sentence>"', 'rooms': 'rooms [--refresh]',
          'notify': 'notify [on|off|test]',
          'mission': 'mission propose --with <name>[@repo][,…] [--hours N] "<plan>" · mission approve <id> · '
-                    'mission end "<result>"'}
+                    'mission end [--id <id>] "<result>"'}
 COMMANDS = ('status', 'send', 'task', 'claim', 'mission', 'ui', 'line', 'state', 'notify', 'rooms', 'codex', 'setup', 'key')
 
 HELP = f"""synchronauts {VERSION}: your team's agents see each other, talk, and stay off each other's files.

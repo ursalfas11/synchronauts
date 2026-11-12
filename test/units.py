@@ -1290,6 +1290,66 @@ syn.gh_run = real_run
 for name in ('invites.json', 'invites-told.json'):
     (HOME / name).unlink(missing_ok=True)
 
+# The conflict check writes into folders of Synchronauts, not into the repo: the snapshots and the merge of a repo and
+# its linked worktree (in folders with a space) leave the repo's object files as they were
+cs = TMP / 'conflict store'
+cs.mkdir()
+gt = ['git', '-c', 'user.name=t', '-c', 'user.email=t@example.com']
+subprocess.run([*gt, 'init', '-q', '-b', 'main', str(cs / 'main repo')], check=True, capture_output=True)
+(cs / 'main repo' / 'x.txt').write_text('base\n')
+subprocess.run([*gt, '-C', str(cs / 'main repo'), 'add', 'x.txt'], check=True, capture_output=True)
+subprocess.run([*gt, '-C', str(cs / 'main repo'), 'commit', '-q', '-m', 'base'], check=True, capture_output=True)
+subprocess.run([*gt, '-C', str(cs / 'main repo'), 'worktree', 'add', '-q', '-b', 'wt', str(cs / 'the worktree')],
+               check=True, capture_output=True)
+(cs / 'main repo' / 'x.txt').write_text('one\n')
+(cs / 'the worktree' / 'x.txt').write_text('two\n')
+(cs / 'the worktree' / 'new.txt').write_text('new\n')
+
+
+def repo_objects(root):
+    return sorted(str(p.relative_to(root)) for p in Path(root).rglob('*') if p.is_file())
+
+
+common = syn.git('rev-parse', '--path-format=absolute', '--git-common-dir', cwd=cs / 'the worktree')
+before = (repo_objects(Path(common) / 'objects'), syn.git('for-each-ref', cwd=cs / 'main repo'))
+run, (store, new) = HOME / 'conflict-run', syn.open_store()
+run.mkdir()
+env = {}
+for r in ('main repo', 'the worktree'):
+    path = syn.git('rev-parse', '--git-path', 'objects', cwd=cs / r)
+    env[r] = syn.object_env(run, store, Path(cs / r, path))
+snaps = [syn.snapshot(cs / r, env[r]) for r in ('main repo', 'the worktree')]
+check(len(set(snaps)) == 2 and all(len(x) >= 40 for x in snaps), 'snapshots of a repo and of a worktree in folders with a space')
+both = syn.object_env(run, store, Path(common, 'objects'))
+check(syn.conflicted(cs / 'main repo', snaps[0], snaps[1], both) == ['x.txt'],
+      'the merge of the two finds the conflict, through the temporary store')
+check((repo_objects(Path(common) / 'objects'), syn.git('for-each-ref', cwd=cs / 'main repo')) == before,
+      'and the repo has the same object files and refs as before')
+check(any(run.rglob('*')) and any(f.is_file() for f in run.rglob('*')), 'the objects went into the folder of the pass')
+syn.rmtree_quiet(run)
+check(not run.exists(), 'which is deleted again, with the read-only object files in it')
+syn.rmtree_quiet(run)  # a folder that is not there: nothing happens
+check(new is True and syn.open_store() == (store, False), 'a new store is empty, and it is kept at the next check')
+(store / 'kept').write_text('x')
+os.utime(store / 'since', (1, 1))
+check(syn.open_store() == (store, True) and not (store / 'kept').exists(), 'a store older than a day is emptied')
+(store / 'kept').write_text('x' * 20)
+real_size, syn.STORE_SIZE = syn.STORE_SIZE, 10
+check(syn.open_store() == (store, True) and not (store / 'kept').exists(), 'so is one above the size limit')
+syn.STORE_SIZE = real_size
+real_env = os.environ.get('GIT_ALTERNATE_OBJECT_DIRECTORIES')
+os.environ['GIT_ALTERNATE_OBJECT_DIRECTORIES'] = 'elsewhere'
+check(syn.object_env(run, 'a b')['GIT_ALTERNATE_OBJECT_DIRECTORIES'] == ('a b;elsewhere' if syn.WINDOWS else 'a b:elsewhere'),
+      'the alternate object folders of the environment stay')
+os.environ.pop('GIT_ALTERNATE_OBJECT_DIRECTORIES')
+if real_env is not None:
+    os.environ['GIT_ALTERNATE_OBJECT_DIRECTORIES'] = real_env
+try:
+    syn.object_env(run, 'a;b' if syn.WINDOWS else 'a:b')
+    check(False, 'a folder name that the variable cannot carry is refused')
+except OSError:
+    check(True, 'a folder name that the variable cannot carry is refused')
+
 # Edits through Bash: the files `git status` lists before and after a command; only what the command changed counts
 def sh_git(repo, *args):
     subprocess.run(['git', '-c', 'user.name=test', '-c', 'user.email=test@example.com', '-c', 'core.autocrlf=false',
