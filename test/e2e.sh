@@ -72,6 +72,11 @@ no_session() { "$PY" -c 'import json,sys; d=json.load(open(sys.argv[1])); sys.ex
 state_of() { "$PY" -c 'import json,sys; sys.stdout.write(str(json.load(open(sys.argv[1]))["sessions"][sys.argv[2]].get("state")))' "$T/home-$1/status.json" "$2"; }
 state_is() { [ "$(state_of "$1" "$2")" = "$3" ]; }
 notify() { echo "{\"session_id\":\"$2\",\"cwd\":\"$T/alex-demo\",\"notification_type\":\"$3\",\"message\":\"Claude needs your permission\"}" | as_user "$1" "$PY" "$HOOK" Notification; }
+# A Stop hook that waits for mail: begin it with `T0=$(now_s); hook <user> Stop ... & W=$!`, then `await_waiter <user>
+# <sid> $T0` returns once that hook has registered as waiting (its session file says so)
+now_s() { "$PY" -c 'import time; print(time.time())' | crlf_safe; }
+waits_since() { "$PY" -c 'import json,sys; s = json.load(open(sys.argv[1])); sys.exit(not (s.get("waiter") and s.get("waiting_since", 0) >= float(sys.argv[2])))' "$T/home-$1/sessions/$2.json" "$3" 2>/dev/null; }
+await_waiter() { local end=$((SECONDS + 10)); until waits_since "$1" "$2" "$3"; do [ $SECONDS -lt $end ] || fail "the Stop hook of $2 never began to wait"; sleep 0.1; done; }
 exit_of() { local i; for i in $(seq 1 $(($2 * 5))); do kill -0 "$1" 2>/dev/null || { wait "$1"; return $?; }; sleep 0.2; done; return 124; }
 
 # --- Shared helpers of the blocks below ---
@@ -811,8 +816,8 @@ until_ok 10 "Sam's state is in the remote" sh -c "git -C '$T/remote.git' show sy
 lacks "$(git -C "$T/remote.git" show syn/sam-gh/one:state.json)" 'private' 'repos of other owners stay out'
 
 # Alex's session waits after its turn (Stop hook, async): mail from Sam wakes it
-hook alex Stop "$(session ale11111 "$T/alex-demo")" 2>"$T/wake1" & W1=$!
-sleep 0.5
+T0=$(now_s); hook alex Stop "$(session ale11111 "$T/alex-demo")" 2>"$T/wake1" & W1=$!
+await_waiter alex ale11111 "$T0"
 out=$(as_user sam "$PY" "$SYN" send alex "$(printf '%01600d' 0)" 2>&1) && fail 'a message that is too long went through' "$out" \
   || check "$out" 'Too long' 'a message that is too long is rejected instead of cut'
 out=$(as_user sam "$PY" "$SYN" send kim 'hello' 2>&1) && fail 'an unknown recipient went through' "$out" \
@@ -840,9 +845,9 @@ lacks "$out" 'please leave it alone' 'after the wake-up it does not come again'
 
 # Two waiting sessions in two repos: mail to demo wakes the session in demo, although the other one is younger
 hook alex SessionStart "$(session ale33333 "$T/alex-other")" >/dev/null
-hook alex Stop "$(session ale11111 "$T/alex-demo")" 2>"$T/wake2a" & W2A=$!
+T0=$(now_s); hook alex Stop "$(session ale11111 "$T/alex-demo")" 2>"$T/wake2a" & W2A=$!
 hook alex Stop "$(session ale33333 "$T/alex-other")" 2>"$T/wake2b" & W2B=$!
-sleep 0.5
+await_waiter alex ale11111 "$T0"; await_waiter alex ale33333 "$T0"
 check "$(as_user sam "$PY" "$SYN" send alex@demo 'The tests in demo are red for me.')" 'session in demo' 'send to a session via @repo'
 rc=0; exit_of $W2A 10 || rc=$?
 [ $rc = 2 ] && ok 'the session in the named repo is woken' || fail "wake: exit $rc" "$(cat "$T/wake2a" "$T/wake2b")"
@@ -858,11 +863,13 @@ check "$(as_user sam "$PY" "$SYN" send alex@nowhere 'Anyone in nowhere?')" 'Alex
   'mail to a repo without a session says who gets it instead'
 
 # Without a repo the most recently active session shows the mail, no other one. If it is working, none is woken
-hook alex Stop "$(session ale11111 "$T/alex-demo")" 2>"$T/wake3" & W3=$!
-sleep 0.5
+T0=$(now_s); hook alex Stop "$(session ale11111 "$T/alex-demo")" 2>"$T/wake3" & W3=$!
+await_waiter alex ale11111 "$T0"
 as_user sam "$PY" "$SYN" send alex 'Quick question: who builds the tests?' >/dev/null
-sleep 3
-kill -0 $W3 2>/dev/null && ok 'while the most recently active session works, no other one is woken' || fail 'wrong session woken' "$(cat "$T/wake3")"
+# the mail is on Alex's machine (positive sign), then the waiting hook, which looks every second, gets two looks
+until_ok 20 'the mail is at Alex' grep -q 'who builds the tests' "$T/home-alex/notifications.log"
+rc=0; exit_of $W3 2 || rc=$?
+[ $rc = 124 ] && ok 'while the most recently active session works, no other one is woken' || fail 'wrong session woken' "$(cat "$T/wake3")"
 out=$(hook alex PostToolUse "$(bash_call ale44444 "$T/alex-demo")")
 check "$out" 'who builds the tests' 'the working session shows it at its next step'
 check "$out" '📨 Sam:' 'Alex sees it in the terminal'
@@ -911,16 +918,17 @@ check "$(as_user alex "$PY" "$SYN" status)" 'Sam → Alex' 'status lists the mai
 # State and history for the UI. An open permission prompt reports via Notification without ending the waiting Stop hook
 hook alex UserPromptSubmit "$(session ale11111 "$T/alex-demo")" >/dev/null
 state_is alex ale11111 working && ok 'a prompt sets the state to working' || fail 'state after the prompt' "$(state_of alex ale11111)"
-hook alex Stop "$(session ale11111 "$T/alex-demo")" 2>"$T/wake5" & W5=$!
+T0=$(now_s); hook alex Stop "$(session ale11111 "$T/alex-demo")" 2>"$T/wake5" & W5=$!
 until_ok 5 'after the turn the session waits' state_is alex ale11111 waiting
+await_waiter alex ale11111 "$T0"
 notify alex ale11111 idle_prompt >/dev/null
 state_is alex ale11111 waiting && ok 'idle_prompt does not change the state' || fail 'idle_prompt' "$(state_of alex ale11111)"
 notify alex ale11111 permission_prompt >/dev/null
 state_is alex ale11111 approval && ok 'an open permission prompt sets the state to approval' || fail 'approval' "$(state_of alex ale11111)"
 echo "{\"session_id\":\"ale44444\",\"cwd\":\"$T/alex-demo\"}" | as_user alex "$PY" "$HOOK" StopFailure
 state_is alex ale44444 error && ok 'an API error sets the state to error' || fail 'StopFailure' "$(state_of alex ale44444)"
-sleep 1.5
-kill -0 $W5 2>/dev/null && ok 'the notification does not end the waiting Stop hook' || fail 'Stop hook ended' "$(cat "$T/wake5")"
+rc=0; exit_of $W5 2 || rc=$?  # two looks of the waiting hook, which looks every second
+[ $rc = 124 ] && ok 'the notification does not end the waiting Stop hook' || fail 'Stop hook ended' "$(cat "$T/wake5")"
 check "$(cat "$T/home-alex/events.json")" '"kind": "approval"' 'the approval is in the history'
 check "$(cat "$T/home-sam/events.json")" '"kind": "warning"' 'warnings to Claude are in the history'
 check "$(cat "$T/home-sam/events.json")" '"src/a.ts"' 'edited files are in the history'
@@ -1023,8 +1031,8 @@ check "$out" 'Plan: Make the ticket tests green' 'the prompt shows the plan'
 hook sam PostToolUse "$(call sam33333 "$T/sam-demo" toolu_other auto "$MID")" >/dev/null
 lacks "$(cat "$T/home-sam/missions.json")" '"joined"' 'another call does not count as the approval'
 hook alex UserPromptSubmit "$(session ale11111 "$T/alex-demo")" >/dev/null
-hook alex Stop "$(session ale11111 "$T/alex-demo")" 2>"$T/wake6" & W6=$!
-sleep 0.5
+T0=$(now_s); hook alex Stop "$(session ale11111 "$T/alex-demo")" 2>"$T/wake6" & W6=$!
+await_waiter alex ale11111 "$T0"
 check "$(from_session sam33333 as_user sam "$PY" "$SYN" mission approve "$MID")" 'Sam approved' 'the command after the yes'
 out=$(hook sam PostToolUse "$(call sam33333 "$T/sam-demo" toolu_2 auto "$MID")")
 check "$out" "mission $MID is approved until" 'the yes starts the mission'
@@ -1036,8 +1044,8 @@ check "$(cat "$T/wake6")" 'Do what the proposal says' 'a valid signed proposal g
 check "$(cat "$T/wake6")" "mission approve $MID" 'with the command that asks Alex'
 
 # Alex says yes: Sam's waiting session is woken and goes on without Sam
-hook sam Stop "$(session sam33333 "$T/sam-demo")" 2>"$T/wake7" & W7=$!
-sleep 0.5
+T0=$(now_s); hook sam Stop "$(session sam33333 "$T/sam-demo")" 2>"$T/wake7" & W7=$!
+await_waiter sam sam33333 "$T0"
 [ ! -e "$T/home-alex/approve.key" ] && ok 'Alex has no approve.key before her first approval' || fail 'approve.key before the first approval'
 out=$(hook alex PreToolUse "$(call ale11111 "$T/alex-demo" toolu_3 auto "$MID")")
 check "$out" "Join Sam (@sam-gh)'s mission until" 'Claude Code asks Alex'
@@ -1059,8 +1067,8 @@ mission_is sam "m['$MID']['by'] == 'sam-gh' and parse(m['$MID']['until']) > pars
 out=$(hook sam PreToolUse "$(edit sam33333 "$T/sam-demo" "$T/sam-demo/src/a.test.ts")")
 [ -z "$out" ] && ok "within the mission, Alex's file needs no question" || fail 'question within the mission' "$out"
 check "$(hook sam PreToolUse "$(edit sam55555 "$T/sam-demo" "$T/sam-demo/src/a.test.ts")")" '"ask"' 'a session outside the mission is still asked'
-hook sam Stop "$(session sam33333 "$T/sam-demo")" 2>"$T/wake8" & W8=$!
-sleep 0.5
+T0=$(now_s); hook sam Stop "$(session sam33333 "$T/sam-demo")" 2>"$T/wake8" & W8=$!
+await_waiter sam sam33333 "$T0"
 from_session ale11111 as_user alex "$PY" "$SYN" send sam 'Tests are in src/a.test.ts, three of them fail on the id check.' >/dev/null
 rc=0; exit_of $W8 15 || rc=$?
 [ $rc = 2 ] && ok 'a mission message wakes the session that joined' || fail "wake: exit $rc" "$(cat "$T/wake8")"
