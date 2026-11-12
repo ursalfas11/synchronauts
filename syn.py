@@ -94,6 +94,7 @@ STATUS_TEXT = 300                   # characters of a message that `syn status` 
 CLOCK_SKEW = timedelta(minutes=5)   # an invite dated further ahead of the clock here proposes nothing
 CLOCK_OFF = 300                     # seconds the clock here may differ from GitHub's before syn says so
 EDIT_TOOLS = ('Edit', 'Write', 'MultiEdit', 'NotebookEdit')
+DEFAULT_NAMES = ('main', 'master')  # the default branch of a repo that no checkout on this machine has told about
 CONFLICT_TICK = setting('SYN_CONFLICT_TICK', 60.0)  # seconds between two conflict checks
 EVENTS_KEEP = timedelta(hours=24)   # an event stays in the UI's history this long
 MAX_EVENTS = 100
@@ -109,6 +110,9 @@ PAIR_ALPHABET = '0123456789abcdefghjkmnpqrstvwxyz'  # the board's pairing code: 
 PAIR_LENGTH, PAIR_SECONDS = 16, 120
 XDG_OPEN = ('/usr/bin/xdg-open', '/usr/local/bin/xdg-open', '/bin/xdg-open', '/run/current-system/sw/bin/xdg-open')
 KEYS_GITHUB = 'https://github.com/{login}.keys'  # public SSH keys, to check senders; SYN_KEYS_URL names another place
+SIGNER_KEEP = timedelta(days=30)     # a login whose last good signature is older counts as one who does not sign
+SIGNER_TOUCH = 3600                 # seconds: a good signature renews the time in signers.json at most this often
+KEYS_GAP = 600                      # seconds between two fresh questions to the keys URL about one login
 MAX_KEYS = 50                       # key lines read per login
 MAX_KEY_LINE = 1000                 # longer lines are not keys
 NOTIFY_MAX = 5                      # system notifications per 10 minutes; past that the board and the agents still show it
@@ -182,10 +186,17 @@ def clock(s):
 
 
 def load(path, default):
-    try:
-        return json.loads(Path(path).read_text(encoding='utf-8'))
-    except (OSError, ValueError):
-        return default
+    """The JSON in path; default if it is missing or broken. On Windows a file that save() replaces at this moment
+    cannot be opened for an instant: that read is tried again, since default would look like an empty file."""
+    for attempt in range(25):
+        try:
+            return json.loads(Path(path).read_text(encoding='utf-8'))
+        except PermissionError:
+            if not WINDOWS or attempt == 24:
+                return default
+            time.sleep(0.02)
+        except (OSError, ValueError):
+            return default
 
 
 def replace(tmp, path):
@@ -493,6 +504,21 @@ def invite(remote, logins):
     return out
 
 
+def no_room(k, error):
+    """Why setup cannot reach the room, with the next step where git's words name none: GitHub answers "not found"
+    for a private repo that is missing and for one this account may not read."""
+    said, gp = str(getattr(error, 'output', '') or error).lower(), github_path(k['remote'])
+    if gp and 'not found' in said:
+        room = f'{gp[0]}/{gp[1]}'
+        return (f"the room {room} is not there, or {k['me']} has no access to it: its owner invites you with "
+                f"`{CMD} setup {room} --invite {k['me']}`")
+    if gp and ('could not read username' in said or 'authentication failed' in said):
+        return 'git cannot log in to GitHub: run `gh auth setup-git` first'
+    if 'does not appear to be a git repository' in said:
+        return f"{k['remote']} is no Git repo: name the room as owner/repo"
+    return str(error)
+
+
 def setup(k, derive=True, agents=True):
     """Find out who and where, create the bare repo, check access, push the own branch, fetch the others and check
     their mail. True if it accepted an invitation to the room on the way. A machine name it takes from the host name
@@ -504,7 +530,9 @@ def setup(k, derive=True, agents=True):
     if not k.get('me'):
         k['me'] = gh('api', 'user', '--jq', '.login')
         if not k['me']:
-            raise RuntimeError('cannot find the GitHub login, run `gh auth login` first')
+            raise RuntimeError('cannot find the GitHub login: ' + (
+                'run `gh auth login` first' if shutil.which('gh')
+                else 'install the GitHub CLI (https://cli.github.com), then run `gh auth login`'))
     if not k.get('name'):
         k['name'] = (gh('api', 'user', '--jq', '.name') or k['me']).split()[0]
     derived = not k.get('machine')  # from the host name, which another machine of mine may have as well
@@ -524,10 +552,10 @@ def setup(k, derive=True, agents=True):
         accepted = False
         try:
             listing = ls_remote()  # without access this fails clearly
-        except RuntimeError:
+        except RuntimeError as error:
             accepted = accept_invitation(k['remote'])
             if not accepted:
-                raise
+                raise RuntimeError(no_room(k, error)) from None
             time.sleep(1)
             listing = ls_remote()
         # a branch of that name that this installation never wrote is another machine's (two laptops of one name, or
@@ -796,7 +824,7 @@ def trust_view(n, login, checked, me, sealed=None, signers=()):
     is unsigned in the login of somebody who signs, as verify() finds without asking anybody. Mail between two others
     is not checked: `unsigned`, or `unchecked` if it is signed (only the board shows that). Every reader treats a value
     it does not know as `unsigned`. sealed: seal(n, login) if the caller has it; signers: the login_key() of each
-    login in signers.json."""
+    login whose signature checked out lately (signers_now)."""
     x = checked.get(sealed or seal(n, login))
     if isinstance(x, dict):
         return x.get('v', 'unsigned')
@@ -812,8 +840,7 @@ def mail_copies(k, others_=None, mine=True):
     is left out, so an old signed message cannot come back. Mail dated ahead of the clock here (the sender's clock, or
     this one, is off) comes with `ahead`, up to a day; further ahead it is left out."""
     others_ = load(HOME / 'others.json', {}) if others_ is None else others_
-    checked, signers, out = load(HOME / 'verified.json', {}), load(HOME / 'signers.json', []), []
-    signers = {login_key(x) for x in signers if isinstance(x, str)} if isinstance(signers, list) else set()
+    checked, signers, out = load(HOME / 'verified.json', {}), signers_now(), []
     oldest, soon = now() - MAIL_KEEP - timedelta(days=1), now() + timedelta(minutes=10)
     newest = now() + timedelta(days=1)
     for who, d in others_.items():
@@ -1078,7 +1105,7 @@ def check_mail(k, wait=False):
                 v, final, by = (('unsigned', False, '') if n.get('sig') and n['from'] in down
                                 and id_owner(n['id']) == n['from'] else judge(n, k))
                 if not final:  # it could not be checked (the keys, the record of pushes): no verdict to keep
-                    if n.get('sig'):
+                    if n.get('sig') and by != 'wait':  # 'wait': the keys were asked lately, that is no outage
                         down.add(n['from'])
                     pending += 1
                 else:
@@ -1453,13 +1480,22 @@ def github_keys(login, fresh=False, ttl=86400, url=None):
     (signing_keys), cached for ttl seconds: a list (empty if there are none, also when the place answers 404: it
     knows no such login), None if the place cannot be asked. At most
     MAX_KEYS lines, none longer than MAX_KEY_LINE: the place is not ours and must not feed unbounded text into the
-    signature check."""
+    signature check. Every question, answered or not, is noted (`asked`), for keys_asked()."""
     import urllib.error
     import urllib.request
     cache = load(HOME / 'keys.json', {})
     c = (cache.get(login) if isinstance(cache, dict) else None) or {}
     if c and not fresh and time.time() - c.get('time', 0) < ttl:
         return c['keys']
+
+    def failed():
+        with Lock('keys'):
+            cache = load(HOME / 'keys.json', {})
+            cache = cache if isinstance(cache, dict) else {}
+            cache[login] = {**(cache.get(login) if isinstance(cache.get(login), dict) else {}), 'asked': time.time()}
+            save(HOME / 'keys.json', cache)
+        return c.get('keys')
+
     try:
         req = urllib.request.Request((url or keys_url()).format(login=login), headers={'User-Agent': 'synchronauts'})
         with urllib.request.urlopen(req, timeout=10) as r:
@@ -1468,20 +1504,28 @@ def github_keys(login, fresh=False, ttl=86400, url=None):
         if not url and keys_url() == KEYS_GITHUB:  # GitHub keeps the keys for signing only in another list
             more = signing_keys(login)
             if more is None:
-                return c.get('keys')
+                return failed()
             keys = (keys + [x for x in more if x not in keys])[:MAX_KEYS]
     except urllib.error.HTTPError as f:
         if f.code != 404:  # busy, down, rate limited: ask again later
-            return c.get('keys')
+            return failed()
         keys = []  # an answer: no such login, so no keys (its signed mail is forged), and no question every minute
     except Exception:  # noqa: BLE001  # no answer, a broken one (http.client's errors are no OSError) or a URL that
-        return c.get('keys')  # cannot be asked: user:password@ read as a port, a {field} but {login}. Not passed on
+        return failed()  # cannot be asked: user:password@ read as a port, a {field} but {login}. Not passed on
     with Lock('keys'):  # the watcher's checker thread, setup and choose_key write it too: read anew, add, write
         cache = load(HOME / 'keys.json', {})
         cache = cache if isinstance(cache, dict) else {}
         cache[login] = {'time': time.time(), 'keys': keys}
         save(HOME / 'keys.json', cache)
     return keys
+
+
+def keys_asked(login):
+    """When the keys URL was last asked about login, answered or not (0 if never)."""
+    cache = load(HOME / 'keys.json', {})
+    c = cache.get(login) if isinstance(cache, dict) else None
+    c = c if isinstance(c, dict) else {}
+    return max([x for x in (c.get('time'), c.get('asked')) if isinstance(x, (int, float))] or [0])
 
 
 def signing_keys(login):
@@ -1681,9 +1725,10 @@ def judge(n, k=None):
     elsewhere; 'bad' when another account pushed it, pusher. final is False for a check that could not be made
     ('unsigned', and check_mail() asks again): the keys could not be fetched, the record of pushes does not say yet,
     ssh-keygen did not start or did not end in time, or the ssh-keygen of this machine checks no signature at all
-    (can_verify). k: the room's config."""
+    (can_verify), or no key fits and the keys URL was asked about the sender less than KEYS_GAP seconds ago (then
+    pusher is 'wait': the keys are not down, check_mail() has no reason to leave the sender's other mail alone).
+    k: the room's config."""
     k = config() if k is None else k
-    signers = set(load(HOME / 'signers.json', []))
     if not n.get('sig'):
         v, by = push_verdict(k, n['from'], n.get('places')) if id_owner(n.get('id')) == n['from'] else (None, '')
         if v == 'wait':
@@ -1695,19 +1740,57 @@ def judge(n, k=None):
                 note_room_mismatch(n['from'], n['room'])
                 return 'bad', True, ''
             return 'ok', True, ''
-        return ('bad' if login_key(n['from']) in {login_key(x) for x in signers} else 'unsigned'), True, ''
-    v = signed_verdict(n, k, signers)
-    return v, v != 'unsigned', ''
+        return ('bad' if login_key(n['from']) in signers_now() else 'unsigned'), True, ''
+    v = signed_verdict(n, k)
+    return ('unsigned', False, 'wait') if v == 'wait' else (v, v != 'unsigned', '')
 
 
-def signed_verdict(n, k, signers):
-    """judge() for a message with a signature."""
+def signer_file():
+    """signers.json as {login: when its signature last checked out}. The file of 0.5 is a list of logins without a
+    time: each counts as signed now."""
+    d = load(HOME / 'signers.json', {})
+    if isinstance(d, list):
+        d = {x: time.time() for x in d if isinstance(x, str)}
+    return {x: t for x, t in d.items() if isinstance(x, str) and isinstance(t, (int, float))} if isinstance(d, dict) else {}
+
+
+def signers_now():
+    """The login_key() of each login that signed within SIGNER_KEEP: unsigned mail in their name is forged. Somebody who
+    sends from a machine without a key and signs nowhere for that long shows as unsigned again. The list of 0.5 is
+    written out once with the time of this read, so the 30 days run from then."""
+    if isinstance(load(HOME / 'signers.json', {}), list):
+        with Lock('keys'):  # another process may have done it meanwhile
+            if isinstance(load(HOME / 'signers.json', {}), list):
+                save(HOME / 'signers.json', signer_file())
+    t = time.time()
+    return {login_key(x) for x, at in signer_file().items() if t - SIGNER_KEEP.total_seconds() < at <= t + 86400}
+
+
+def note_signer(login):
+    """login's signature checked out: the time goes into signers.json (at most every SIGNER_TOUCH seconds), and the
+    logins past SIGNER_KEEP leave it."""
+    t = time.time()
+    if t - signer_file().get(login, 0) < SIGNER_TOUCH:
+        return
+    with Lock('keys'):  # another process may add a signer meanwhile: read anew, add, write
+        d = {x: at for x, at in signer_file().items() if t - at < SIGNER_KEEP.total_seconds()}
+        d[login] = t
+        save(HOME / 'signers.json', dict(sorted(d.items())))
+
+
+def signed_verdict(n, k):
+    """judge() for a message with a signature; 'wait' for one that waits for the gap between two questions to the keys URL."""
     if id_owner(n.get('id')) != n['from']:  # signed under somebody else's id: a copy meant to push the real one out
         return 'bad'
     if PROBE == [False]:  # this machine checks no signature: no verdict, and no ssh-keygen run per message
         return 'unsigned'
     refused = False  # ssh-keygen ran and said no
+    before = keys_asked(n['from'])
     for fresh in (False, True):  # a new key on GitHub: look again once
+        if fresh and keys_asked(n['from']) != before:
+            break  # the first look asked the keys URL itself: these are the current keys
+        if fresh and time.time() - before < KEYS_GAP:
+            return 'wait'  # asked lately and the key is not there: no verdict yet, a later pass asks again
         keys = github_keys(n['from'], fresh)
         if keys is None:  # GitHub cannot be asked: no verdict
             return 'unsigned'
@@ -1718,9 +1801,7 @@ def signed_verdict(n, k, signers):
             return 'unsigned'
         refused = True
         if r.returncode == 0:
-            if n['from'] not in signers:
-                with Lock('keys'):  # another process may add a signer meanwhile: read anew, add, write
-                    save(HOME / 'signers.json', sorted(set(load(HOME / 'signers.json', [])) | {n['from']}))
+            note_signer(n['from'])
             if n.get('room') is not None and norm_room(n['room']) not in room_ids(k):
                 note_room_mismatch(n['from'], n['room'])  # a replay from another room, or the remotes differ
                 return 'bad'
@@ -2392,12 +2473,15 @@ def line(who, s, full=False, note=''):
     return f"- {who}{last}: {body[:cap] + '…' if len(body) > cap else body}{task}"
 
 
-def situation_lines(k, sid):
-    """(key, text) per other active session; the key changes with the label (a clash marks it), repo, branch, claims
-    or task."""
+def situation_lines(k, sid, repos=None):
+    """(key, text) per other active session; the key changes with the label (a clash marks it), repo, branch or
+    claims. Not with the task: every change of task of anybody would put a line into every other session, and `status`
+    and the board have it. repos: only the sessions in one of these repos; None for all of them, the first picture."""
     for who, key, s, _ in others(k, sid):
-        repos = ','.join(f"{r}@{x.get('branch')}:{'+'.join(x.get('claims', []))}" for r, x in sorted(s['repos'].items()))
-        yield f"line|{key}|{who}|{repos}|{s.get('task')}", line(who, s)
+        if repos is None or repos & set(s['repos']):
+            where = ','.join(f"{r}@{x.get('branch')}:{'+'.join(x.get('claims', []))}"
+                             for r, x in sorted(s['repos'].items()))
+            yield f'line|{key}|{who}|{where}', line(who, s)
 
 
 def allowed(key, asked):
@@ -2412,10 +2496,45 @@ def same_branch(a, b):
     return bool(a) and a == b and a != 'HEAD'
 
 
+def note_default(repo, root):
+    """Notes the default branch of a repo in defaults.json when a session enters it, asked at most once a day: the one
+    origin/HEAD names, otherwise main or master if the checkout has it, '' if it has neither."""
+    known = load(HOME / 'defaults.json', {})
+    seen = known.get(repo) if isinstance(known, dict) else None
+    if isinstance(seen, list) and len(seen) == 2 and time.time() - seen[1] < 86400:
+        return
+    try:
+        branch = git('symbolic-ref', '--short', '-q', 'refs/remotes/origin/HEAD', cwd=root, timeout=3).partition('/')[2]
+    except (RuntimeError, OSError, subprocess.TimeoutExpired):
+        branch = ''
+    if not branch:
+        try:
+            have = git('for-each-ref', '--format=%(refname:short)', *(f'refs/heads/{n}' for n in DEFAULT_NAMES),
+                       cwd=root, timeout=3).split()
+        except (RuntimeError, OSError, subprocess.TimeoutExpired):
+            return
+        branch = next((n for n in DEFAULT_NAMES if n in have), '')
+    with Lock('defaults'):
+        known = load(HOME / 'defaults.json', {})
+        known = {r: x for r, x in (known.items() if isinstance(known, dict) else ()) if r != repo}
+        known[repo] = [branch, time.time()]
+        save(HOME / 'defaults.json', dict(sorted(known.items(), key=lambda x: x[1][1])[-200:]))
+
+
+def default_branch(repo, branch):
+    """Whether branch is the one everybody in repo starts from: what a checkout on this machine told (note_default),
+    otherwise main or master. Two machines on it are no overlap: everybody is there, each in a clone of their own."""
+    seen = load(HOME / 'defaults.json', {}).get(repo)
+    known = seen[0] if isinstance(seen, list) and seen and isinstance(seen[0], str) else None
+    return branch in DEFAULT_NAMES if known is None else bool(known) and branch == known
+
+
 def overlaps(k, mine, sid, asked=(), team=()):
     """(key, text) per contact of another session with the repos of this session, in the same repo with the files it
-    edits there. Own sessions only count from the same file or the same branch on. With the people of the own mission
-    (team) the Claudes coordinate themselves: a note without a warning."""
+    edits there. Own sessions only count from the same file or the same branch on. The default branch is a shared
+    branch only between two sessions of this machine, which work in one checkout: on another machine it is the same
+    repo, no more. With the people of the own mission (team) the Claudes coordinate themselves: a note without a
+    warning."""
     for who, key, s, own in others(k, sid):
         if key.split('/')[0] in team:
             for repo, r in s['repos'].items():
@@ -2437,7 +2556,7 @@ def overlaps(k, mine, sid, asked=(), team=()):
                 files = f"the same files in {short(repo)} (branch {r.get('branch')}): {', '.join(same[:6])}"
                 yield note, (f"{who} is editing {files}. {k.get('name')} knows and allowed the edit."
                              if allowed(note, asked) else f"⚠️ {who} is editing {files}")
-            elif same_branch(r.get('branch'), m.get('branch')):
+            elif same_branch(r.get('branch'), m.get('branch')) and (own or not default_branch(repo, m.get('branch'))):
                 yield (f"branch|{key}|{repo}|{m.get('branch')}",
                        f"⚠️ {who} is on the same branch {m.get('branch')} in {short(repo)}{there}")
             elif not own:
@@ -2467,14 +2586,48 @@ def snapshot(root):
     return git('commit-tree', tree, '-p', head, '-m', 'synchronauts: working tree', cwd=root, timeout=20, env=who)
 
 
+def git_names(out):
+    """The file names git printed one per line, as in_repo() writes them: accents composed (NFC)."""
+    import unicodedata  # only here, so the hooks start fast
+    return {x if x.isascii() else unicodedata.normalize('NFC', x)
+            for x in out.decode('utf-8', 'replace').splitlines() if x.strip()}
+
+
 def conflicted(root, a, b):
     """Files that would conflict if a and b were merged, [] if none, None if git cannot tell (older than 2.38,
-    unrelated histories)."""
-    r = subprocess.run(['git', 'merge-tree', '--write-tree', '--name-only', '--no-messages', a, b], cwd=root,
-                       capture_output=True, stdin=subprocess.DEVNULL, timeout=60)
+    unrelated histories). Names as git prints them with core.quotePath off: UTF-8 as it is, not as \303\234."""
+    r = subprocess.run(['git', '-c', 'core.quotePath=false', 'merge-tree', '--write-tree', '--name-only',
+                        '--no-messages', a, b], cwd=root, capture_output=True, stdin=subprocess.DEVNULL, timeout=60)
     if r.returncode not in (0, 1):
         return None
-    return sorted({x for x in r.stdout.decode('utf-8', 'replace').splitlines()[1:] if x.strip()})
+    return sorted(git_names(b'\n'.join(r.stdout.split(b'\n')[1:])))
+
+
+def upstream(root):
+    """The commit a checkout's branch has at its remote, as the checkout knows it: the upstream it is set to follow,
+    otherwise origin/<branch>. None for a detached HEAD and for a branch that was never pushed. Asked of the checkout,
+    not of what a session noted: a session that ran no hook since a `git switch` still names the old branch."""
+    try:
+        return git('rev-parse', '--verify', '-q', '@{upstream}^{commit}', cwd=root, timeout=10) or None
+    except (RuntimeError, OSError, subprocess.TimeoutExpired):
+        pass
+    try:
+        branch = git('symbolic-ref', '--short', '-q', 'HEAD', cwd=root, timeout=10)
+        return git('rev-parse', '--verify', '-q', f'refs/remotes/origin/{branch}^{{commit}}', cwd=root, timeout=10) or None
+    except (RuntimeError, OSError, subprocess.TimeoutExpired):
+        return None
+
+
+def unpushed(root, tip, snap):
+    """The files a checkout changed and has not pushed: its working tree (snap) against its branch at origin (tip, see
+    upstream()). None if that cannot be told, as for a branch that was never pushed: all its work is local then."""
+    if not tip or not snap:
+        return None
+    try:
+        return git_names(git_raw('-c', 'core.quotePath=false', 'diff', '--name-only', '--no-renames', tip, snap,
+                                 cwd=root, timeout=30))
+    except (RuntimeError, OSError, subprocess.TimeoutExpired):
+        return None
 
 
 def conflict_check():
@@ -2497,7 +2650,7 @@ def conflict_check():
             if parse(s.get('last')) > limit and not local.get('ended'):
                 mine[sid] = {r: (local['roots'][r], x.get('branch')) for r, x in s.get('repos', {}).items()
                              if r in local.get('roots', {}) and Path(local['roots'][r]).is_dir()}
-        snaps, tips, out = {}, {}, {}
+        snaps, tips, out, local = {}, {}, {}, {}
 
         def snap(root):
             if root not in snaps:
@@ -2526,6 +2679,8 @@ def conflict_check():
 
         for sid, repos in mine.items():
             for repo, (root, branch) in repos.items():
+                if not branch or branch == 'HEAD':  # a detached HEAD pushed nothing: origin/HEAD is the default branch
+                    continue
                 try:
                     tips.setdefault(sid, {})[repo] = git('rev-parse', '--verify', '-q', f'refs/remotes/origin/{branch}',
                                                          cwd=root, timeout=10)
@@ -2543,22 +2698,43 @@ def conflict_check():
                     b = get() if a else None
                     files = conflicted(root, a, b) if b and b != a else None
                     if files:
-                        out.setdefault(sid, []).append({'with': key, 'repo': repo, 'branch': other_branch,
-                                                        'files': files[:MAX_FILES]})
+                        c = {'with': key, 'repo': repo, 'branch': other_branch, 'files': files[:MAX_FILES]}
+                        if root not in local:
+                            local[root] = unpushed(root, upstream(root), a)
+                        if local[root] is not None:  # which of them this checkout changed itself, see conflict_files()
+                            c['own'] = [f for f in c['files'] if f in local[root]]
+                        out.setdefault(sid, []).append(c)
         save(HOME / 'conflicts.json', {'time': iso(), 'sessions': out, 'tips': tips, 'fetched': tried})
     finally:
         lock.__exit__()
 
 
+def conflict_files(c, s):
+    """The files of a conflict that concern the session s: those it edited, and those its checkout changed and has not
+    pushed (`own`; all of them where the check could not tell, as for a branch that was never pushed). The check merges
+    whole branches: two of them that changed the same README weeks ago would warn every session that opens the repo,
+    and a warning that comes that often is not read. The board shows every conflict."""
+    files, own = [f for f in c.get('files') or [] if isinstance(f, str)], c.get('own')
+    if not isinstance(own, list):
+        return files
+    edited = (((s or {}).get('repos') or {}).get(c.get('repo')) or {}).get('files') or []
+    return [f for f in files if f in own or f in edited]
+
+
 def conflict_lines(k, sid):
-    """(key, text) per session whose work would conflict with this session's, from the last conflict check."""
+    """(key, text) per session whose work would conflict with this session's in files that concern it
+    (conflict_files), from the last conflict check."""
     who = {key: name for name, key, _, _ in others(k, sid)}
+    mine = load(HOME / 'status.json', {}).get('sessions', {}).get(sid)
     for c in load(HOME / 'conflicts.json', {}).get('sessions', {}).get(sid, []):
+        files = conflict_files(c, mine)
+        if not files:
+            continue
         name = who.get(c['with'], c['with'].split('/')[0])
         whose = 'your other session' if name == 'Your other session' else f"{name}'s session"
-        yield (f"conflict|{c['with']}|{c['repo']}|{','.join(c['files'])}",
+        yield (f"conflict|{c['with']}|{c['repo']}|{','.join(files)}",
                f"⚠️ Merging {whose} ({short(c['repo'])}@{c.get('branch')}) with this session's work would conflict in: "
-               f"{', '.join(c['files'][:6])}")
+               f"{', '.join(files[:6])}")
 
 
 def sessions_here():
@@ -5738,6 +5914,7 @@ def hook(event, agent='claude', got=None):
         return wait_for_mail(k, sid)
     if event in ('Notification', 'StopFailure'):
         return report_state(sid, event, e)
+    first = event == 'SessionStart' and k.get('solo') and not LINK.exists()  # the first start after the install
     link(always=event == 'SessionStart')
     alive()
     ensure_watcher()
@@ -5785,6 +5962,8 @@ def hook(event, agent='claude', got=None):
     mine = update_status(sid, change, end=event == 'SessionEnd')
     for kind, repo, fields in history:
         log_event(sid, kind, repo or main_repo(mine), **fields)
+        if kind == 'repo' and repo in roots:
+            note_default(repo, roots[repo])
     if mine.get('repos') and min(age(HOME / 'conflicts.json'), age(HOME / 'conflicts-start')) > CONFLICT_TICK:
         touch('conflicts-start')
         spawn('conflicts', log=HOME / 'conflicts.log')
@@ -5803,8 +5982,9 @@ def hook(event, agent='claude', got=None):
     # The picture only comes once the session touches a team repo or the prompt names one somebody is working in right
     # now; before that only mail. The prompt stays on this machine.
     prompt = str(e.get('prompt') or '').lower()
-    in_team = bool(mine.get('repos')) or bool(prompt) and any(
-        len(short(r)) >= 4 and short(r).lower() in prompt for _, _, s, _ in others(k, sid) for r in s['repos'])
+    named = {r for _, _, s, _ in others(k, sid) for r in s['repos']
+             if len(short(r)) >= 4 and short(r).lower() in prompt} if prompt else set()
+    in_team = bool(mine.get('repos')) or bool(named)
     nm, error, ms = names(k), error_text(), missions(k)
     m = my_mission(k, sid, ms)
     with Lock('delivery'):
@@ -5812,8 +5992,11 @@ def hook(event, agent='claude', got=None):
         mail, _ = new_mail(k, sid, sess, ms)
         mark_delivered([n for n, first in mail if first])
         asked = set(sess.get('asked', []))
-        notes = [(key, x) for key, x in [*situation_lines(k, sid), *overlaps(k, mine, sid, asked, partners(k, m)),
-                                         *conflict_lines(k, sid)]
+        # the first picture shows every session, also the ones in other repos (the same topic from both ends); after
+        # it, a session hears of the repos it works in or its prompt names
+        scope = set(mine.get('repos', {})) | named if sess.get('introduced') else None
+        notes = [(key, x) for key, x in [*situation_lines(k, sid, scope),
+                                         *overlaps(k, mine, sid, asked, partners(k, m)), *conflict_lines(k, sid)]
                  if key not in sess['reported']] if in_team else []
         if error and in_team and f'error|{error}' not in sess['reported']:
             notes.append((f'error|{error}', f'Synchronauts: sync is failing ({error}); the picture may be stale.'))
@@ -5866,11 +6049,18 @@ def hook(event, agent='claude', got=None):
     if invited[0]:
         lines.append(invited[0])
         for_user.append(invited[1])
+    if first:  # for the human only: the install worked, and what a team does next
+        for_user.append(WELCOME)
     emit(event, '\n'.join(lines), ' · '.join(for_user) or None)
     return 0
 
 
 # --- Commands -----------------------------------------------------------------
+
+# what the human reads at the first session start after the install, once per machine; Claude gets none of it
+WELCOME = (f'Synchronauts {VERSION} is on: your sessions on this machine see each other, nothing leaves it. For a team, '
+           f'tell Claude "set up Synchronauts with the room <you>/agents-room and invite <login>". The board: '
+           f'`{CMD} ui`.')
 
 CODEX_HOOKS = {'SessionStart': 15, 'UserPromptSubmit': 10, 'PreToolUse': 10, 'PostToolUse': 10, 'Stop': 10,
                'SessionEnd': 3}  # event → timeout in seconds; Codex has no Notification and no StopFailure
@@ -6538,15 +6728,18 @@ def ui_session(login, machine, sid, s, local=None):
 
 
 def pairs(team, crews=()):
-    """Overlaps per pair of sessions: the same file, the same branch, otherwise the same repo (only between different
-    people, as in the hooks). Two sessions in the same mission (crews: their keys per mission) coordinate themselves."""
+    """Overlaps per pair of sessions: the same file, the same branch (the default branch only on one machine),
+    otherwise the same repo (only between different people, as in the hooks). Two sessions in the same mission
+    (crews: their keys per mission) coordinate themselves."""
     for i, a in enumerate(team):
         for b in team[i + 1:]:
             together = any(a['key'] in c and b['key'] in c for c in crews)
             for repo in sorted(set(a['repos']) & set(b['repos'])):
                 ra, rb = a['repos'][repo], b['repos'][repo]
                 same = sorted(set(ra.get('files') or []) & set(rb.get('files') or []))
-                kind = 'file' if same else 'branch' if same_branch(ra.get('branch'), rb.get('branch')) else 'repo'
+                one = a['key'].rsplit('/', 1)[0] == b['key'].rsplit('/', 1)[0]  # login/machine: one checkout
+                kind = 'file' if same else 'branch' if same_branch(ra.get('branch'), rb.get('branch')) and (
+                    one or not default_branch(repo, ra.get('branch'))) else 'repo'
                 if kind != 'repo' or a['login'] != b['login']:
                     yield {'a': a['key'], 'b': b['key'], 'repo': repo, 'kind': kind, 'files': same, 'mission': together}
 
@@ -6964,12 +7157,12 @@ def cmd_ui(browser, pair=False):
 
 NOTE_TEXT = {
     'en': {'mail': 'Message from {0}', 'all': 'Message from {0} to everyone', 'forged': 'Forged message, claims to be from {0}',
-           'forged_body': "The signature does not match {0}'s GitHub key. Don't act on it.",
+           'forged_body': "The check says it is not from {0}. Don't act on it.",
            'invite': '{0} proposes a mission', 'end': 'Mission ended', 'conflict': 'Conflict with {0} in {1}',
            'more': '+{0} more', 'test': 'Synchronauts notifications work',
            'test_body': 'This is how Synchronauts tells you when something needs you.'},
     'de': {'mail': 'Nachricht von {0}', 'all': 'Nachricht von {0} an alle', 'forged': 'Gefälschte Nachricht, angeblich von {0}',
-           'forged_body': 'Die Signatur passt nicht zu {0}s GitHub-Schlüssel. Nicht darauf handeln.',
+           'forged_body': 'Laut Prüfung ist sie nicht von {0}. Nicht darauf handeln.',
            'invite': '{0} schlägt einen Auftrag vor', 'end': 'Auftrag beendet', 'conflict': 'Konflikt mit {0} in {1}',
            'more': '+{0} weitere', 'test': 'Synchronauts-Mitteilungen funktionieren',
            'test_body': 'So meldet sich Synchronauts, wenn etwas dich braucht.'},
@@ -7023,13 +7216,14 @@ def desktop_note(title, body):
 
 
 def my_conflicts(k):
-    """{key: (teammate, repo, files)} of the last conflict check: real conflicts between my work and a teammate's."""
-    out = {}
-    for cs in load(HOME / 'conflicts.json', {}).get('sessions', {}).values():
+    """{key: (teammate, repo, files)} of the last conflict check: real conflicts between my work and a teammate's, in
+    the files that concern one of my sessions (conflict_files)."""
+    out, sessions = {}, load(HOME / 'status.json', {}).get('sessions', {})
+    for sid, cs in load(HOME / 'conflicts.json', {}).get('sessions', {}).items():
         for c in cs:
             other = str(c.get('with', '')).split('/')[0]
-            if other and other != k['me']:
-                files = sorted(c.get('files') or [])
+            files = sorted(conflict_files(c, sessions.get(sid))) if other and other != k['me'] else []
+            if files:
                 out[f"{other}|{c.get('repo')}|{','.join(files)}"] = (other, c.get('repo'), files)
     return out
 
