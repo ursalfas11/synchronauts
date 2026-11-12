@@ -733,7 +733,9 @@ hook alex SessionEnd "$(session ale22222 "$T/alex-other")" >/dev/null
 
 # Sam edits a private repo on the side: it must not show up in the picture
 hook sam PostToolUse "$(edit sam22222 "$T/private" "$T/private/src/a.ts")" >/dev/null
-until_ok 10 "the watchers bring Alex's task to Sam" grep -q 'Build tickets API' "$T/home-sam/others.json"
+# the task of the session itself: the history of Alex's branch names every task it ever had
+alex_task() { "$PY" -c 'import json,sys; sys.exit(json.load(open(sys.argv[1], encoding="utf-8"))["alex-gh/one"]["sessions"]["ale11111"].get("task") != sys.argv[2])' "$T/home-sam/others.json" "$1"; }
+until_ok 10 "the watchers bring Alex's task to Sam" alex_task 'Build tickets API'
 
 # Outside the team repos the plugin costs no context until the session touches a team repo
 out=$(hook sam SessionStart "$(session sam66666 "$T/private")")
