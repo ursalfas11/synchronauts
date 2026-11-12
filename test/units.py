@@ -929,6 +929,32 @@ syn.gh_run, syn.time.sleep = real_run, real_sleep
 for name in PUSH_STATE:
     (HOME / name).unlink(missing_ok=True)
 
+# An invitation to a room: found in the background, told once, never accepted without the human
+for name in ('invites.json', 'invites-told.json'):
+    (HOME / name).unlink(missing_ok=True)
+real_run = syn.gh_run
+rows = ['lee-gh/room\tSynchronauts room\tlee-gh', 'evil-gh/tools\tA repo of tools\tevil-gh',
+        'x-gh/a b\tSynchronauts room\tx-gh', 'y-gh/room\tSynchronauts room\tnot a login', 'short']
+syn.gh_run = lambda *args, timeout=30: (True, '\n'.join(rows))
+syn.look_for_invites()
+check(syn.load(HOME / 'invites.json', None) == [{'room': 'lee-gh/room', 'by': 'lee-gh'}],
+      'of the open invitations only one to a room that setup made is noted, with names that are names',
+      str(syn.load(HOME / 'invites.json', None)))
+for_claude, for_human = syn.invite_lines({'name': 'Kim'})
+check('@lee-gh invited this GitHub account to the Synchronauts room lee-gh/room' in for_claude
+      and f'only after a yes run `{syn.CMD} setup lee-gh/room`' in for_claude and 'Tell Kim' in for_claude
+      and '@lee-gh invites you to the room lee-gh/room' in for_human and syn.invite_lines({'name': 'Kim'}) == ('', ''),
+      'the invitation is told once, with who invites, and joining waits for the yes of the human', for_claude)
+syn.save(HOME / 'invites.json', [{'room': 'a-gh/room`; rm -rf ~', 'by': 'a-gh'}, {'room': 'b-gh/room', 'by': 'b gh'}, 'x'])
+check(syn.invite_lines({'name': 'Kim'}) == ('', ''), 'a noted invitation whose names are no names is never told')
+syn.gh_run = lambda *args, timeout=30: (False, 'gh is not installed')
+syn.save(HOME / 'invites.json', [])
+syn.look_for_invites()
+check(syn.load(HOME / 'invites.json', None) == [], 'without gh nothing is noted')
+syn.gh_run = real_run
+for name in ('invites.json', 'invites-told.json'):
+    (HOME / name).unlink(missing_ok=True)
+
 check(callable(syn.dispatch) and callable(syn.main), 'main() and dispatch() exist')
 
 print(f"\nunits: {'all green' if not failures else str(len(failures)) + ' failed: ' + ', '.join(failures)}")

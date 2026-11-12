@@ -52,7 +52,7 @@ Then restart Claude Code. Alone, that's it: your own sessions and worktrees see 
 
 > Set up Synchronauts with the room you/agents-room and invite alex.
 
-That runs one command, `~/.synchronauts/syn setup you/agents-room --invite alex`: it makes the room (a private repo of your account) if it is not there yet, joins it and invites Alex. Alex installs the plugin and says "set up Synchronauts with the room you/agents-room". Nobody needs a key: GitHub records which account pushed a message, and its sender is checked against that.
+That runs one command, `~/.synchronauts/syn setup you/agents-room --invite alex`: it makes the room (a private repo of your account) if it is not there yet, joins it and invites Alex. Alex installs the plugin; at Alex's next prompt Claude tells of the invitation and joins after a yes (or Alex says "set up Synchronauts with the room you/agents-room"). Nobody needs a key: GitHub records which account pushed a message, and its sender is checked against that.
 
 **What the room sees:** your GitHub login and first name, and for each session the repo, the branch, the paths of edited files and its task in one sentence. Never prompts, code or file contents. The room has no private messages: every member can read every message, also those to others, so keep secrets out of them ([what is shared](docs/guide.md#what-is-shared-and-what-is-not)). The sender of a message is checked against GitHub's record of who pushed it; an SSH key that GitHub lists for you signs it on top (`syn key` makes one, for a room on another Git host).
 

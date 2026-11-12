@@ -21,6 +21,7 @@ SKILL = Path(ARGS[1]).read_text(encoding='utf-8')
 REAL = '~/.synchronauts/syn.py'  # the path in real use, in case a version prints it
 T = Path(tempfile.mkdtemp())
 BASE = {k: v for k, v in os.environ.items() if k not in ('CLAUDE_PID', 'CLAUDE_CODE_ENTRYPOINT', 'CLAUDE_CODE_SESSION_ID')}
+BASE['SYN_INVITES'] = 'off'  # a session without a room would ask the real GitHub for invitations
 BASE.update(SYN_REMOTE=str(T / 'remote.git'), SYN_ORGS='acme', SYN_TICK='0.3', SYN_IDLE='60',
             SYN_KEYS_URL=f"file://{'/' if os.name == 'nt' else ''}{T}/keys/{{login}}.keys")
 
