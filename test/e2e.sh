@@ -86,10 +86,19 @@ modes_ok() { "$PY" -c 'import os,sys; sys.exit(any(os.stat(p).st_mode & 0o777 !=
 bash_cmd() { "$PY" -c 'import json,sys; sys.stdout.write(json.dumps({"session_id": sys.argv[1], "cwd": sys.argv[2], "tool_name": "Bash", "tool_input": {"command": sys.argv[3]}}) + "\n")' "$@" | crlf_safe; }
 # callc <sid> <cwd> <tool_use_id> <permission_mode> <command>: a Bash call with an id and a permission mode
 callc() { "$PY" -c 'import json,sys; sys.stdout.write(json.dumps({"session_id": sys.argv[1], "cwd": sys.argv[2], "tool_name": "Bash", "tool_use_id": sys.argv[3], "permission_mode": sys.argv[4], "tool_input": {"command": sys.argv[5]}}) + "\n")' "$@" | crlf_safe; }
+# A key that no cached list holds is asked for at most once in ten minutes, and the message has no verdict until then
+# (sign_check.py): forge makes the last question to the keys URL, in every home folder, look 700 seconds old, as if
+# the forgery came later. A real clock is not waited for
+age_keys() { "$PY" -c 'import glob, json, os, sys
+for p in glob.glob(os.path.join(sys.argv[1], "home*", "keys.json")):
+    d = json.load(open(p))
+    for c in d.values():
+        c.update({f: c[f] - 700 for f in ("time", "asked") if f in c})
+    json.dump(d, open(p, "w"))' "$T"; }
 # forge <branch> <mode> [login] [extra]: a state.json from test/forge.py as the only commit of syn/<login>/<branch>; the
 # environment overrides of forge.py (FORGE_NAME, MID, FORGE_KEY, TO) pass through, and FORGE_REMOTE names another room
 # than $T/remote.git. Delete it with `git update-ref -d`.
-forge() { git -C "${FORGE_REMOTE:-$T/remote.git}" update-ref "refs/heads/syn/${3:-alex-gh}/$1" "$(forged "$2" "${3-}" "${4-}")"; }
+forge() { age_keys; git -C "${FORGE_REMOTE:-$T/remote.git}" update-ref "refs/heads/syn/${3:-alex-gh}/$1" "$(forged "$2" "${3-}" "${4-}")"; }
 forge_as() { forge "$@"; }
 # forged <mode> [login] [extra]: the commit of such a state.json in the remote, for a ref that forge cannot write
 forged() { local blob tree r="${FORGE_REMOTE:-$T/remote.git}"
@@ -146,7 +155,22 @@ solo() { echo "$2" | SYN_REMOTE= SYN_ME= SYN_NAME= SYN_MACHINE= SYN_HOME="$T/hom
 git -C "$T/sam-demo" worktree add -q -b feature "$T/sam-demo-wt"
 git init -q -b main "$T/plain" && git -C "$T/plain" -c user.name=test -c user.email=test@example.com commit -q --allow-empty -m init
 out=$(solo SessionStart '{"session_id":"solo0000","cwd":"/"}')
-[ -z "$out" ] && ok 'without a room, a session start outside Git repos stays silent' || fail 'solo start' "$out"
+check "$out" '"systemMessage": "Synchronauts [0-9.]* is on' 'the first session start after the install tells the human that it is on'
+lacks "$out" 'additionalContext' 'and none of it goes to Claude'
+out=$(solo SessionStart '{"session_id":"solo0000","cwd":"/"}')
+[ -z "$out" ] && ok 'after that, a session start outside Git repos stays silent without a room' || fail 'solo start' "$out"
+# A Python that does not start (missing, the Windows store's placeholder) or is too old for syn.py: the session start
+# says so to the human and ends with 0, the other hooks of an old Python stay quiet
+start_cmd=$("$PY" -c 'import json,sys; sys.stdout.write(json.load(open(sys.argv[1], encoding="utf-8"))["hooks"]["SessionStart"][0]["hooks"][0]["command"])' "$ROOT/hooks/hooks.json")
+out=$(CLAUDE_PLUGIN_ROOT="$T/no-plugin" sh -c "$start_cmd" 2>/dev/null </dev/null | crlf_safe) || fail 'the fallback of the session start' "$out"
+check "$out" '^{"systemMessage": "Synchronauts is off: Python did not start' 'a session start whose Python does not start says so to the human'
+old_python() { "$PY" -c 'import sys
+path, event = sys.argv[1:3]
+sys.version_info, sys.argv = (3, 8, 10, "final", 0), ["hook.py", event]
+exec(compile(open(path, encoding="utf-8").read(), path, "exec"))' "$HOOK" "$1" </dev/null | crlf_safe; }
+out=$(old_python SessionStart) || fail 'the session start under an old Python' "$out"
+check "$out" '^{"systemMessage": "Synchronauts is off: it needs Python 3.9 or newer, this is Python 3.8."}$' 'under a Python older than 3.9 the session start names the version it found'
+out=$(old_python PreToolUse) && [ -z "$out" ] && ok 'and the other hooks stay quiet there' || fail 'a hook under an old Python' "$out"
 solo PostToolUse "$(edit solo1111 "$T/sam-demo" "$T/sam-demo/src/a.ts")" >/dev/null
 SECONDS_BEFORE=$SECONDS; out=$(solo SessionStart "$(session solo2222 "$T/sam-demo-wt")")
 [ $((SECONDS - SECONDS_BEFORE)) -lt 5 ] && ok 'without a room the session start waits for no watcher (none runs)' || fail 'solo SessionStart waits'
@@ -178,6 +202,10 @@ out=$(SYN_REMOTE= SYN_HOME="$T/home-solo" "$PY" "$SYN" send alex hello 2>&1) && 
   || check "$out" 'needs a room' 'send without a room explains itself'
 rc=0; SYN_REMOTE= SYN_HOME="$T/home-solo" "$PY" "$SYN" send alex hello >/dev/null 2>&1 || rc=$?
 [ $rc = 1 ] && ok 'and ends with exit code 1: the call was right, it cannot be done' || fail "send without a room: exit $rc"
+
+# Setup says what to do instead of git's words when the name is no repo (no gh, no access: units.py)
+out=$(SYN_REMOTE= SYN_HOME="$T/home-noroom" SYN_ME=new-gh SYN_NAME=New SYN_MACHINE=one "$PY" "$SYN" setup "$T/no room" 2>&1) \
+  && fail 'setup with a name that is no repo' "$out" || check "$out" 'is no Git repo: name the room as owner/repo' 'setup with a name that is no repo says how to name a room'
 
 # Joining with an open invitation: setup accepts it, nobody has to click it on GitHub first. gh and GitHub are
 # faked; Windows starts no shell script as gh, so this runs on macOS and Linux only
@@ -211,7 +239,7 @@ esac
 EOF
   invited() { echo "$2" | PATH="$T/bin:$PATH" SYN_INVITES= SYN_REMOTE= SYN_ME= SYN_NAME=Kim SYN_MACHINE= SYN_HOME="$T/home-invited" "$PY" "$HOOK" "$1"; }
   out=$(invited SessionStart "$(session inv11111 "$T/plain")")
-  lacks "$out" 'invited' 'the session start itself does not wait for GitHub'
+  lacks "$out" 'invited this' 'the session start itself does not wait for GitHub'
   until_ok 15 'the look for invitations runs in the background' test -s "$T/home-invited/invites.json"
   out=$(invited UserPromptSubmit "$(session inv11111 "$T/plain")")
   check "$out" '@lee-gh invited this GitHub account to the Synchronauts room lee-gh/room' 'the next prompt tells Claude who invites to which room'
@@ -926,8 +954,8 @@ check "$out" 'Build tickets API' 'a prompt that names a team repo brings the pic
 out=$(hook sam SessionStart "$(session sam33333 "$T/sam-demo")")
 check "$out" '- Alex: demo@main' "the session start shows Alex's session"
 check "$out" 'Build tickets API' "the session start shows Alex's task"
-check "$out" '⚠️ Alex is on the same branch main in demo' 'the same branch is reported'
-check "$out" 'main in demo (last .*): src/a.ts' "the overlap names Alex's files there"
+check "$out" 'Alex is also in demo, branch main (last .*): src/a.ts' "two machines on the default branch are in the same repo, with Alex's files there"
+lacks "$out" 'Alex is on the same branch' 'and are not warned about the same branch: everybody is on main (units.py has the other branches)'
 check "$out" 'send <name|all>' 'usage is included'
 
 # Before Sam's first edit of a file Alex is editing, Claude Code asks Sam. The reason is for Sam, Claude gets no text
@@ -1159,6 +1187,21 @@ until_ok 20 "a conflict with Alex's pushed work is reported" sam_conflict
 check "$out" "Merging Alex's session (conf@main) with this session's work would conflict in: src/x.ts" 'with the teammate, branch and file'
 data=$(curl -s -H "X-SYN-Token: $tok" "$U/api/state")
 ui_check 'any(o["kind"] == "conflict" and o["files"] == ["src/x.ts"] for o in d["overlaps"])' 'the UI shows the conflict'
+# A conflict concerns the session that touched the file. Sam commits the change on a branch of his own and pushes it:
+# the two pushed branches still conflict, but a new session there that changed nothing hears nothing of it (the board
+# keeps showing it), until it edits the file itself
+g -C "$T/c-sam" checkout -q -b sams && g -C "$T/c-sam" commit -q -am sam && g -C "$T/c-sam" push -q -u origin sams
+hook sam SessionStart "$(session sam88888 "$T/c-sam")" >/dev/null
+pushed_conflict() { hook sam PostToolUse "$(bash_call sam88888 "$T/c-sam")" >/dev/null
+  "$PY" -c 'import json,sys; c = json.load(open(sys.argv[1], encoding="utf-8"))["sessions"]["sam88888"]; sys.exit(not any(x["files"] == ["src/x.ts"] and x.get("own") == [] and x["branch"] == "main" for x in c))' "$T/home-sam/conflicts.json"; }
+until_ok 20 'the check finds the conflict of the two pushed branches, in no file that Sam has not pushed' pushed_conflict
+out=$(hook sam PostToolUse "$(bash_call sam88888 "$T/c-sam")")
+lacks "$out" 'would conflict' 'a session that touched none of the files is not warned about it'
+data=$(curl -s -H "X-SYN-Token: $tok" "$U/api/state")
+ui_check 'any(o["kind"] == "conflict" and o["files"] == ["src/x.ts"] for o in d["overlaps"])' 'the UI keeps showing it'
+out=$(hook sam PostToolUse "$(edit sam88888 "$T/c-sam" "$T/c-sam/src/x.ts")")
+check "$out" "with this session's work would conflict in: src/x.ts" 'once the session edits the file, it is warned'
+hook sam SessionEnd "$(session sam88888 "$T/c-sam")" >/dev/null
 hook sam SessionEnd "$(session sam99999 "$T/c-sam")" >/dev/null; hook alex SessionEnd "$(session ale55555 "$T/c-alex")" >/dev/null
 
 # Missions: Sam's and Alex's Claudes solve one problem together without their humans. Each human approves once, in
@@ -1430,7 +1473,9 @@ lacks "$(as_user sam "$PY" -c 'import sys; sys.path.insert(0, sys.argv[1]); impo
 # T-S1d: copies of the real invite's id on another branch (unsigned, another key, tampered text, the real one with its
 # signature written another way) do not stop it
 MID=$MID2 TO=alex-gh FORGE_KEY="$T/mal-key" forge dup1 dup sam-gh
-until_ok 15 'the copies of the invite are checked and forged' test_copies alex 'Evil plan' 'bad bad bad'
+# The unsigned copy is forged at once (Sam signs); of the two signed ones the first check asks Sam's keys anew and finds
+# it forged, the second finds that question under ten minutes old and has no verdict yet: unsigned, never trusted
+until_ok 15 'the copies of the invite are checked and forged' test_copies alex 'Evil plan' 'bad bad unsigned'
 until_ok 15 'the real invite with its signature written another way verifies too' test_copies alex 'Plan A' 'ok ok'
 test_trust alex 'Plan A' ok && ok 'the real invite stays verified, the copies never count' || fail 'the copies took over' "$(copies alex 'Plan A')"
 mission_is alex "m['$MID2']['plan'].startswith('Plan A') and m['$MID2']['with'] == ['sam-gh', 'alex-gh']" \

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """For e2e.sh: the documents, repo files and the board's texts stay in step with the code. Pure file reading, no
 watchers, about a second. Prints `ok   <what>` per check and `FAIL <what>` with the details; exit 1 if anything failed.
-Usage: docs_check.py <repo root>. Python 3.9 syntax."""
+Usage: docs_check.py [<repo root>], by default the repo this file is in. Python 3.9 syntax."""
 import ast
 import json
 import os
@@ -12,7 +12,7 @@ import tempfile
 from pathlib import Path
 
 sys.stdout.reconfigure(errors='backslashreplace')
-ROOT = Path(sys.argv[1]).resolve()
+ROOT = Path(sys.argv[1] if len(sys.argv) > 1 else Path(__file__).parent.parent).resolve()
 failures = []
 
 
@@ -145,7 +145,20 @@ for event, groups in hooks.items():
         tools.setdefault(event, set()).update((group.get('matcher') or '').split('|'))
 check(set(hooks) <= ALLOWED_EVENTS and all(f"'{e}'" in SYN or f'"{e}"' in SYN or e in SYN for e in hooks),
       'every event in hooks.json is a known one that syn.py handles', f'{sorted(set(hooks) - ALLOWED_EVENTS)}')
-check(len(templates) == 1, 'every hook runs the same command line', str(templates))
+# the session start alone goes on when Python does not start (missing, the Windows store's placeholder, too old to
+# import syn.py): it prints a line for the human instead, and the other hooks show their error
+line = 'py=python3; [ "$OS" = Windows_NT ] && py=python; "$py" "${CLAUDE_PLUGIN_ROOT}/hook.py" EVENT'
+extra = [t[len(line):] for t in templates if t != line and t.startswith(line)]
+start = hooks['SessionStart'][0]['hooks'][0]['command']
+said = re.fullmatch(r" \|\| echo '(\{[^']+\})'", extra[0]) if len(extra) == 1 else None
+try:
+    said = json.loads(said.group(1)) if said else {}
+except ValueError:
+    said = {}
+check(templates - {line + x for x in extra} == {line} and len(extra) == 1 and start.endswith(extra[0]),
+      'every hook runs the same command line, and only the session start adds a fallback', str(templates))
+check(set(said) == {'systemMessage'} and 'Python 3.9' in said['systemMessage'],
+      'whose fallback is a line for the human that names the Python it needs', str(extra))
 route = {'Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'Bash'}
 check(route <= tools.get('PreToolUse', set()) and route <= tools.get('PostToolUse', set()),
       'Bash and the edit tools go through both tool matchers', str({e: sorted(t) for e, t in tools.items()}))
