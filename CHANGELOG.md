@@ -349,6 +349,21 @@ This file is in English only; the README and the guide exist in English and Germ
   changed and has not pushed yet. Two branches that changed the same README weeks ago no longer warn every new
   session in the repo; the board keeps showing every conflict. System notifications follow the same rule. File names
   with letters outside ASCII show as they are, not as `\303\234`.
+- A mission can be ended when the session that joined it is gone (closed, a crash, `/clear`). `mission end` works in a
+  plain terminal for the one live mission of this machine, or with `mission end --id <id> "<result>"`; a Claude session
+  that is not in the mission must name it, and may end it only when no session of this machine in it still runs. A
+  shell of Claude Code without its session id is refused. Before, such a mission ran to its end time. `mission end`
+  without a result or with `--id` alone is a wrong call (exit 2); exit 3 is unchanged.
+- The others now learn that a person left a mission: when the last session of a person in it ends (also `/clear`), a
+  signed `left` message goes out through the outbox, and the others' Claudes are told, so they stop sending mission mail
+  to nobody; messages to that person are plain mail until a session joins again with `mission approve <id>` and the
+  person's yes. That includes the proposer, who was refused before ("already approved"). Sessions of one machine count
+  together: nothing is announced while another one is still in the mission.
+- A lost, deleted or replaced `approve.key` no longer makes records vanish silently. `status` and the next session
+  start say that mission records and queued messages cannot be verified, name the missions and why, and what to do;
+  the records stay in `missions.json` (the old key brings them back), `mission propose` and `approve` say it too, and
+  a mission of yours that the key no longer seals can still be ended with `mission end --id`. Before, the records
+  counted for nothing without a word and the next mission erased them. Nothing without its seal is accepted.
 - A session with a detached HEAD no longer reports the default branch at origin as the work it pushed.
 
 ### Compatibility
@@ -359,6 +374,7 @@ How 0.6 and 0.5 peers in one room get along.
 |---|---|---|
 | Presence, files, claims, plain mail, board data | works | works |
 | Missions: invite, joined, end, mission work messages | 0.5 shows them as forged (it cannot verify `crew`, `until` and `room`) | information only: a 0.5 invite has no people and no end time, so it cannot be joined |
+| Missions: `left` (the last session of a person ended) | 0.6 builds from before it drop `left` as an unknown kind: the person stays listed in the mission until its end; 0.5 shows it as forged like all mission mail | does not occur: 0.5 sends no missions |
 | Mail signed with a key in an ssh-agent or on a security key | works: the signature is the same `ssh-keygen -Y sign` as from a key file | does not occur: 0.5 signs with key files only |
 | File and claim names with a `:`, a quote, a shell sign, more than four spaces, over 240 characters or a start like `~`, `-` or `$NAME` | 0.6 does not publish them, and `syn claim` refuses them | 0.6 leaves them out: such files and claims of a 0.5 teammate do not show |
 
