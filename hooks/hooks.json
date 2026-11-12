@@ -1,7 +1,7 @@
 {
   "hooks": {
     "SessionStart": [
-      {"hooks": [{"type": "command", "command": "py=python3; [ \"$OS\" = Windows_NT ] && py=python; \"$py\" \"${CLAUDE_PLUGIN_ROOT}/hook.py\" SessionStart", "timeout": 60}]}
+      {"hooks": [{"type": "command", "command": "py=python3; [ \"$OS\" = Windows_NT ] && py=python; \"$py\" \"${CLAUDE_PLUGIN_ROOT}/hook.py\" SessionStart || echo '{\"systemMessage\": \"Synchronauts is off: Python did not start. It needs Python 3.9 or newer as python3 (on Windows: python). Install it and restart Claude Code.\"}'", "timeout": 60}]}
     ],
     "UserPromptSubmit": [
       {"hooks": [{"type": "command", "command": "py=python3; [ \"$OS\" = Windows_NT ] && py=python; \"$py\" \"${CLAUDE_PLUGIN_ROOT}/hook.py\" UserPromptSubmit", "timeout": 10}]}
