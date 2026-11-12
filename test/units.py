@@ -6,6 +6,7 @@ import http.client
 import json
 import os
 import re
+import shutil
 import socketserver
 import subprocess
 import sys
@@ -1066,6 +1067,104 @@ check(syn.load(HOME / 'invites.json', None) == [], 'without gh nothing is noted'
 syn.gh_run = real_run
 for name in ('invites.json', 'invites-told.json'):
     (HOME / name).unlink(missing_ok=True)
+
+# leave and uninstall: which folder is Synchronauts' own (nothing is deleted here, home_problem only looks), the tree
+# remover that follows no link, the Codex entries, and which Bash calls Claude Code asks about
+real_home = syn.HOME
+LU = TMP / 'unit-leave'
+LU.mkdir()
+
+
+def problem_of(path):
+    syn.HOME = Path(path)
+    try:
+        return syn.home_problem()
+    finally:
+        syn.HOME = real_home
+
+
+own = LU / 'own'
+(own / 'sessions').mkdir(parents=True)
+for name in ('config.json', 'status.json', 'watcher.lock', 'task.abc12345.json', '.status.json.12.34'):
+    (own / name).write_text('{}', encoding='utf-8')
+(own / 'syn').write_text(syn.LINK_START + 'x\n', encoding='utf-8')
+check(problem_of(own) is None, 'uninstall deletes a folder that holds only what syn writes', str(problem_of(own)))
+check(problem_of(LU / 'nothing') is None and problem_of(LU) is not None,
+      'a folder that is not there is nothing to delete, one with other folders in it is not ours', str(problem_of(LU)))
+foreign = LU / 'foreign'
+shutil.copytree(own, foreign)
+(foreign / 'notes.txt').write_text('mine', encoding='utf-8')
+check('did not write (notes.txt)' in (problem_of(foreign) or ''), 'a file syn did not write: refused, and named',
+      str(problem_of(foreign)))
+(LU / 'only').mkdir()
+(LU / 'only' / 'readme.md').write_text('x', encoding='utf-8')
+check(problem_of(LU / 'only'), 'a folder with no sign of Synchronauts in it is refused')
+other_launcher = LU / 'launcher'
+shutil.copytree(own, other_launcher)
+(other_launcher / 'syn').write_text('#!/bin/sh\nrm -rf "$HOME"\n', encoding='utf-8')
+check('did not write (syn)' in (problem_of(other_launcher) or ''), 'a launcher that link() did not write is refused')
+check('root' in (problem_of(Path(Path.cwd().anchor)) or ''), 'the root of the file system is refused',
+      str(problem_of(Path(Path.cwd().anchor))))
+check('home folder' in (problem_of(Path.home()) or '') and 'home folder' in (problem_of(Path.home().parent) or ''),
+      'the home folder and the folder above it are refused', str(problem_of(Path.home())))
+check('absolute' in (problem_of('relative/folder') or '') and 'absolute' in (problem_of(str(own) + '/../own') or ''),
+      'a relative path and one with .. are refused')
+check('holds the program' in (problem_of(ROOT) or ''), 'the folder that holds syn.py is refused', str(problem_of(ROOT)))
+try:
+    os.symlink(own, LU / 'link', target_is_directory=True)
+    linked = True
+except (OSError, NotImplementedError, AttributeError):
+    linked = False
+if linked:
+    check('is a link' in (problem_of(LU / 'link') or ''), 'a link to a folder of Synchronauts is refused as well')
+    (own / 'sessions' / 'pointer').symlink_to(LU, target_is_directory=True)
+    check('pointer' not in (problem_of(own) or '') and problem_of(own) is None,
+          'a link below sessions/ is no top-level entry: the folder is still ours')
+    (own / 'pointer').symlink_to(LU, target_is_directory=True)
+    check('pointer' in (problem_of(own) or '') or 'did not write' in (problem_of(own) or ''),
+          'but a link among the files of the folder is refused')
+    (own / 'pointer').unlink()
+    (own / 'sessions' / 'pointer').unlink()
+else:
+    print('ok   skipped: a link to a folder of Synchronauts is refused as well')
+    print('ok   skipped: a link below sessions/ is no top-level entry: the folder is still ours')
+    print('ok   skipped: but a link among the files of the folder is refused')
+
+# remove_tree: no link is followed, a read-only file goes, what stays is reported
+tree, outside = LU / 'tree', LU / 'outside'
+(tree / 'sub').mkdir(parents=True)
+outside.mkdir()
+(outside / 'keep.txt').write_text('keep', encoding='utf-8')
+(tree / 'sub' / 'ro').write_text('x', encoding='utf-8')
+(tree / 'sub' / 'ro').chmod(0o444)
+if linked:
+    (tree / 'out').symlink_to(outside, target_is_directory=True)
+failed = []
+syn.remove_tree(tree, failed)
+check(not tree.exists() and not failed and (outside / 'keep.txt').read_text(encoding='utf-8') == 'keep',
+      'the tree is removed, a read-only file too, and a link in it never leads out', str(failed))
+
+# the names syn writes
+check(all(syn.ours(n) for n in ('config.json', 'watcher.lock', 'task.abc12345.json', '.status.json.1.2', 'git', 'ui-key'))
+      and not any(syn.ours(n) for n in ('notes.txt', 'id_ed25519', '.ssh', 'Documents', 'watcher.lock.bak')),
+      'ours() knows the files syn writes and nothing else')
+
+# the Codex hooks: only ours go
+mine = {'hooks': [{'type': 'command', 'command': 'sh x hook Stop codex # synchronauts'}]}
+theirs = {'hooks': [{'type': 'command', 'command': 'other-tool'}]}
+conf = {'hooks': {'Stop': [mine, theirs], 'SessionStart': [mine]}, 'model': 'x'}
+check(syn.strip_codex(conf) == 2 and conf == {'hooks': {'Stop': [theirs]}, 'model': 'x'},
+      'strip_codex takes ours out and leaves the rest', str(conf))
+
+# Which Bash calls Claude Code asks about: syn leave and uninstall, in any chain; text that only names them is no call
+asked = {'syn leave': 'leave', 'syn uninstall --yes': 'uninstall', '~/.synchronauts/syn leave --yes': 'leave',
+         'cd /tmp && "$HOME/.synchronauts/syn" uninstall --yes': 'uninstall', 'python3 syn.py leave': 'leave',
+         'sh ~/.synchronauts/syn leave --yes': 'leave', 'echo done; syn --room acme/x leave': 'leave',
+         'echo syn leave': None, 'git commit -m "syn uninstall"': None, 'syn send alex "please leave"': None,
+         'syn status': None, 'ls leave': None, 'grep -r leave src': None}
+found = {c: syn.admin_call(c, str(TMP), syn.reader()) for c in asked}
+check(found == asked, 'admin_call finds syn leave and uninstall in a chain, a path or a shell, and not a text',
+      str({c: (asked[c], f) for c, f in found.items() if f != asked[c]}))
 
 check(callable(syn.dispatch) and callable(syn.main), 'main() and dispatch() exist')
 

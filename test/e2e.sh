@@ -705,6 +705,134 @@ leaked=; for x in "$old" "$key" "$c"; do grep -q -- "$x" "$H7/ui.log" && leaked=
 [ -z "$leaked" ] && ok 'neither a pairing code nor a key is ever in ui.log' || fail 'ui.log' "$(cat "$H7/ui.log")"
 fi
 
+# `syn leave` and `syn uninstall`: a machine leaves its room and its sessions go on alone; uninstall removes what is
+# Synchronauts' and refuses a folder that is not. Jule's machine one and two, a room of their own; HOME and the Codex
+# folder are in a temp folder, so that nothing of the real machine is touched. The homes are named home-lv* for the cleanup
+if block b 'leave and uninstall: nothing leaves the machine, only what is ours goes, Claude Code asks first'; then
+LV="$T/lv"; mkdir -p "$LV/home/.codex" "$LV/home/.ssh"
+git init -q --bare "$T/lvroom.git"
+lv() { local h=$1; shift; HOME="$LV/home" USERPROFILE="$LV/home" CODEX_HOME="$LV/home/.codex" SYN_HOME="$T/home-$h" \
+  SYN_REMOTE="${LV_REMOTE-$T/lvroom.git}" SYN_ME=jule-gh SYN_NAME=Jule SYN_MACHINE=$([ "$h" = lv ] && echo one || echo two) \
+  SYN_SIGNING_KEY="$T/jule-key" "$@"; }
+lv_branches() { git -C "$T/lvroom.git" for-each-ref --format='%(refname:short)' refs/heads/syn/ | tr '\n' ' '; }
+lv_pid() { "$PY" -c 'import json,sys; sys.stdout.write(str(json.load(open(sys.argv[1]))["pid"]))' "$T/home-$1/$2.json"; }
+lv_gone() { ! kill -0 "$1" 2>/dev/null; }
+echo '{"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "other-tool"}]}]}}' > "$LV/home/.codex/hooks.json"
+echo 'precious' > "$LV/home/.ssh/id_ed25519"
+lv lv "$PY" "$SYN" setup >/dev/null; lv lv2 "$PY" "$SYN" setup >/dev/null
+lv lv "$PY" "$SYN" codex >/dev/null
+git -C "$T/lvroom.git" update-ref refs/heads/syn/alex-gh/x "$(git -C "$T/lvroom.git" rev-parse refs/heads/syn/jule-gh/one)"
+echo "$(session lv111111 "$T/sam-demo")" | lv lv "$PY" "$HOOK" SessionStart >/dev/null
+lv lv "$PY" "$SYN" ui --no-browser >/dev/null
+until_ok 15 'Jule has a watcher and a board running here' test -s "$T/home-lv/watcher.json" -a -s "$T/home-lv/ui.json"
+WPID=$(lv_pid lv watcher); UPID=$(lv_pid lv ui)
+[ "$(lv_branches)" = 'syn/alex-gh/x syn/jule-gh/one syn/jule-gh/two ' ] && ok 'the room has the branches of both machines and of Alex' || fail 'branches' "$(lv_branches)"
+mkdir -p "$T/home-lv/outbox"; echo '{}' > "$T/home-lv/outbox/1-abc.json"
+
+# a call that is not right, or has no yes, changes nothing
+rc=0; out=$(lv lv "$PY" "$SYN" leave </dev/null 2>&1) || rc=$?
+[ $rc = 2 ] && ok 'leave without a terminal and without --yes is a wrong call: exit 2' || fail "leave without --yes: exit $rc" "$out"
+check "$out" 'Add --yes' 'and says what to add'
+check "$out" 'syn/jule-gh/one is deleted in the room' 'and what it would do'
+rc=0; out=$(lv lv "$PY" "$SYN" leave --now 2>&1) || rc=$?
+[ $rc = 2 ] && check "$out" 'Usage: leave' 'an unknown option is a wrong call with the usage' || fail "leave --now: exit $rc" "$out"
+[ "$(lv_branches)" = 'syn/alex-gh/x syn/jule-gh/one syn/jule-gh/two ' ] && [ -d "$T/home-lv/git" ] && ok 'neither changed anything' || fail 'a refused leave changed something' "$(lv_branches)"
+
+# a running mission stops it, unless --force
+lv lv "$PY" -c 'import sys; sys.path.insert(0, sys.argv[1]); import syn; k = syn.config()
+syn.save(syn.HOME / "missions.json", {"jule-gh-abc123": syn.with_mac({"id": "jule-gh-abc123", "by": "jule-gh", "with": ["jule-gh", "alex-gh"], "plan": "x", "start": syn.iso(), "until": syn.iso(syn.now() + syn.timedelta(hours=1)), "joined": {"lv111111": syn.iso()}})})' "$ROOT"
+rc=0; out=$(lv lv "$PY" "$SYN" leave --yes 2>&1) || rc=$?
+[ $rc = 1 ] && check "$out" 'Mission jule-gh-abc123 is running' 'an active mission here stops the leave: exit 1, and it says why' || fail "leave in a mission: exit $rc" "$out"
+check "$out" 'mission end' 'and how to end it first'
+[ "$(lv_branches)" = 'syn/alex-gh/x syn/jule-gh/one syn/jule-gh/two ' ] && ok 'nothing was left' || fail 'leave went on in a mission' "$(lv_branches)"
+
+# leaving: only this machine's branch, the watcher and the board stop, the sessions go on alone
+rc=0; out=$(lv lv "$PY" "$SYN" leave --yes --force 2>&1 | crlf_safe) || rc=$?
+[ $rc = 0 ] && ok 'leave --yes --force leaves in spite of the mission: exit 0' || fail "leave: exit $rc" "$out"
+check "$out" 'Deleted syn/jule-gh/one in the room' 'it says that the branch is deleted'
+check "$out" 'Dropped 1 queued message' 'and how many queued messages were dropped'
+[ "$(lv_branches)" = 'syn/alex-gh/x syn/jule-gh/two ' ] && ok 'only the own branch of this machine went, not the other machine of Jule, not Alex' || fail 'branches' "$(lv_branches)"
+posix_only 'the watcher and the board are gone, waited for' sh -c "kill -0 $WPID 2>/dev/null || kill -0 $UPID 2>/dev/null && exit 1; exit 0"
+[ ! -e "$T/home-lv/git" ] && [ ! -e "$T/home-lv/outbox" ] && [ ! -e "$T/home-lv/others.json" ] && [ ! -e "$T/home-lv/missions.json" ] \
+  && ok 'the local copy of the room, the outbox and the missions are gone' || fail 'room files left' "$(ls "$T/home-lv")"
+check "$(cat "$T/home-lv/config.json")" '"me": "jule-gh"' 'the name and the machine stay in config.json'
+lacks "$(cat "$T/home-lv/config.json")" 'remote' 'the room does not'
+# the next session start does not join the room again (SYN_REMOTE of the test environment is empty here)
+out=$(echo "$(session lv222222 "$T/sam-demo")" | LV_REMOTE= lv lv "$PY" "$HOOK" SessionStart)
+lacks "$out" 'cannot join' 'a session start after leaving does not try to join'
+[ ! -e "$T/home-lv/git" ] && [ ! -e "$T/home-lv/watcher.json" ] && ok 'no room and no watcher come back' || fail 'rejoined' "$(ls "$T/home-lv")"
+out=$(LV_REMOTE= lv lv "$PY" "$SYN" status)
+check "$out" 'No room yet' 'status says there is no room'
+rc=0; out=$(LV_REMOTE= lv lv "$PY" "$SYN" leave --yes 2>&1) || rc=$?
+[ $rc = 0 ] && check "$out" 'in no room' 'leave again says so and is not an error' || fail "leave twice: exit $rc" "$out"
+out=$(lv lv "$PY" "$SYN" leave --yes 2>&1 | crlf_safe)
+check "$out" 'SYN_REMOTE is set in your environment' 'a SYN_REMOTE in the environment is named as what would join again'
+
+# the room out of reach: the leave still works, the branch stays and the output says so
+mv "$T/lvroom.git" "$T/lvroom.away"
+rc=0; out=$(lv lv2 "$PY" "$SYN" leave --yes 2>&1 | crlf_safe) || rc=$?
+mv "$T/lvroom.away" "$T/lvroom.git"
+[ $rc = 0 ] && ok 'leave with the room out of reach works: exit 0' || fail "leave offline: exit $rc" "$out"
+check "$out" 'syn/jule-gh/two stays in it' 'it says that the branch stays'
+check "$out" '30 days' 'and that it counts as dead after 30 days'
+[ ! -e "$T/home-lv2/git" ] && ok 'and the local copy is gone' || fail 'lv2 git' "$(ls "$T/home-lv2")"
+git -C "$T/lvroom.git" update-ref -d refs/heads/syn/jule-gh/two
+
+# uninstall: what it refuses
+lv lv "$PY" "$SYN" setup >/dev/null
+mkdir "$LV/foreign"; echo '{}' > "$LV/foreign/config.json"; echo mine > "$LV/foreign/notes.txt"
+refused() { local rc=0 out; out=$(SYN_HOME="$1" HOME="$LV/home" USERPROFILE="$LV/home" CODEX_HOME="$LV/home/.codex" "$PY" "$SYN" uninstall --yes 2>&1 | crlf_safe) || rc=$?
+  [ $rc = 1 ] && grep -q 'Not removed' <<<"$out" && grep -q "$3" <<<"$out" && ok "uninstall refuses $2" || fail "uninstall of $2: exit $rc" "$out"; }
+refused "$LV/foreign" 'a folder with a file of someone else' 'did not write (notes.txt)'
+[ -e "$LV/foreign/notes.txt" ] && [ -e "$LV/foreign/config.json" ] && ok 'and leaves it as it was' || fail 'foreign folder touched'
+refused / 'the root of the file system' 'root of the file system'
+refused "$LV/home" 'the home folder' 'home folder'
+refused "$LV" 'a folder above the home folder' 'home folder'
+refused "relative/folder" 'a relative path' 'absolute path'
+refused "$T/home-lv/../home-lv" 'a path with ..' 'absolute path'
+refused "$ROOT" 'the folder of the program' 'holds the program'
+[ -e "$ROOT/syn.py" ] && [ -e "$LV/home/.ssh/id_ed25519" ] && ok 'the program and the SSH key are still there' || fail 'something was deleted'
+if [ -z "$WIN" ]; then
+  ln -s "$T/home-lv" "$LV/link"
+  refused "$LV/link" 'a link to the folder of Synchronauts' 'is a link'
+  [ -d "$T/home-lv/git" ] && ok 'the folder behind the link is untouched' || fail 'link followed'
+else
+  echo 'ok   skipped: uninstall refuses a link to the folder of Synchronauts'; echo 'ok   skipped: the folder behind the link is untouched'
+fi
+
+# uninstall of the real thing: leaves the room, stops what runs, removes ours in Codex and the folder
+echo "$(session lv333333 "$T/sam-demo")" | lv lv "$PY" "$HOOK" SessionStart >/dev/null
+lv lv "$PY" "$SYN" ui --no-browser >/dev/null
+until_ok 15 'the watcher and the board run again' test -s "$T/home-lv/watcher.json" -a -s "$T/home-lv/ui.json"
+WPID=$(lv_pid lv watcher); UPID=$(lv_pid lv ui)
+lv lv "$PY" "$SYN" codex >/dev/null
+rc=0; out=$(lv lv "$PY" "$SYN" uninstall --yes 2>&1 | crlf_safe) || rc=$?
+[ $rc = 0 ] && ok 'uninstall --yes: exit 0' || fail "uninstall: exit $rc" "$out"
+check "$out" 'Deleted syn/jule-gh/one in the room' 'it leaves the room first'
+check "$out" 'Removed the Synchronauts hooks' 'removes the Codex hooks'
+check "$out" 'claude plugin uninstall synchronauts' 'and names what the human still does: the plugin'
+[ ! -e "$T/home-lv" ] && ok 'the folder of Synchronauts is gone, the launcher with it' || fail 'home left' "$(ls -a "$T/home-lv")"
+posix_only 'the watcher and the board are gone' sh -c "kill -0 $WPID 2>/dev/null || kill -0 $UPID 2>/dev/null && exit 1; exit 0"
+[ "$(lv_branches)" = 'syn/alex-gh/x ' ] && ok 'the room keeps the others and nothing of this machine' || fail 'branches' "$(lv_branches)"
+check "$(cat "$LV/home/.codex/hooks.json")" 'other-tool' 'the other Codex hook stays'
+lacks "$(cat "$LV/home/.codex/hooks.json")" 'synchronauts' 'and none of ours'
+[ "$(cat "$LV/home/.ssh/id_ed25519")" = precious ] && ok 'and nothing else of the home folder was touched' || fail 'ssh key'
+rc=0; out=$(lv lv "$PY" "$SYN" uninstall --yes 2>&1 | crlf_safe) || rc=$?
+[ $rc = 0 ] && check "$out" 'There was no folder' 'uninstall again finds nothing to remove and says so' || fail "uninstall twice: exit $rc" "$out"
+git -C "$T/lvroom.git" update-ref -d refs/heads/syn/alex-gh/x
+
+# Claude Code asks before it runs either one, and shows the whole command; a call that only names them passes
+lv lvq "$PY" "$SYN" setup >/dev/null  # a machine that is in a room: its hook answers
+ask_of() { echo "$(bash_cmd lv444444 "$T/sam-demo" "$1")" | lv lvq "$PY" "$HOOK" PreToolUse "${2-claude}" | crlf_safe; }
+check "$(ask_of 'syn leave --yes')" '"permissionDecision": "ask"' 'a Bash call of syn leave makes Claude Code ask'
+check "$(ask_of "cd $T && $T/home-lvq/syn uninstall --yes")" 'remove Synchronauts from this machine' 'so does uninstall, in a chain, with what it does'
+[ -z "$(ask_of 'echo "syn leave"; git log --grep=uninstall')" ] && ok 'a call that only names them does not' || fail 'asked for a text'
+check "$(ask_of 'syn uninstall --yes' codex)" '"permissionDecision": "deny"' 'Codex cannot ask: it is refused there, for the human to run'
+check "$(CLAUDE_CODE_ENTRYPOINT=sdk-cli ask_of 'syn leave --yes')" 'A human runs it in a terminal' 'a run without a human is refused'
+git -C "$T/lvroom.git" update-ref -d refs/heads/syn/jule-gh/two
+fi
+block_end
+
 # The team flows: everything below shares sessions, mail and the board
 if block a 'the team flows: sessions, mail, claims, board, missions, signatures, Codex'; then
 as_user sam "$PY" "$SYN" setup >/dev/null

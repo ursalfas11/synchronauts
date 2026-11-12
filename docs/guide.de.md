@@ -174,12 +174,34 @@ Claude ruft sie per Bash auf, du kannst es auch. `~/.synchronauts/syn` ist ein k
 | `~/.synchronauts/syn key` | legt einen Schlüssel dieses Rechners an, der nur signiert, und hinterlegt ihn in deinem GitHub-Konto |
 | `~/.synchronauts/syn rooms [--refresh]` | die Raum-ID, die signierte Auftrags-Post trägt; `--refresh` ermittelt sie neu, wenn das Repo umbenannt oder verschoben wurde |
 | `~/.synchronauts/syn codex [--remove]` | trägt die Hooks in Codex CLI ein oder nimmt sie heraus |
+| `~/.synchronauts/syn leave [--yes] [--force]` | dieser Rechner verlässt den Raum: Sein Branch wird gelöscht, Hintergrunddienst und Board enden, die Sessions hier arbeiten allein weiter; siehe [Verlassen und entfernen](#verlassen-und-entfernen) |
+| `~/.synchronauts/syn uninstall [--yes] [--force]` | verlässt den Raum, entfernt dann die Codex-Hooks, die `syn codex` eingetragen hat, und den Ordner `~/.synchronauts`; nur einen Ordner, von dem es sicher weiß, dass er ihm gehört |
 | `~/.synchronauts/syn line` | eine kurze Zeile für eine Statusleiste, leer wenn nichts los ist |
 | `~/.synchronauts/syn state` | alles, was das Board bekommt, als JSON |
 | `~/.synchronauts/syn notify [on\|off\|test]` | Mitteilungen des Systems an, aus oder als Probe |
 | `~/.synchronauts/syn --version` | die installierte Version; `--help` listet die Kommandos |
 
-Exit-Codes: 0 erledigt, 1 ging nicht, 2 falscher Aufruf (fehlendes Argument, unbekannter Befehl, mit der Anwendung des Befehls), 3 geschrieben, aber noch nicht hochgeladen (`send`). Eine Claim-Liste über 30 Einträge nennt die nicht behaltenen Claims (Exit 1).
+Exit-Codes: 0 erledigt, 1 ging nicht, 2 falscher Aufruf (fehlendes Argument, unbekannter Befehl, mit der Anwendung des Befehls), 3 geschrieben, aber noch nicht hochgeladen (`send`). `leave` und `uninstall` ohne `--yes` außerhalb eines Terminals sind ein falscher Aufruf (2). Eine Claim-Liste über 30 Einträge nennt die nicht behaltenen Claims (Exit 1).
+
+## Verlassen und entfernen
+
+`syn leave` nimmt diesen Rechner aus seinem Raum. Die Sessions hier arbeiten allein weiter, wie vor jedem Setup: Die eigenen Sessions und Worktrees dieses Rechners sehen einander, und nichts verlässt den Rechner.
+
+- **Der Branch.** Es löscht den Branch dieses Rechners im Raum, `syn/<login>/<machine>`, damit deine Kollegen keinen Rechner mehr sehen, der nichts mehr meldet. Nur dieser Branch geht, und nur an dem Commit, den es eben gelesen hat (`--force-with-lease`): Der Branch eines anderen Rechners von dir, einer anderen Person oder einer, auf den inzwischen gepusht wurde, bleibt. Ist der Raum nicht erreichbar, klappt das Verlassen trotzdem: Der Branch bleibt im Raum, `leave` sagt es, und er gilt nach 30 Tagen ohne Push als tot. `git push origin --delete syn/<login>/<machine>` aus einem beliebigen Klon des Raums löscht ihn sofort.
+- **Was endet.** Hintergrunddienst und Board enden, und `leave` wartet, bis sie weg sind. Der Raum wird aus `config.json` genommen und seine lokale Kopie gelöscht, sodass kein Sitzungsstart ihm wieder beitritt. Der Name, der Rechnername und der Signierschlüssel bleiben. Ein `SYN_REMOTE` in deiner Umgebung würde dem Raum wieder beitreten: `leave` sagt es, setz es zurück.
+- **Post.** Nachrichten, die im Postausgang auf eine Signatur warten, und Nachrichten, die den Raum noch nicht erreicht haben, werden verworfen; `leave` sagt, wie viele. Angekommene Nachrichten bleiben auch nicht: Sie stammen aus dem Raum.
+- **Ein Auftrag.** Haben Sessions dieses Rechners einen laufenden Auftrag angenommen, hält `leave` an und nennt ihn: Beende ihn zuerst (`syn mission end "<Ergebnis>"` aus einer Session darin) oder gib `--force` an; die anderen sehen den Auftrag dann zu seiner Endzeit auslaufen.
+- **Ein Ja.** `leave` fragt in einem Terminal. Wo keins da ist (ein Skript, Claudes Bash-Werkzeug), braucht es `--yes`, sonst zeigt es, was es täte, und endet mit Exit-Code 2. In Claude Code lässt der Aufruf außerdem Claude Code vorher fragen und den ganzen Befehl zeigen; Codex kann nicht fragen, darum wird sein Aufruf abgelehnt, damit du ihn in einem Terminal ausführst, und ein Lauf ohne Mensch (`claude -p`) ebenso.
+
+`syn uninstall` entfernt Synchronauts von diesem Rechner:
+
+1. Es verlässt den Raum wie oben (ist er nicht erreichbar, macht es weiter und sagt, dass der Branch bleibt), beendet Hintergrunddienst und Board und wartet, bis keine Datei von ihnen mehr offen ist.
+2. Es nimmt die Hooks, die `syn codex` eingetragen hat, aus Codex' `hooks.json`; jeder andere Hook und jede andere Einstellung dort bleibt.
+3. Es löscht den Ordner `~/.synchronauts` (oder den, den `SYN_HOME` nennt): den kurzen Befehl `syn`, den Zustand, die Logs, den Schlüssel, den `syn key` angelegt hat, und die lokale Kopie des Raums. Synchronauts richtet keinen Dienst, kein Anmeldeobjekt und keinen geplanten Auftrag ein, also gibt es keinen zu entfernen.
+
+Es löscht nur einen Ordner, von dem es sicher weiß, dass er ihm gehört, und lehnt mit Exit-Code 1 ab, ohne etwas zu ändern, wenn der Pfad nicht absolut ist oder ein `..` enthält, wenn er ein Link ist, die Wurzel des Dateisystems, dein Home-Ordner oder ein Ordner darüber, der Ordner mit `syn.py`, ein Ordner ohne ein Zeichen von Synchronauts oder einer mit einer Datei, die Synchronauts nicht geschrieben hat (auch ein `syn`, das nicht sein Starter ist). Es gibt aus, was es entfernt hat und was nicht.
+
+Das bleibt deine Sache, und die Ausgabe nennt es: das Plugin mit `claude plugin uninstall synchronauts` in einem Terminal entfernen (mit `--scope project` oder `--scope local`, falls du es dort installiert hast), oder in Claude Code mit `/plugin`, und Claude Code neu starten. Tu es nach `syn uninstall`: Der kurze Befehl startet das Skript des Plugins. Solange das Plugin da ist, führen noch offene Sessions seine Hooks aus und legen ein paar kleine Dateien wieder in `~/.synchronauts` ab; `syn uninstall` entfernt sie erneut. Hat `syn key` einen Schlüssel angelegt, entferne „Synchronauts (<Rechner>)“ aus deinen Signierschlüsseln bei GitHub (Settings, SSH and GPG keys) und eine installierte Board-App in deinem Browser.
 
 ## Was geteilt wird und was nicht
 
@@ -285,7 +307,7 @@ Eine Session gilt drei Stunden nach ihrem letzten Lebenszeichen als inaktiv. Pos
 - Das Signieren mit Schlüsseln in 1Password, Secretive, im OpenSSH-Agenten von Windows oder im Agenten von Git für Windows und mit einer Berührung eines Sicherheitsschlüssels wurde nur mit Ersatzprogrammen getestet, nicht mit den echten Produkten.
 - Änderungen über Bash (ein Skript, `sed -i`, ein Build-Werkzeug) werden nicht erfasst: Das Bild, wer welche Datei bearbeitet, stammt von den Bearbeitungswerkzeugen (Edit, Write, MultiEdit, NotebookEdit) und von Codex-Patches.
 - Die Konfliktprüfung schreibt Objekte (einen Schnappschuss-Commit und Merge-Ergebnisse, auf die kein Branch zeigt) in den `.git`-Ordner deines Arbeits-Repos; die Speicherbereinigung von Git entfernt sie.
-- Einen Befehl `leave` oder `uninstall` gibt es noch nicht. Synchronauts von Hand entfernen: das Plugin in Claude Code entfernen (`/plugin`) und vorher `~/.synchronauts/syn codex --remove` ausführen, falls du die Codex-Hooks eingetragen hast. Synchronauts richtet keinen Dienst, kein Anmeldeobjekt und keinen geplanten Auftrag ein: Der Hintergrunddienst endet 15 Minuten nach dem letzten Hook und der Server des Boards nach 30 Minuten ohne Anfrage, und ohne Plugin startet sie nichts mehr. Dann den Ordner `~/.synchronauts` löschen (oder den Ordner, den `SYN_HOME` nennt): Er enthält Zustand, Schlüssel, den kurzen Befehl `syn` und die lokale Kopie des Raums. Dein Branch `syn/<login>/<machine>` bleibt im Raum-Repo, bis du ihn dort löschst (`git push origin --delete syn/<login>/<machine>`), und die installierte Board-App, falls vorhanden, entfernst du im Browser.
+- `syn uninstall` kann das Plugin nicht aus Claude Code entfernen (`claude plugin uninstall synchronauts` tut es, in einem Terminal), auch nicht den Signierschlüssel, den `syn key` in deinem GitHub-Konto hinterlegt hat, und nicht das Board als App im Browser; die Ausgabe nennt, was übrig bleibt. Die Rückfrage, die Claude Code vor `syn leave` und `syn uninstall` stellt, ist eine Schutzmaßnahme wie die für Aufträge: Ein Aufruf, der so gebaut ist, dass die Hooks ihn nicht lesen können, wird nicht abgefragt, braucht aber außerhalb eines Terminals trotzdem `--yes`. Unter Windows bleibt eine Datei eines laufenden Programms gesperrt: Kann `syn uninstall` eine nicht löschen, nennt es sie und endet mit Exit-Code 1; schließ das Terminal, in dem das Programm läuft, und führ es erneut aus.
 - Unter Windows brauchen die Hooks und Claudes Befehle Git Bash, das mit Git für Windows kommt.
 
 ## Einstellungen (Umgebungsvariablen)
