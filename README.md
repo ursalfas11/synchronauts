@@ -17,6 +17,14 @@
 
 <h3 align="center">Your team's coding agents see each other, talk,<br>and stop colliding. No server.</h3>
 
+**Two people, six Claude Code sessions, one codebase.** Each agent works as if it were alone. So two of them build the same feature from both ends or rewrite the same file, and you find out at the merge.
+
+Synchronauts is a plugin for Claude Code (and Codex CLI) that connects the sessions of your team. Every agent knows who is working on which repo, branch and files. Before Claude edits a file that a teammate's session is editing, Claude Code asks you. Real merge conflicts are predicted before the pull request, not found in it. And when your Claude needs something from Alex's, it sends a message that wakes Alex's waiting session.
+
+It is quick to try and gives little away. Two commands install it, with no server and no new account: a private GitHub repo of your team carries everything. The room sees repo, branch, file paths and a one-line task, never prompts, code or file contents. A prompt or tool call with nothing new costs no tokens. Alone it works too, across your own sessions and worktrees, and nothing about your work leaves the machine.
+
+<p align="center"><b><a href="#start">Install it with two commands ↓</a></b></p>
+
 ![Two Claude Code sessions side by side: an overlap, a question before the edit, a message that wakes the other session. Then the board with both sessions and their messages](docs/demo.gif)
 
 | | |
