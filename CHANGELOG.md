@@ -205,6 +205,13 @@ This file is in English only; the README and the guide exist in English and Germ
 - `syn --version` prints the installed version and `syn --help` the commands with a line each, both with exit code
   0 and without touching `~/.synchronauts`. The bug report form asks for the version that way.
 
+- The room cleans itself up. A machine deletes the branches of its own login that no machine pushed to for 30 days
+  (at setup and when the watcher starts; a machine that comes back simply pushes again), and never a branch of
+  somebody else. Branches of other people that old no longer take part in the names, the look-alike check or the
+  picture. When the room has more than 300 branches, those of the own login are read first, and the watcher reports
+  how many were not read (`status`, the board) instead of dropping the logins late in the alphabet without a word. The
+  room's git folder on each machine prunes the loose objects of every push after an hour, not after two weeks.
+
 ### Changed
 
 - The install is one command, `claude plugin install synchronauts --marketplace ursalfas11/synchronauts` (Claude Code
