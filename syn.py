@@ -5553,6 +5553,7 @@ def edited_paths(e):
 
 BASH_STATUS_TIMEOUT = 1.5  # seconds `git status` gets before and after a Bash command; slower: this call goes untracked
 BASH_MAX_DIRTY = 3000       # more changed files than this in a repo: no snapshot (the lstat of each would be the cost)
+BASH_SLOW_PAUSE = 600       # seconds a repo is left alone after that or after a `git status` that was too slow
 
 
 def stamp(path):
@@ -5591,13 +5592,23 @@ def snap_path(sid, e):
     return HOME / 'snaps' / f"{sid}.{re.sub(r'[^A-Za-z0-9_-]', '', str(e.get('tool_use_id') or 'x'))[:40]}.json"
 
 
+def slow_mark(repo):
+    """The file that says a repo gave no snapshot lately: too slow, too many changed files."""
+    return HOME / 'snaps' / f"slow.{re.sub(r'[^A-Za-z0-9_.-]', '_', repo)[:80]}"
+
+
 def bash_before(k, sid, e):
     """PreToolUse before Bash: the files that are changed in the repo of the session now, with their stamps, for
-    bash_changed() after the command. Never stops or slows the call beyond BASH_STATUS_TIMEOUT, and never fails."""
+    bash_changed() after the command. Never stops or slows the call beyond BASH_STATUS_TIMEOUT, and never fails. A repo
+    that gave no snapshot is not asked again for BASH_SLOW_PAUSE: in a huge one, one command waits, not every one."""
     try:
         r = repo_of(e['cwd'], orgs(k)) if e.get('cwd') else None
-        d = dirty_files(r[1]) if r else None
-        if d is not None:
+        if not r or time.time() - mtime(slow_mark(r[0])) < BASH_SLOW_PAUSE:
+            return
+        d = dirty_files(r[1])
+        if d is None:
+            save(slow_mark(r[0]), {})
+        else:
             save(snap_path(sid, e), {'root': r[1], 'files': d})
     except Exception:
         pass
@@ -5620,7 +5631,7 @@ def bash_changed(sid, e):
                        if f not in before or before[f] != (after[f] if f in after else stamp(os.path.join(root, f))))
     except (TypeError, KeyError):
         return None
-    import unicodedata
+    import unicodedata  # only here, so the hooks start fast
     return root, [unicodedata.normalize('NFC', f) for f in names][:MAX_FILES]
 
 

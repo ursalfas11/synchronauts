@@ -162,8 +162,9 @@ This file is in English only; the README and the guide exist in English and Germ
   read-only, ignored files left out) before and after each Bash command, and what the command changed counts like an
   Edit or Write: it enters the session's file list and the overlap warnings. A command cannot be asked about before it
   runs, so when it changed a file somebody claimed, Claude is told afterwards. Slow `git status` or more than 3000
-  changed files: that call goes untracked silently. Not seen: other repos entered by `cd`, ignored files, committed
-  changes. Only paths go to the room.
+  changed files: that call goes untracked silently, and the repo is left alone for ten minutes, so that in a huge repo
+  one command waits and not every one. Not seen: other repos entered by `cd`, ignored files, committed changes, a
+  command that runs in the background. Only paths go to the room.
 - An invitation finds its way. On a machine without a room, a session start looks in the background (through `gh`, at
   most once an hour) whether GitHub holds an invitation to a room for the account, and the next prompt tells Claude
   and you who invites you to which room. Claude joins after your yes, never on its own: anybody on GitHub can send such

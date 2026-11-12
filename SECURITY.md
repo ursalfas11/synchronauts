@@ -159,7 +159,7 @@ Things that work as designed or as far as tested, so that nobody counts on more 
 - While `syn ui` opens the browser, the one-time pairing code is briefly visible to other users of the machine in the
   opener's command line; on a shared machine run `syn ui --pair` and open the address yourself.
 - Edits made through Bash (a script, `sed -i`, a build tool) are seen only after the command, from a `git status`
-  before and after it (1.5 s each; slower, or more than 3000 changed files: not tracked). A claimed file cannot be asked
+  before and after it (1.5 s each; slower, or more than 3000 changed files: not tracked, and not tried again for ten minutes). A claimed file cannot be asked
   about beforehand, Claude is told afterwards. Ignored files, a command that changes into another repo and changes that
   arrive committed (`git pull`) are not seen. Only paths go to the room.
 - The conflict check writes objects (a snapshot commit and merge results, referenced by no branch) into the `.git`

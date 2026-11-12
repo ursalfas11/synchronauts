@@ -1058,7 +1058,27 @@ syn.git_raw = slow_git
 check(syn.dirty_files(str(bash_repo)) is None, 'git status that does not answer in time gives no snapshot, no error')
 syn.save(syn.snap_path('unit0003', call), {'root': str(bash_repo), 'files': {}})
 check(syn.bash_changed('unit0003', call) is None, 'and no comparison after the command either')
+# a repo whose `git status` was too slow is left alone for a while: one command waits for it, not every one
+asked, real_repo_of, real_orgs = [], syn.repo_of, syn.orgs
+syn.repo_of, syn.orgs = (lambda cwd, owners: ('acme/big', str(bash_repo))), (lambda k: ())
+
+
+def counted_git(*args, **kwargs):
+    asked.append(args)
+    raise subprocess.TimeoutExpired('git', 1)
+
+
+syn.git_raw = counted_git
+for _ in range(3):
+    syn.bash_before({}, 'unit0005', dict(call, cwd=str(bash_repo)))
+check(len(asked) == 1 and not syn.snap_path('unit0005', call).exists(),
+      'a repo whose git status was too slow is asked once, not before every command', str(len(asked)))
 syn.git_raw = real_git_raw
+os.utime(syn.slow_mark('acme/big'), (time.time() - syn.BASH_SLOW_PAUSE - 5,) * 2)
+syn.bash_before({}, 'unit0005', dict(call, cwd=str(bash_repo)))
+check(syn.snap_path('unit0005', call).exists(), 'and is looked at again after the pause')
+syn.snap_path('unit0005', call).unlink()
+syn.repo_of, syn.orgs = real_repo_of, real_orgs
 check(syn.dirty_files(str(TMP / 'not-there')) is None, 'a folder that is no repo gives no snapshot')
 syn.save(syn.snap_path('unit0004', call), ['not', 'a', 'snapshot'])
 check(syn.bash_changed('unit0004', call) is None, 'a damaged snapshot is no comparison')
