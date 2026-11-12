@@ -38,7 +38,7 @@ claude plugin install synchronauts@synchronauts
 
 Danach Claude Code neu starten.
 
-**Allein ist das schon alles.** Ohne Raum sehen deine Sessions und Worktrees auf diesem Rechner einander: wer wo arbeitet, Überschneidungen zwischen ihnen, das Board. Nichts verlässt den Rechner, und jedes Git-Repo zählt.
+**Allein ist das schon alles.** Ohne Raum sehen deine Sessions und Worktrees auf diesem Rechner einander: wer wo arbeitet, Überschneidungen zwischen ihnen, das Board. Nichts verlässt den Rechner, und jedes Git-Repo zählt. Die eine Frage, die Synchronauts dann an GitHub stellt, über `gh` und höchstens einmal je Stunde bei einem Sessionstart, ist, ob dein Konto eine offene Einladung in einen Raum hat; `SYN_INVITES=off` schaltet das ab.
 
 **2. Raum anlegen** (fürs Team) (eine Person): Der Raum ist ein privates Repo, das das Team teilt. Alice sagt zu Claude „richte Synchronauts mit dem Raum alice/agents-room ein und lade bob ein“ oder führt aus:
 
@@ -54,7 +54,7 @@ Setup legt den Raum an, wenn er ein Repo von Alices eigenem Konto ist und noch n
 ~/.synchronauts/syn setup alice/agents-room
 ```
 
-Oder Claude einfach sagen: „richte Synchronauts mit dem Raum alice/agents-room ein“. Hat Bob die Einladung noch nicht angenommen, nimmt `setup` sie an.
+Oder Claude einfach sagen: „richte Synchronauts mit dem Raum alice/agents-room ein“. Hat Bob die Einladung noch nicht angenommen, nimmt `setup` sie an. Bob muss nicht einmal den Namen des Raums kennen: Ist das Plugin installiert, findet ein Sessionstart Alices Einladung, und bei seinem nächsten Prompt sagt Claude ihm, wer ihn in welchen Raum einlädt, und fragt, ob er beitreten will. Ohne sein Ja wird nichts beigetreten, denn eine solche Einladung kann jeder bei GitHub schicken, und ein Raum sieht, woran seine Sessions arbeiten.
 
 **4. Ein Schlüssel zum Signieren** (nur wenn Setup „Not signed yet“ meldet): In einem Raum bei GitHub braucht niemand einen Schlüssel, weil GitHub aufzeichnet, welches Konto eine Nachricht gepusht hat; Setup meldet „No key needed“. Ein Schlüssel, den du in `~/.ssh` und bei GitHub hast, signiert zusätzlich, ohne dass du etwas tust. „Not signed yet“ meldet Setup bei einem Raum auf einem anderen Git-Host oder wenn GitHub deinem Konto die Push-Aufzeichnung des Raums nicht zeigt. Dann
 
@@ -305,6 +305,7 @@ Alle Einstellungen sind Umgebungsvariablen. Damit sie die Hooks und Claudes Befe
 | `SYN_KEYS_URL` | `https://github.com/{login}.keys` | woher die öffentlichen SSH-Schlüssel eines Absenders zum Prüfen der Signaturen gelesen werden; `{login}` wird zum Login des Absenders. Jede `https://`- oder `file://`-Adresse, die je Zeile einen öffentlichen OpenSSH-Schlüssel liefert (`ssh-ed25519 AAAA…`), geht; gelesen werden höchstens 50 Zeilen mit höchstens 1000 Zeichen. Eine Antwort 404 heißt, der Login hat dort keine Schlüssel; Benutzer und Passwort in der Adresse gehen nicht |
 | `SYN_SIGNING_KEY` | von `setup` gewählt | der Schlüssel, der deine Nachrichten signiert: der Pfad einer privaten Schlüsseldatei oder der `.pub`-Datei eines Schlüssels, den ein SSH-Agent hält. Er muss einer sein, den die Schlüssel-Adresse für dich führt. Ohne ihn nimmt `setup` den ersten geführten von `~/.ssh/id_ed25519`, `id_ecdsa`, `id_rsa`, dann einen geführten Schlüssel, den ein SSH-Agent hält (1Password, Secretive), dann `~/.ssh/id_ed25519_sk`, `id_ecdsa_sk` |
 | `SYN_SIGN_WAIT` | 30 | Sekunden (1 bis 300), die ein Befehl, das Board oder der Wächter darauf wartet, dass ein Schlüssel in einem SSH-Agenten oder auf einem Sicherheitsschlüssel signiert (ein Entsperren, ein Klick, eine Berührung); danach geht eine Nachricht unsigniert hinaus, das Ende eines Auftrags wartet wie eine Einladung in `outbox`, und der Wächter fragt den Schlüssel wenige Sekunden später erneut |
+| `SYN_INVITES` | an | `off`: Ein Sessionstart auf einem Rechner ohne Raum fragt GitHub nicht, ob das Konto in einen eingeladen ist |
 | `SYN_NOTIFY` | an | `off` schaltet die Mitteilungen des Systems ab (`syn notify off` tut dasselbe und wird gemerkt); `log` schreibt sie in `notifications.log` in `SYN_HOME`, statt sie zu zeigen |
 | `SYN_UI_PORT` | 7962 | der Port des Boards; `0` nimmt einen freien |
 

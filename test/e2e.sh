@@ -34,6 +34,7 @@ export SYN_REMOTE="$T/remote.git" SYN_ORGS=acme SYN_TICK=0.3 SYN_IDLE=120 SYN_CO
 # acme/conf on "GitHub" is a local bare repo, for the conflict check against a teammate's pushed work
 export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="url.$T/conf.git.insteadOf" GIT_CONFIG_VALUE_0=https://github.com/acme/conf.git
 export SYN_UI_PORT=0  # a free port, a real UI that is running stays untouched
+export SYN_INVITES=off  # a session without a room would ask the real GitHub for invitations; one check turns it on
 export SYN_NOTIFY=log LC_MESSAGES=en_US.UTF-8  # system notifications into notifications.log, in English; LANG would change how grep matches on Windows
 # new repos keep their refs in files and packed-refs, which `packed` writes, also where git defaults to reftable
 export GIT_DEFAULT_REF_FORMAT=files
@@ -194,6 +195,28 @@ EOF
     SYN_MACHINE=one SYN_SIGNING_KEY="$T/kim-key" "$PY" "$SYN" setup acme/room 2>&1) || fail 'setup with an open invitation' "$out"
   check "$out" 'Accepted the invitation to acme/room' 'setup accepts an open invitation to the room'
   check "$(git -C "$T/room.git" for-each-ref refs/heads/syn/)" 'syn/kim-gh/one' 'and then joins the room'
+
+  # An invitation finds its way: a session start on a machine without a room looks, in the background, whether GitHub
+  # holds an invitation to a room for this account. The next prompt tells Claude and the human, once; nothing is joined
+  cat > "$T/bin/gh" <<EOF
+#!/bin/sh
+case "\$*" in
+  'api user/repository_invitations --jq '*)
+    printf 'lee-gh/room\tSynchronauts room\tlee-gh\n'; printf 'evil-gh/tools\tA repo of tools\tevil-gh\n' ;;
+  *) exit 1 ;;
+esac
+EOF
+  invited() { echo "$2" | PATH="$T/bin:$PATH" SYN_INVITES= SYN_REMOTE= SYN_ME= SYN_NAME=Kim SYN_MACHINE= SYN_HOME="$T/home-invited" "$PY" "$HOOK" "$1"; }
+  out=$(invited SessionStart "$(session inv11111 "$T/plain")")
+  lacks "$out" 'invited' 'the session start itself does not wait for GitHub'
+  until_ok 15 'the look for invitations runs in the background' test -s "$T/home-invited/invites.json"
+  out=$(invited UserPromptSubmit "$(session inv11111 "$T/plain")")
+  check "$out" '@lee-gh invited this GitHub account to the Synchronauts room lee-gh/room' 'the next prompt tells Claude who invites to which room'
+  check "$out" 'only after a yes run' 'and that joining needs the yes of the human'
+  check "$out" 'systemMessage' 'the human reads it too'
+  lacks "$out" 'evil-gh' 'an invitation to a repo that is no room is not mentioned'
+  [ ! -e "$T/home-invited/git" ] && ok 'nothing is joined' || fail 'the hook joined a room'
+  lacks "$(invited UserPromptSubmit "$(session inv11111 "$T/plain")")" 'invited' 'an invitation is told once'
 
   # The easy start: setup makes a room of my own account, invites, and says what signing needs; `syn key` makes a key
   # for signing only and hands it to GitHub, which wants a yes in the browser first. Lee has no key and no ~/.ssh

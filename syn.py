@@ -407,6 +407,49 @@ def accept_invitation(remote):
     return bool(ids)
 
 
+ROOM_NOTE = 'Synchronauts room'      # the description of a room that setup makes: an invitation to such a repo is one to a room
+ROOM_NAME = r'[A-Za-z0-9][A-Za-z0-9._-]{0,38}/[A-Za-z0-9._-]{1,100}'
+INVITES = os.environ.get('SYN_INVITES') != 'off'  # look for an invitation to a room while this machine has none
+INVITE_GAP = 3600                    # seconds between two looks
+
+
+def look_for_invites():
+    """`syn invites`, started in the background by a session start on a machine without a room: asks GitHub (through
+    gh) for the open invitations of this account and notes those to a room that setup made (ROOM_NOTE) in
+    invites.json, as [{'room': owner/repo, 'by': the inviter's login}]. It accepts nothing: anybody on GitHub can
+    send such an invitation, and joining a room shows it what the sessions here work on. The human decides
+    (invite_lines)."""
+    ok, out = gh_run('api', 'user/repository_invitations', '--jq',
+                     '.[] | [.repository.full_name, (.repository.description // ""), (.inviter.login // "")] | @tsv',
+                     timeout=15)
+    if not ok:
+        return
+    found = []
+    for row in out.splitlines()[:100]:
+        room, note, by = (row.split('\t') + ['', ''])[:3]
+        if note.startswith(ROOM_NOTE) and fits(ROOM_NAME, room) and fits(LOGIN_RE, by):
+            found.append({'room': room, 'by': by})
+    save(HOME / 'invites.json', found[:3])
+
+
+def invite_lines(k):
+    """(for Claude, for the human) about an invitation to a room that look_for_invites() found and no session here has
+    told yet, each invitation once; ('', '') without one."""
+    found, told = load(HOME / 'invites.json', []), load(HOME / 'invites-told.json', [])
+    told = [x for x in told if isinstance(x, str)] if isinstance(told, list) else []
+    new = [x for x in (found if isinstance(found, list) else [])
+           if isinstance(x, dict) and fits(ROOM_NAME, x.get('room')) and fits(LOGIN_RE, x.get('by'))
+           and x['room'] not in told]
+    if not new:
+        return '', ''
+    x, me = new[0], k.get('name')
+    save(HOME / 'invites-told.json', (told + [x['room']])[-50:])
+    return (f"Synchronauts: @{x['by']} invited this GitHub account to the Synchronauts room {x['room']}. Tell {me} and "
+            f"ask whether to join; only after a yes run `{CMD} setup {x['room']}`. Joining shows that room the repo, "
+            f"branch, edited file paths and task of {me}'s sessions.",
+            f"Synchronauts: @{x['by']} invites you to the room {x['room']}. Tell Claude to join if you want to.")
+
+
 def make_room(remote, me):
     """Makes the room if it is not there and mine to make (a repo of my own account): private and empty. What it
     found: 'made', 'public' (it is there and everybody can read it) or None. A room of an organization or of
@@ -419,7 +462,7 @@ def make_room(remote, me):
         return 'public' if out == 'false' else None
     if 'HTTP 404' not in out or gp[0].lower() != str(me or '').lower():
         return None  # no answer, or not mine: setup says what is wrong with it
-    ok, out = gh_run('repo', 'create', f'{gp[0]}/{gp[1]}', '--private', '--description', 'Synchronauts room')
+    ok, out = gh_run('repo', 'create', f'{gp[0]}/{gp[1]}', '--private', '--description', ROOM_NOTE)
     if not ok:
         raise RuntimeError(f'cannot create the room: {one_line(out, 200)}')
     return 'made'
@@ -5661,6 +5704,9 @@ def hook(event, agent='claude', got=None):
             log_event(sid, 'end', main_repo(mine))
         return 0
     if event == 'SessionStart':
+        if k.get('solo') and INVITES and age(HOME / 'invites-start') > INVITE_GAP:
+            touch('invites-start')  # off the hook: gh asks GitHub, the next prompt of the session tells what it found
+            spawn('invites', log=HOME / 'invites.log')
         cleanup()
         update_session(sid, lambda s: s.update(reported=[], introduced=False))  # anew after /compact or resume
         await_fetch(5)
@@ -5727,6 +5773,10 @@ def hook(event, agent='claude', got=None):
     for_user = [x for key, x in notes
                 if key.startswith(('file|', 'branch|', 'error|', 'conflict|')) and not allowed(key, asked)]
     for_user += [for_human(n, nm) for n, first in mail if first]
+    invited = invite_lines(k) if k.get('solo') and event == 'UserPromptSubmit' else ('', '')
+    if invited[0]:
+        lines.append(invited[0])
+        for_user.append(invited[1])
     emit(event, '\n'.join(lines), ' · '.join(for_user) or None)
     return 0
 
@@ -6931,9 +6981,9 @@ def main(argv):
             if rest[:1] == ['PreToolUse']:  # but a call that may touch the gate or HOME is not let through
                 fail_closed(event)
             return 0
-    if cmd in ('watcher', 'ui-server', 'conflicts'):
+    if cmd in ('watcher', 'ui-server', 'conflicts', 'invites'):
         try:
-            {'watcher': watcher, 'ui-server': ui_server, 'conflicts': conflict_check}[cmd]()
+            {'watcher': watcher, 'ui-server': ui_server, 'conflicts': conflict_check, 'invites': look_for_invites}[cmd]()
         except Exception as error:
             print(f'{iso()} {cmd} stopped: {type(error).__name__}: {error}', flush=True)
         return 0

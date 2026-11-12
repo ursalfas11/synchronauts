@@ -38,7 +38,7 @@ claude plugin install synchronauts@synchronauts
 
 Then restart Claude Code.
 
-**On your own, that's it.** Without a room, your sessions and worktrees on this machine see each other: who works where, overlaps between them, the board. Nothing leaves the machine, and every Git repo counts.
+**On your own, that's it.** Without a room, your sessions and worktrees on this machine see each other: who works where, overlaps between them, the board. Nothing leaves the machine, and every Git repo counts. The one question Synchronauts asks GitHub then, through `gh` and at most once an hour at a session start, is whether your account has an open invitation to a room; `SYN_INVITES=off` turns that off.
 
 **2. Create a room** (for a team) (one person): the room is a private repo the team shares. Alice tells Claude "set up Synchronauts with the room alice/agents-room and invite bob", or runs:
 
@@ -54,7 +54,7 @@ Setup makes the room if it is a repo of Alice's own account and not there yet (a
 ~/.synchronauts/syn setup alice/agents-room
 ```
 
-Or just tell Claude: "set up Synchronauts with the room alice/agents-room". If Bob has not accepted the invitation yet, setup accepts it.
+Or just tell Claude: "set up Synchronauts with the room alice/agents-room". If Bob has not accepted the invitation yet, setup accepts it. Bob does not even have to know the room's name: once the plugin is installed, a session start finds Alice's invitation, and at his next prompt Claude tells him who invites him to which room and asks whether to join. Nothing is joined without his yes, because anybody on GitHub can send such an invitation, and a room sees what his sessions work on.
 
 **4. A key for signing** (only if setup says "Not signed yet"): in a room on GitHub nobody needs a key, because GitHub records which account pushed a message; setup says "No key needed". A key you have in `~/.ssh` and on GitHub signs on top, with nothing to do. Setup says "Not signed yet" for a room on another Git host, or when GitHub does not show your account the room's record of pushes. Then
 
@@ -303,6 +303,7 @@ All settings are environment variables. To reach the hooks and Claude's commands
 | `SYN_KEYS_URL` | `https://github.com/{login}.keys` | where the public SSH keys of a sender are read to check signatures; `{login}` becomes the sender's login. Any `https://` or `file://` address that serves one OpenSSH public key per line (`ssh-ed25519 AAAA…`) works, at most 50 lines of at most 1000 characters are read. An answer 404 means the login has no keys there; a user and password in the address do not work |
 | `SYN_SIGNING_KEY` | picked by `setup` | the key that signs your messages: the path of a private key file, or of the `.pub` file of a key that an ssh-agent holds. It must be one the keys URL lists for you. Without it, `setup` takes the first listed one of `~/.ssh/id_ed25519`, `id_ecdsa`, `id_rsa`, then a listed key that an ssh-agent holds (1Password, Secretive), then `~/.ssh/id_ed25519_sk`, `id_ecdsa_sk` |
 | `SYN_SIGN_WAIT` | 30 | seconds (1 to 300) a command, the board or the watcher waits for a key in an ssh-agent or on a security key to sign (an unlock, a click, a touch); after that a message goes out unsigned, the end of a mission waits in `outbox` like a queued invite, and the watcher asks the key again a few seconds later |
+| `SYN_INVITES` | on | `off`: a session start on a machine without a room does not ask GitHub whether the account is invited to one |
 | `SYN_NOTIFY` | on | `off` turns the system notifications off (`syn notify off` does the same and is remembered); `log` writes them to `notifications.log` in `SYN_HOME` instead of showing them |
 | `SYN_UI_PORT` | 7962 | the board's port; `0` takes a free one |
 

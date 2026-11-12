@@ -158,6 +158,10 @@ This file is in English only; the README and the guide exist in English and Germ
 
 ### Added
 
+- An invitation finds its way. On a machine without a room, a session start looks in the background (through `gh`, at
+  most once an hour) whether GitHub holds an invitation to a room for the account, and the next prompt tells Claude
+  and you who invites you to which room. Claude joins after your yes, never on its own: anybody on GitHub can send such
+  an invitation, and a room sees what your sessions work on. `SYN_INVITES=off` turns the look off.
 - No key is needed in a room on GitHub. GitHub records which account pushed what, forced pushes too, and a recipient
   now checks the sender of a message without a signature against that record: the message is the sender's when their
   account pushed it, and forged when another account did, which the warning names. Missions work that way as well,
