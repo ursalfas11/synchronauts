@@ -32,11 +32,15 @@ You need Claude Code, Python 3.9 or newer and `git`; for a team also the GitHub 
 **1. Install the plugin** (everyone):
 
 ```
+claude plugin install synchronauts --marketplace ursalfas11/synchronauts
+```
+
+Then restart Claude Code. The first session start tells you that Synchronauts is on (a line for you, none for Claude); if Python is missing or older than 3.9, it says that instead. The one command needs Claude Code 2.1.292 or newer. With an older one it is two:
+
+```
 claude plugin marketplace add ursalfas11/synchronauts
 claude plugin install synchronauts@synchronauts
 ```
-
-Then restart Claude Code.
 
 **On your own, that's it.** Without a room, your sessions and worktrees on this machine see each other: who works where, overlaps between them, the board. Nothing leaves the machine, and every Git repo counts. The one question Synchronauts asks GitHub then, through `gh` and at most once an hour at a session start, is whether your account has an open invitation to a room; `SYN_INVITES=off` turns that off.
 

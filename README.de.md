@@ -21,9 +21,9 @@
 
 Synchronauts ist ein Plugin für Claude Code (und Codex CLI), das die Sessions deines Teams verbindet. Jeder Agent weiß, wer an welchem Repo, auf welchem Branch und an welchen Dateien arbeitet. Bevor Claude eine Datei ändert, an der die Session eines Kollegen gerade arbeitet, fragt Claude Code dich. Echte Merge-Konflikte werden vor dem Pull Request vorhergesagt, nicht erst darin gefunden. Und wenn dein Claude etwas von Alex' Claude braucht, schickt er eine Nachricht, die Alex' wartende Session weckt.
 
-Es ist schnell ausprobiert, und du gibst wenig preis. Zwei Befehle installieren es, ohne Server und ohne neues Konto: Alles läuft über ein privates GitHub-Repo eures Teams. Der Raum sieht Repo, Branch, Dateipfade und das Vorhaben in einem Satz, nie Prompts, Code oder Dateiinhalte. Ein Prompt oder Werkzeugaufruf ohne Neuigkeit kostet keine Tokens. Allein funktioniert es auch, über deine eigenen Sessions und Worktrees hinweg, und von deiner Arbeit verlässt nichts den Rechner.
+Es ist schnell ausprobiert, und du gibst wenig preis. Ein Befehl installiert es, ohne Server und ohne neues Konto: Alles läuft über ein privates GitHub-Repo eures Teams. Der Raum sieht Repo, Branch, Dateipfade und das Vorhaben in einem Satz, nie Prompts, Code oder Dateiinhalte. Ein Prompt oder Werkzeugaufruf ohne Neuigkeit kostet keine Tokens. Allein funktioniert es auch, über deine eigenen Sessions und Worktrees hinweg, und von deiner Arbeit verlässt nichts den Rechner.
 
-<p align="center"><b><a href="#start">Mit zwei Befehlen installieren ↓</a></b></p>
+<p align="center"><b><a href="#start">Mit einem Befehl installieren ↓</a></b></p>
 
 ![Zwei Claude-Code-Sessions nebeneinander: eine Überschneidung, eine Rückfrage vor der Änderung, eine Nachricht, die die andere Session weckt. Danach das Board mit beiden Sessions und ihren Nachrichten](docs/demo.gif)
 
@@ -52,11 +52,10 @@ Eine Nachricht weckt eine Session, die nach ihrem Zug wartet. Claude Code zeigt 
 Du brauchst Claude Code, Python 3.9 oder neuer und `git`; fürs Team außerdem die GitHub-CLI `gh`, angemeldet. Es läuft auf macOS, Linux und Windows (mit Git for Windows). Die Einzelheiten stehen in der [Anleitung](docs/guide.de.md#schnellstart).
 
 ```sh
-claude plugin marketplace add ursalfas11/synchronauts
-claude plugin install synchronauts@synchronauts
+claude plugin install synchronauts --marketplace ursalfas11/synchronauts
 ```
 
-Danach Claude Code neu starten. Allein war's das schon: Deine eigenen Sessions und Worktrees sehen einander, und nichts verlässt den Rechner. Fürs Team sagst du zu Claude:
+Danach Claude Code neu starten; der erste Sessionstart meldet, dass Synchronauts läuft. Allein war's das schon: Deine eigenen Sessions und Worktrees sehen einander, und nichts verlässt den Rechner. Fürs Team sagst du zu Claude:
 
 > Richte Synchronauts mit dem Raum du/agents-room ein und lade alex ein.
 

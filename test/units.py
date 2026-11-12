@@ -61,6 +61,49 @@ check(syn.temp_name(target).name != syn.temp_name(HOME / 'y.json').name
       and re.fullmatch(rf'\.x\.json\.{os.getpid()}\.\d+', syn.temp_name(target).name),
       'a temp name carries the process and the thread')
 
+# Setup names the next step where gh or git only say what failed: no gh, gh not logged in, a room on GitHub that is
+# missing or not readable (GitHub answers "not found" for both), a git that cannot log in
+gh_was, which_was = syn.gh, syn.shutil.which
+syn.gh = lambda *args: ''
+
+
+def setup_says(k):
+    try:
+        syn.setup(k)
+    except RuntimeError as error:
+        return str(error)
+    return ''
+
+
+syn.shutil.which = lambda name: None
+check('install the GitHub CLI (https://cli.github.com), then run `gh auth login`' in setup_says({'remote': 'x'}),
+      'setup without gh says to install it and to log in')
+syn.shutil.which = lambda name: '/usr/bin/gh'
+check(setup_says({'remote': 'x'}) == 'cannot find the GitHub login: run `gh auth login` first',
+      'setup with a gh that is not logged in says to log in')
+syn.gh, syn.shutil.which = gh_was, which_was
+
+
+def git_says(text):
+    error = RuntimeError(f'git ls-remote: {text[:300]}')
+    error.output = text
+    return error
+
+
+room = {'remote': 'https://github.com/acme/room.git', 'me': 'kim-gh'}
+said = syn.no_room(room, git_says("remote: Repository not found.\nfatal: repository 'https://github.com/acme/room.git/' "
+                                  "not found"))
+check('the room acme/room is not there, or kim-gh has no access to it' in said
+      and said.endswith('setup acme/room --invite kim-gh`'),
+      'a room on GitHub that is missing or not readable: setup names the command its owner invites with', said)
+check(syn.no_room(room, git_says("fatal: could not read Username for 'https://github.com': terminal prompts disabled"))
+      == 'git cannot log in to GitHub: run `gh auth setup-git` first',
+      'a git that cannot log in to GitHub: setup names `gh auth setup-git`')
+other = git_says('fatal: unable to access: Could not resolve host: github.com')
+check(syn.no_room(room, other) == str(other), "anything else stays in git's words")
+check(syn.no_room({'remote': '/srv/rooms/team.git', 'me': 'kim-gh'}, git_says('fatal: repository not found'))
+      == 'git ls-remote: fatal: repository not found', 'and a room elsewhere gets no hint about GitHub')
+
 syn.private_write(HOME / 'deep' / 'er' / 'secret', 'abc\n')
 check((HOME / 'deep' / 'er' / 'secret').read_bytes() == b'abc\n' and not [p for p in (HOME / 'deep' / 'er').iterdir()
                                                                              if p.name != 'secret'],
