@@ -5635,6 +5635,9 @@ def cleanup():
             p.unlink(missing_ok=True)
     # temp files of a writer that was killed half way (save, private_write, link, snapshot): .name.<pid>[.<thread>]
     stale = time.time() - 3600
+    for p in (HOME / 'snaps').glob('*'):  # a snapshot before a Bash command whose after-hook never ran
+        if mtime(p) < stale:
+            p.unlink(missing_ok=True)
     for folder in (HOME, SESSIONS, HOME / 'outbox'):
         try:
             names_ = os.listdir(folder)
@@ -5719,6 +5722,104 @@ def edited_paths(e):
     return []
 
 
+BASH_STATUS_TIMEOUT = 1.5  # seconds `git status` gets before and after a Bash command; slower: this call goes untracked
+BASH_MAX_DIRTY = 3000       # more changed files than this in a repo: no snapshot (the lstat of each would be the cost)
+BASH_SLOW_PAUSE = 600       # seconds a repo is left alone after that or after a `git status` that was too slow
+
+
+def stamp(path):
+    """[mtime in ns, size] of a file as it is now, None if it is gone."""
+    try:
+        st = os.lstat(path)
+    except OSError:
+        return None
+    return [st.st_mtime_ns, st.st_size]
+
+
+def dirty_files(root):
+    """{path in the repo: stamp} of every file `git status` lists (changed, staged, deleted, renamed both ways, untracked;
+    never ignored ones), None if git did not answer in time, fails or lists too many. Read-only (no optional lock), -z and
+    quotePath off for any name."""
+    try:
+        out = git_raw('--no-optional-locks', '-c', 'core.quotePath=false', 'status', '--porcelain=v1', '-z',
+                      '--untracked-files=all', cwd=root, timeout=BASH_STATUS_TIMEOUT)
+    except (RuntimeError, OSError, subprocess.TimeoutExpired):
+        return None
+    parts, found, i = out.decode('utf-8', 'replace').split('\0'), [], 0
+    while i < len(parts):
+        x, i = parts[i], i + 1
+        if len(x) < 4:
+            continue
+        found.append(x[3:])
+        if ('R' in x[:2] or 'C' in x[:2]) and i < len(parts) and parts[i]:  # `XY new\0old\0`: the old name changed too
+            found.append(parts[i])
+            i += 1
+    if len(found) > BASH_MAX_DIRTY:
+        return None
+    return {f: stamp(os.path.join(root, f)) for f in found}
+
+
+def snap_path(sid, e):
+    return HOME / 'snaps' / f"{sid}.{re.sub(r'[^A-Za-z0-9_-]', '', str(e.get('tool_use_id') or 'x'))[:40]}.json"
+
+
+def slow_mark(repo):
+    """The file that says a repo gave no snapshot lately: too slow, too many changed files."""
+    return HOME / 'snaps' / f"slow.{re.sub(r'[^A-Za-z0-9_.-]', '_', repo)[:80]}"
+
+
+def bash_before(k, sid, e):
+    """PreToolUse before Bash: the files that are changed in the repo of the session now, with their stamps, for
+    bash_changed() after the command. Never stops or slows the call beyond BASH_STATUS_TIMEOUT, and never fails. A repo
+    that gave no snapshot is not asked again for BASH_SLOW_PAUSE: in a huge one, one command waits, not every one."""
+    try:
+        r = repo_of(e['cwd'], orgs(k)) if e.get('cwd') else None
+        if not r or time.time() - mtime(slow_mark(r[0])) < BASH_SLOW_PAUSE:
+            return
+        d = dirty_files(r[1])
+        if d is None:
+            save(slow_mark(r[0]), {})
+        else:
+            save(snap_path(sid, e), {'root': r[1], 'files': d})
+    except Exception:
+        pass
+
+
+def bash_changed(sid, e):
+    """PostToolUse after Bash: (repo root, files) that the command changed, the way bash_before() saw the repo. A file
+    counts when it is listed now and was not before, or when its mtime or size differs from before (also one that is
+    clean or gone now). Files that were dirty before and untouched are not counted. Committed changes (`git pull`,
+    `git checkout` of a branch) and ignored files are not seen. Without the snapshot, or when git is too slow now: None."""
+    p = snap_path(sid, e)
+    snap = load(p, None)
+    p.unlink(missing_ok=True)
+    try:
+        root, before = snap['root'], snap['files']
+        after = dirty_files(root)
+        if after is None:
+            return None
+        names = sorted(f for f in set(before) | set(after)
+                       if f not in before or before[f] != (after[f] if f in after else stamp(os.path.join(root, f))))
+    except (TypeError, KeyError):
+        return None
+    import unicodedata  # only here, so the hooks start fast
+    return root, [unicodedata.normalize('NFC', f) for f in names][:MAX_FILES]
+
+
+def claim_notes(k, sid, repo, files, team=()):
+    """(key, text) when a command changed files that another session claimed: it could not be asked before, the
+    command's targets are unknown until it has run."""
+    for who, key, s, _ in others(k, sid):
+        x = s['repos'].get(repo)
+        if not x or key.split('/')[0] in team:
+            continue
+        hit = sorted(f for f in files if any(covers(c, f) for c in x.get('claims', [])))
+        if hit:
+            yield (f"claim|{key}|{repo}|{','.join(hit)}",
+                   f"⚠️ {who} has claimed {', '.join(hit[:6])} in {short(repo)}; a shell command changed it. "
+                   f"Tell {k.get('name')}.")
+
+
 def edit_question(k, sid, path, agent):
     """Why the human should be asked before this session edits path, or None: another session claimed the file, or a
     teammate's session is editing it, and this session has not edited it yet."""
@@ -5784,6 +5885,8 @@ def pre_bash(k, sid, e, agent):
     reason = checked(lambda: state_touch(command, cwd, st) or sid_set(command, cwd, st) and SID_REFUSAL, command)
     if reason:
         refuse(reason)
+    else:
+        bash_before(k, sid, e)
     return 0
 
 
@@ -5928,6 +6031,10 @@ def hook(event, agent='claude', got=None):
         r = repo_of(path, owners)
         if r:
             hits.append((r, in_repo(path, r[1])))
+    shell = bash_changed(sid, e) if event == 'PostToolUse' and e.get('tool_name') == 'Bash' else None
+    shell_repo = repo_of(shell[0], owners) if shell and shell[1] else None
+    if shell_repo:  # what a shell command changed counts like an edit
+        hits += [(shell_repo, f) for f in shell[1]]
     roots = {r[0]: r[1] for r, _ in hits if r}  # where the session works, for the conflict check; stays on this machine
     update_session(sid, lambda s: s.update(active=time.time(), ended=event == 'SessionEnd', **where,
                                            roots={**s.get('roots', {}), **roots}))
@@ -5996,7 +6103,9 @@ def hook(event, agent='claude', got=None):
         # it, a session hears of the repos it works in or its prompt names
         scope = set(mine.get('repos', {})) | named if sess.get('introduced') else None
         notes = [(key, x) for key, x in [*situation_lines(k, sid, scope),
-                                         *overlaps(k, mine, sid, asked, partners(k, m)), *conflict_lines(k, sid)]
+                                         *overlaps(k, mine, sid, asked, partners(k, m)),
+                                         *(claim_notes(k, sid, shell_repo[0], shell[1], partners(k, m)) if shell_repo else ()),
+                                         *conflict_lines(k, sid)]
                  if key not in sess['reported']] if in_team else []
         if error and in_team and f'error|{error}' not in sess['reported']:
             notes.append((f'error|{error}', f'Synchronauts: sync is failing ({error}); the picture may be stale.'))
@@ -6043,7 +6152,7 @@ def hook(event, agent='claude', got=None):
 
     # the human sees warnings, unless the permission prompt before the edit already told them
     for_user = [x for key, x in notes
-                if key.startswith(('file|', 'branch|', 'error|', 'conflict|')) and not allowed(key, asked)]
+                if key.startswith(('file|', 'claim|', 'branch|', 'error|', 'conflict|')) and not allowed(key, asked)]
     for_user += [for_human(n, nm) for n, first in mail if first]
     invited = invite_lines(k) if k.get('solo') and event == 'UserPromptSubmit' else ('', '')
     if invited[0]:
