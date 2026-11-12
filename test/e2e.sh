@@ -178,6 +178,37 @@ check "$out" 'systemMessage' 'and the human sees it too'
 [ -z "$(git -C "$T/sam-demo" diff --cached --name-only)" ] && [ -z "$(git -C "$T/sam-demo" stash list)" ] \
   && ok 'the check leaves index and stash alone' || fail 'the check touched the repo' "$(git -C "$T/sam-demo" status)"
 git -C "$T/sam-demo" checkout -q -- src/a.ts; git -C "$T/sam-demo-wt" checkout -q -- src/a.ts
+# Git older than 2.38 has no `merge-tree --write-tree`. A git in front of the real one answers as that Git does (usage
+# text, exit 129, and it says 2.30.0): the check stays silent, raises nothing, and the other warnings still work. A shell
+# script is not found as git.exe by Windows, so this runs on macOS and Linux only
+if [ -z "$WIN" ]; then
+  mkdir "$T/oldgit"; REAL_GIT=$(command -v git)
+  cat > "$T/oldgit/git" <<EOF
+#!/bin/sh
+case "\$*" in
+  --version) echo 'git version 2.30.0' ;;
+  *merge-tree*--write-tree*) echo called >> "$T/oldgit/calls"; echo 'usage: git merge-tree <base-tree> <branch1> <branch2>' >&2; exit 129 ;;
+  *) exec "$REAL_GIT" "\$@" ;;
+esac
+EOF
+  chmod +x "$T/oldgit/git"
+  [ "$(PATH="$T/oldgit:$PATH" git --version)" = 'git version 2.30.0' ] && ok 'the git in front of the real one says 2.30.0' || fail 'the git in front of the real one'
+  printf 'main\n' > "$T/sam-demo/src/a.ts"; printf 'feature\n' > "$T/sam-demo-wt/src/a.ts"
+  T0=$(now_s)
+  seen=  # a warning is shown once, so what the hooks said is collected
+  old_hook() { out=$(PATH="$T/oldgit:$PATH" solo PostToolUse "$(edit solo2222 "$T/sam-demo-wt" "$T/sam-demo-wt/src/a.ts")"); seen="$seen$out"; test -s "$T/oldgit/calls"; }
+  until_ok 20 'the check ran with the old git (merge-tree was asked)' old_hook
+  conflicts_after() { "$PY" -c 'import json,sys; from datetime import datetime; d = json.load(open(sys.argv[1])); sys.exit(not (datetime.fromisoformat(d["time"]).timestamp() >= int(float(sys.argv[2])) and d["sessions"] == {}))' "$T/home-solo/conflicts.json" "$T0"; }
+  until_ok 20 'and ended with no conflict reported' conflicts_after
+  lacks "$seen" 'would conflict' 'with Git older than 2.38 the hook stays silent about conflicts'
+  out=$(PATH="$T/oldgit:$PATH" solo PostToolUse "$(edit solo4444 "$T/sam-demo-wt" "$T/sam-demo-wt/src/a.ts")")  # a session that has seen no warning yet
+  check "$out" '⚠️ Your other session is editing the same files in demo' 'and the other warnings still work'
+  [ ! -s "$T/home-solo/conflicts.log" ] && ok 'the check logs no error with the old git' || fail 'conflict check log' "$(cat "$T/home-solo/conflicts.log")"
+  rm -rf "$T/oldgit"
+  git -C "$T/sam-demo" checkout -q -- src/a.ts; git -C "$T/sam-demo-wt" checkout -q -- src/a.ts
+else
+  echo 'ok   skipped: the check with Git older than 2.38 (a shell script is not git.exe)'
+fi
 out=$(SYN_REMOTE= SYN_HOME="$T/home-solo" "$PY" "$SYN" send alex hello 2>&1) && fail 'send without a room' "$out" \
   || check "$out" 'needs a room' 'send without a room explains itself'
 
