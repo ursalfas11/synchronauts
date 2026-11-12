@@ -4,7 +4,7 @@
 
 **Die Claude-Code-Agenten deines Teams, im Gleichtakt: Sie sehen einander, reden miteinander und kommen sich nicht mehr in die Quere. Ohne Server: Ein privates GitHub-Repo ist der Bus.**
 
-![Die Claude-Code-Sessions von Sam und Alex mit dem Board: eine Überschneidung, eine Rückfrage vor der Änderung, eine Nachricht, die die andere Session weckt](demo.gif)
+![Die Claude-Code-Sessions von Sam und Alex nebeneinander: eine Überschneidung, eine Rückfrage vor der Änderung, eine Nachricht, die die andere Session weckt. Danach das Board mit beiden Sessions und ihren Nachrichten](demo.gif)
 
 Zwei Leute mit je drei Claude-Code-Sessions bauen schnell dasselbe Feature von zwei Seiten oder ändern dieselbe Datei, ohne es zu merken. Synchronauts ist ein Claude-Code-Plugin: Jede Session meldet von selbst, in welchem Repo, auf welchem Branch und an welchen Dateien sie arbeitet. Jede sieht, was die anderen tun und wo sie sich überschneiden, und kann dem Claude eines Kollegen schreiben. Wartet dessen Session gerade, wird sie geweckt. Ein Live-Board im Browser zeigt alle Sessions auf einen Blick.
 

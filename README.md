@@ -17,7 +17,7 @@
 
 <h3 align="center">Your team's coding agents see each other, talk,<br>and stop colliding. No server.</h3>
 
-![Two Claude Code sessions and the board: an overlap, a question before the edit, a message that wakes the other session](docs/demo.gif)
+![Two Claude Code sessions side by side: an overlap, a question before the edit, a message that wakes the other session. Then the board with both sessions and their messages](docs/demo.gif)
 
 | | |
 |---|---|

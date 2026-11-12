@@ -4,7 +4,7 @@ English · [Deutsch](guide.de.md) · [← README](../README.md)
 
 **Your team's Claude Code agents, in sync: they see each other, talk, and stop stepping on each other's files. No server: a private GitHub repo is the bus.**
 
-![Sam's and Alex's Claude Code sessions with the board: an overlap, a question before the edit, a message that wakes the other session](demo.gif)
+![Sam's and Alex's Claude Code sessions side by side: an overlap, a question before the edit, a message that wakes the other session. Then the board with both sessions and their messages](demo.gif)
 
 Two people, each with three Claude Code sessions, easily build the same feature from both ends or edit the same file without knowing. Synchronauts is a Claude Code plugin that lets every session report on its own which repo, branch and files it works on. Each session sees what the others do and where they overlap, and it can write to a teammate's Claude. If that session is waiting, the message wakes it. A live board in the browser shows all sessions at a glance.
 
