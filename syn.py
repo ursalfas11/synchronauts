@@ -4462,17 +4462,25 @@ def syn_args(seg):
     return words[i + 1:] if i < len(words) and sh_name(words[i]) in ('syn', 'syn.py') else None
 
 
+def launcher_args(seg):
+    """syn_args(), and also the arguments of the launcher run through a shell (sh ~/.synchronauts/syn ui: it is a shell
+    script); None for any other command."""
+    args = syn_args(seg)
+    words = seg['words'][seg['at'] + 1:]
+    if args is None and seg['name'] in SHELLS:
+        code, script = sh_shell_args(words)
+        if script is not None and code is None and sh_name(script) in ('syn', 'syn.py'):
+            args = words[next(i for i, w in enumerate(words) if w is script) + 1:]
+    return args
+
+
 def pair_call(seg):
     """True if a segment that executes may run `syn ui --pair`, which prints the board's pairing code: syn by its name
     or path, syn.py through python or the launcher through a shell, with `--pair` as a word, a word only the run knows
     (syn ui "$@") or one that xargs adds; any other program (python -m syn, one only known at run time) when its words
     hold `ui` and `--pair`. A subcommand of syn only known at run time never gets here: gate_hidden() refuses it."""
     words = seg['words'][seg['at'] + 1:]
-    args = syn_args(seg)
-    if args is None and seg['name'] in SHELLS:  # sh ~/.synchronauts/syn ui --pair: the launcher is a shell script
-        code, script = sh_shell_args(words)
-        if script is not None and code is None and sh_name(script) in ('syn', 'syn.py'):
-            args = words[next(i for i, w in enumerate(words) if w is script) + 1:]
+    args = launcher_args(seg)
     if args is None:
         texts = {w['text'] for w in words}
         return 'ui' in texts and '--pair' in texts
@@ -4690,6 +4698,32 @@ def sid_set(command, cwd, st=None):
         if syn_args(seg) is None and any(names_sid(t) for t in [w['src'] for w in words] + stdin_texts(seg)):
             return True
     return any(names_sid(t) for t in st['opaque'][start:])
+
+
+ADMIN = ('leave', 'uninstall')      # the commands that change this machine for good: Claude Code asks first
+
+
+def admin_call(command, cwd, st):
+    """'leave' or 'uninstall' if a Bash command runs `syn leave` or `syn uninstall` (by name, by path, through python or
+    the launcher through a shell, in a chain too), else None. A heuristic like the rest of the guard: a call built so
+    that this reader cannot see it is not asked about; `syn` also wants --yes outside a terminal."""
+    if not re.search(r'\b(?:leave|uninstall)\b', flat(command)):
+        return None
+    for seg, _ in sh_walk(command, cwd, 0, st):
+        if not seg['name'] or seg['name'] in INERT and not tool_runs_code(seg['name'], seg['words'][seg['at']:]):
+            continue
+        args = launcher_args(seg)
+        if args and args[0]['text'] == '--room' and not args[0]['dyn']:
+            args = args[2:]
+        if args and not args[0]['dyn'] and args[0]['text'] in ADMIN:
+            return args[0]['text']
+    return None
+
+
+def admin_text(what):
+    return ('Synchronauts: this machine leaves its room; the sessions here go on alone.' if what == 'leave' else
+            'Synchronauts: remove Synchronauts from this machine (its background service, the Codex hooks and the '
+            'folder with its data).')
 
 
 def gate_refusal(command):
@@ -6052,8 +6086,18 @@ def pre_bash(k, sid, e, agent):
     reason = checked(lambda: state_touch(command, cwd, st) or sid_set(command, cwd, st) and SID_REFUSAL, command)
     if reason:
         refuse(reason)
-    else:
-        bash_before(k, sid, e)
+        return 0
+    what = checked(lambda: admin_call(command, cwd, st), command)
+    if what == UNREADABLE:
+        refuse(what)
+        return 0
+    if what and agent == 'codex':  # it cannot ask its human from a hook
+        refuse(f"{admin_text(what)} Ask {k.get('name')} to run it in their own terminal.")
+        return 0
+    if what:  # Claude Code shows the whole command with the question
+        answer({'hookSpecificOutput': {'hookEventName': 'PreToolUse', 'permissionDecision': 'ask',
+                                       'permissionDecisionReason': admin_text(what)}})
+    bash_before(k, sid, e)  # also for a call that is asked about: what runs with it in a chain may change files
     return 0
 
 
@@ -6083,6 +6127,9 @@ def pre_tool_unattended(e):
         else:
             reason = checked(lambda: (gate_hidden(command, cwd, 0, st) and gate_refusal(command))
                              or state_touch(command, cwd, st) or sid_set(command, cwd, st) and SID_REFUSAL, command)
+            what = None if reason else checked(lambda: admin_call(command, cwd, st), command)
+            if what:  # nobody can say yes there
+                reason = what if what == UNREADABLE else f'{admin_text(what)} A human runs it in a terminal.'
     if reason:
         refuse(reason)
     return 0
@@ -6346,21 +6393,39 @@ CODEX_HOOKS = {'SessionStart': 15, 'UserPromptSubmit': 10, 'PreToolUse': 10, 'Po
 CODEX_MARK = '# synchronauts'
 
 
-def cmd_codex(args):
-    """Enters the hooks into Codex's hooks.json, next to whatever else is there; --remove takes them out again."""
-    path = Path(os.environ.get('CODEX_HOME') or Path.home() / '.codex') / 'hooks.json'
-    try:
-        conf = json.loads(path.read_text(encoding='utf-8')) if path.exists() else {}
-    except ValueError as error:
-        sys.exit(f'{path} is not valid JSON ({error}); fix it first.')
-    hooks = conf.setdefault('hooks', {})
-    for event in list(hooks):  # ours out, the others' untouched
+def codex_path():
+    return Path(os.environ.get('CODEX_HOME') or Path.home() / '.codex') / 'hooks.json'
+
+
+def strip_codex(conf):
+    """Takes the hooks that cmd_codex wrote out of the parsed hooks.json, the others' untouched; how many it took."""
+    hooks, took = conf.setdefault('hooks', {}), 0
+    for event in list(hooks):
         groups = [g for g in hooks[event] if not any(CODEX_MARK in str(h.get('command')) for h in g.get('hooks', []))]
+        took += len(hooks[event]) - len(groups)
         if groups:
             hooks[event] = groups
         else:
             del hooks[event]
-    if '--remove' not in args:
+    return took
+
+
+def cmd_codex(args):
+    """Enters the hooks into Codex's hooks.json, next to whatever else is there; --remove takes them out again."""
+    path, remove = codex_path(), '--remove' in args
+    try:
+        conf = json.loads(path.read_text(encoding='utf-8')) if path.exists() else {}
+    except ValueError as error:
+        sys.exit(f'{path} is not valid JSON ({error}); fix it first.')
+    try:
+        took = strip_codex(conf)  # ours out, the others' untouched
+    except (AttributeError, TypeError):  # valid JSON, but not the shape Codex reads: nothing of it is rewritten
+        sys.exit(f'{path} does not look like a hooks file of Codex; fix it first.')
+    if remove and not took:  # nothing of ours in it, or no file at all: none is written
+        print(f'No Synchronauts hooks in {path}.')
+        return
+    hooks = conf['hooks']
+    if not remove:
         link(always=True)
         for event, timeout in CODEX_HOOKS.items():
             group = {'hooks': [{'type': 'command', 'timeout': timeout,
@@ -6369,7 +6434,7 @@ def cmd_codex(args):
                 group['matcher'] = '^(apply_patch|Bash)$'
             hooks.setdefault(event, []).append(group)
     save(path, conf)
-    if '--remove' in args:
+    if remove:
         print(f'Removed the Synchronauts hooks from {path}.')
     else:
         print(f'Synchronauts hooks are in {path}. In Codex, open /hooks once and trust them; from the next Codex '
@@ -7699,6 +7764,343 @@ def cmd_rooms(k, args):
         print(f"Room {room_id(k)}" + (f" (earlier ids: {', '.join(alt)})" if alt else ''))
 
 
+# --- Leave and uninstall --------------------------------------------------------
+# Both change this machine for good and are for a human at a terminal: they ask there, want --yes where there is no
+# terminal, and Claude Code asks before a Bash call of them (admin_call). `leave` takes this machine out of its room, the
+# sessions here go on alone (the state before any setup); `uninstall` leaves, stops what runs and removes what Synchronauts
+# put on the machine: the folder HOME (launcher, state, keys it made, the local copy of the room) and its hooks in
+# Codex's hooks.json. It installs no service, login item or scheduled job, so there is none to remove.
+
+# what belongs to the room and goes when this machine leaves: what the others reported, what was sent and checked, the
+# invitations seen; the board stops too (it holds the room it was started for)
+ROOM_FILES = ('others.json', 'inbox.json', 'verified.json', 'keys.json', 'signers.json', 'delivered.json', 'mail.json',
+              'missions.json', 'pushed.json', 'pushes.json', 'errors.json', 'fetched', 'fetch-now',
+              'room-mismatch.json', 'retire.json', 'watcher.json', 'watcher.log', 'invites.json', 'invites-told.json',
+              'ui.json', 'ui.log', 'ui-pair.json', 'ui-key')
+# every other name that syn writes into HOME: a folder holding anything else is not one that uninstall deletes
+HOME_NAMES = frozenset(ROOM_FILES) | frozenset(
+    'alive approve.key clock.json config.json conflict-objects conflict-run conflicts-start conflicts.json '
+    'conflicts.log defaults.json events.json git hook.log invites-start invites.log notifications.log notified.json '
+    'outbox sessions setup-hint signing-agent.pub signing-key signing-key.pub signing.json snaps status.json syn '
+    'task.json'.split())  # test/e2e.sh checks at its end that every name a run wrote is known here
+# what marks a folder as Synchronauts': at least one of these must be in it
+HOME_MARKS = ('config.json', 'status.json', 'sessions', 'git', 'syn', 'alive')
+LINK_START = '#!/bin/sh\n# Synchronauts: '  # how link() starts the launcher
+
+
+def ours(name):
+    """Whether a name in HOME is one that syn writes: a known file, a lock, a task note, the temp file of a writer."""
+    return (name in HOME_NAMES or bool(re.fullmatch(r'[a-z]+\.lock', name)) or bool(re.fullmatch(r'task\.[\w-]+\.json', name))
+            or bool(re.fullmatch(r'\.[^.].*\.\d+(?:\.\d+)?', name)))
+
+
+def home_problem():
+    """Why HOME is not a folder that uninstall may delete as Synchronauts' own, or None if it is (or is not there).
+    Refused: a path that is not absolute or has `..`, a link, a file, the root, the user's home folder or one above it,
+    a folder that holds this program, one with no sign of Synchronauts in it or with anything in it that syn does not
+    write (names, links, a launcher that is not the one syn writes). Nothing is deleted on a variable's word alone."""
+    path = HOME
+    if not path.is_absolute() or '..' in path.parts:
+        return 'is not an absolute path without `..`'
+    if path.is_symlink():
+        return f'is a link (to {os.path.realpath(path)}), not a folder of its own'
+    if not path.exists():
+        return None
+    if not path.is_dir():
+        return 'is a file'
+    real = path.resolve()
+    if real == Path(real.anchor):
+        return 'is the root of the file system'
+    if real in (Path.home().resolve(), *Path.home().resolve().parents):
+        return 'is your home folder or one above it'
+    if SCRIPT == real or real in SCRIPT.parents or real in SCRIPT.resolve().parents:
+        return 'holds the program itself'
+    try:
+        names_ = sorted(os.listdir(real))
+    except OSError as error:
+        return f'cannot be read ({error.strerror or error})'
+    foreign = [n for n in names_ if not ours(n) or (real / n).is_symlink()]
+    if (real / 'syn').is_file() and not (real / 'syn').read_text(encoding='utf-8', errors='replace').startswith(LINK_START):
+        foreign.append('syn')
+    if foreign:
+        return f"holds files that Synchronauts did not write ({', '.join(sorted(set(foreign))[:5])})"
+    if not any(m in names_ for m in HOME_MARKS):
+        return 'does not look like a folder of Synchronauts' if names_ else None
+    return None
+
+
+def held(name):
+    """Whether a process holds Lock(name): the background service that was started for it is running."""
+    try:
+        with Lock(name, wait=False):
+            return False
+    except BlockingIOError:
+        return True
+
+
+def process_is(pid, word):
+    """False if the process pid is plainly another program than syn's `word` (watcher, ui-server): a pid in a file is
+    stale when its process ended and the number went to another. Where ps cannot say, it counts as ours."""
+    if WINDOWS:
+        return True
+    try:
+        out = subprocess.run(['ps', '-p', str(pid), '-o', 'command='], stdin=subprocess.DEVNULL, capture_output=True,
+                             encoding='utf-8', errors='replace', timeout=5).stdout.strip()
+    except (OSError, subprocess.TimeoutExpired):
+        return True
+    return not out or word in out
+
+
+def stop_service(lock, word):
+    """Ends the background process that holds Lock(lock) (the pid is in HOME/<lock>.json, which has the same name as
+    the lock for the watcher and the board) and waits until the lock is free, so that no file of it is open any more:
+    'none' if it did not run, 'stopped', or 'stuck' if it is still there. Only the pid it noted for itself, only while
+    the lock is held, and only a process that is the one."""
+    if not held(lock):
+        return 'none'
+    pid = load(HOME / f'{lock}.json', {}).get('pid')
+    pid = pid if isinstance(pid, int) and pid > 1 and pid != os.getpid() else None
+    if pid and not process_is(pid, word):
+        return 'stuck'
+    for sig, seconds in ((signal.SIGTERM, 10), (getattr(signal, 'SIGKILL', signal.SIGTERM), 5)):
+        if pid:
+            try:
+                os.kill(pid, sig)
+            except OSError:
+                pass
+        end = time.time() + seconds
+        while time.time() < end:
+            if not held(lock):
+                return 'stopped'
+            time.sleep(0.1)
+    return 'stuck'
+
+
+def remove_tree(path, failed):
+    """Deletes the folder and all in it without following a link; what cannot be deleted (a file Windows keeps open)
+    goes on failed, after a few tries for the time its owner needs to let go."""
+    for attempt in range(8 if WINDOWS else 1):
+        failed.clear()
+        for folder, dirs, files in os.walk(path, topdown=False):
+            for name in files + [d for d in dirs if os.path.islink(os.path.join(folder, d))]:
+                p = os.path.join(folder, name)
+                try:
+                    try:
+                        os.unlink(p)
+                    except PermissionError:  # read-only, as git writes its objects
+                        os.chmod(p, 0o600)
+                        os.unlink(p)
+                except FileNotFoundError:
+                    pass
+                except OSError as error:
+                    failed.append(f'{p} ({error.strerror or error})')
+            try:
+                os.rmdir(folder)
+            except FileNotFoundError:
+                pass
+            except OSError as error:
+                if not failed:
+                    failed.append(f'{folder} ({error.strerror or error})')
+        if not failed:
+            return
+        time.sleep(0.25)
+
+
+def remove_own_branch(k):
+    """Deletes this machine's branch in the room: (True, '') when it is gone, (False, why) when it could not be
+    done. Only this very branch, and only at the commit that was just read (--force-with-lease): a branch that
+    somebody pushed to meanwhile, another machine of the same name, is left."""
+    ref = f'refs/heads/{own_branch(k)}'
+    try:
+        with Lock('git'):
+            tip = next((row.split(' ')[1] for row in ls_remote() if row.split(' ')[0] == ref), None)
+            if tip:
+                git('push', '-q', f'--force-with-lease={ref}:{tip}', 'origin', f':{ref}', timeout=30)
+        return True, ''
+    except (RuntimeError, OSError, subprocess.TimeoutExpired) as error:
+        return False, one_line(without_userinfo(str(error)), 200)
+
+
+def unsent_mail():
+    """How many of the own messages did not reach the room yet."""
+    pushed = load(HOME / 'pushed.json', [])
+    pushed = set(pushed) if isinstance(pushed, list) else set()
+    return sum(1 for n in load(HOME / 'mail.json', []) if isinstance(n, dict) and n.get('id') not in pushed)
+
+
+def active_mission(k):
+    """The live mission that sessions of this machine joined, or None."""
+    try:
+        return next((m for m in missions(k).values() if joined_here(k, m)), None)
+    except Exception:  # noqa: BLE001  # a damaged record must not keep somebody in a room
+        return None
+
+
+def leave_lines(k):
+    """(what leaving does to this machine, as lines for the question; the live mission or None). Counted before
+    anything is dropped."""
+    room = '/'.join(github_path(k.get('remote')) or (k.get('remote'),))
+    joined = is_setup(k)
+    lines = [f"This machine leaves the room {room}: the background service and the board stop, the sessions here go "
+             f"on alone and nothing leaves the machine."]
+    queued = len(outbox_records()) if joined else 0
+    unsent = unsent_mail() if joined else 0
+    if joined:
+        lines.append(f"Its branch {own_branch(k)} is deleted in the room, so the teammates stop seeing this machine; "
+                     f"the name and the signing key stay.")
+    if queued or unsent:
+        lines.append(f"Dropped: {queued} queued message(s) that wait for a signature, {unsent} that did not reach the "
+                     f"room yet.")
+    return lines, active_mission(k) if joined else None
+
+
+def leave_steps(k):
+    """Takes this machine out of the room, in this order: the room is gone from config.json first (a session start
+    does not join it again, no new watcher starts), then the watcher and the board stop and are waited for, then the
+    own branch goes (the room may be out of reach: it stays then), then the local copy of the room goes. Returns
+    (lines, problems)."""
+    out, problems, joined = [], [], is_setup(k)
+    queued, unsent = (len(outbox_records()), unsent_mail()) if joined else (0, 0)
+    with Lock('config'):
+        raw = load(HOME / 'config.json', {})
+        if any(f in raw for f in ('remote', 'orgs', 'room', 'room_alt')):
+            save(HOME / 'config.json', {f: v for f, v in raw.items() if f not in ('remote', 'orgs', 'room', 'room_alt')})
+    for lock, word, name in (('watcher', 'watcher', 'The background service'), ('ui', 'ui-server', 'The board')):
+        if stop_service(lock, word) == 'stuck':
+            problems.append(f'{name} did not stop; stop it by hand, then run this again.')
+    if joined:
+        done, why = remove_own_branch(k)
+        if done:
+            out.append(f'Deleted {own_branch(k)} in the room.')
+        else:
+            out.append(f"The room is out of reach ({why}): {own_branch(k)} stays in it. It counts as dead after 30 days "
+                       f"without a push and is cleaned up then; `git push origin --delete {own_branch(k)}` from any "
+                       f"clone of the room removes it now.")
+    for name in ROOM_FILES:
+        try:
+            (HOME / name).unlink(missing_ok=True)
+        except OSError as error:
+            problems.append(f'{HOME / name}: {error.strerror or error}')
+    failed = []
+    for folder in (HOME / 'outbox', GIT):
+        if folder.is_dir() and not folder.is_symlink():
+            remove_tree(folder, failed)
+    problems += [f'could not delete {x}' for x in failed]
+    if queued or unsent:
+        out.append(f'Dropped {queued} queued message(s) that waited for a signature and {unsent} that had not reached '
+                   f'the room yet.')
+    out.append('Left the room: the sessions here go on alone.' if joined else 'No room is set for this machine any more.')
+    if os.environ.get('SYN_REMOTE'):
+        out.append('SYN_REMOTE is set in your environment: unset it, or the next session start joins the room again.')
+    return out, problems
+
+
+def confirm(cmd, lines, flags):
+    """The yes of the human: --yes, or the answer in a terminal; elsewhere (a hook's Bash call, a script) --yes is
+    needed, so that nothing like this happens by accident."""
+    if '--yes' in flags:
+        return
+    if sys.stdin.isatty() and sys.stdout.isatty():
+        print('\n'.join(lines))
+        try:
+            yes = input('Go on? [y/N] ').strip().lower() in ('y', 'yes')
+        except EOFError:
+            yes = False
+        if not yes:
+            sys.exit('Cancelled, nothing was changed.')
+        return
+    print('\n'.join(lines))
+    wrong(f'{cmd}: this is not done without a yes. Add --yes if you mean it.')
+
+
+def admin_flags(cmd, rest):
+    if any(x not in ('--yes', '--force') for x in rest):
+        wrong(f'Usage: {USAGE[cmd]}')
+    return list(rest)
+
+
+def refuse_mission(m, flags):
+    if m and '--force' not in flags:
+        sys.exit(f"Mission {m['id']} is running with sessions of this machine, until {clock(m['until'])}. End it first "
+                 f"(`{CMD} mission end \"<result>\"` from a session in it), or add --force to go on: the others then "
+                 f"see it run out.")
+
+
+def cmd_leave(k, rest):
+    flags = admin_flags('leave', rest)
+    if not k.get('remote'):
+        print('This machine is in no room.')
+        return 0
+    lines, m = leave_lines(k)
+    refuse_mission(m, flags)
+    confirm('leave', lines, flags)
+    out, problems = leave_steps(k)
+    print('\n'.join(out))
+    if problems:
+        sys.exit('\n'.join(problems))
+    return 0
+
+
+def cmd_uninstall(k, rest):
+    flags = admin_flags('uninstall', rest)
+    problem = home_problem()
+    if problem:
+        sys.exit(f'Not removed: {HOME} {problem}. Synchronauts deletes only a folder it can tell is its own; nothing '
+                 f'was changed.')
+    cx = codex_path()
+    lines, m = leave_lines(k) if k.get('remote') else ([], None)
+    lines.append(f'Removes the folder {shown(HOME)}: the short command `syn`, the state, the logs, the local copy of '
+                 f'the room' + (' and the key `syn key` made' if OWN_KEY.exists() else '')
+                 + f', and the hooks of Synchronauts in {shown(cx)} if there are any. Other hooks stay.')
+    refuse_mission(m, flags)
+    confirm('uninstall', lines, flags)
+    out, problems, key = [], [], OWN_KEY.exists()
+    machine = k.get('machine') or 'this machine'
+    if HOME.is_dir():
+        if k.get('remote'):
+            got, bad = leave_steps(k)
+            out += got
+            problems += bad
+        else:
+            for lock, word, name in (('watcher', 'watcher', 'The background service'), ('ui', 'ui-server', 'The board')):
+                if stop_service(lock, word) == 'stuck':
+                    problems.append(f'{name} did not stop; stop it by hand, then run this again.')
+    try:  # only the entries that `syn codex` wrote
+        if cx.is_file():
+            conf = json.loads(cx.read_text(encoding='utf-8'))
+            if strip_codex(conf):
+                save(cx, conf)
+                out.append(f'Removed the Synchronauts hooks from {shown(cx)}; the others stay.')
+    except (OSError, ValueError, AttributeError, TypeError) as error:
+        problems.append(f"could not clean {cx} ({error}); remove the entries with `synchronauts` in them by hand")
+    problem = home_problem()  # again: it is what is there now that counts
+    if problem:
+        problems.append(f'{HOME} was not deleted: it {problem}')
+    elif HOME.is_dir():
+        try:
+            os.chdir(HOME.parent)  # Windows does not delete the folder a process stands in
+        except OSError:
+            pass
+        failed = []
+        remove_tree(HOME, failed)
+        problems += [f'could not delete {x}' for x in failed]
+        out.append(f'Removed {shown(HOME)}' + (' (some files are left, see below).' if failed else '.'))
+    else:
+        out.append(f'There was no folder {shown(HOME)}.')
+    print('\n'.join(out))
+    todo = [f'`claude plugin uninstall synchronauts` in a terminal (or /plugin in Claude Code), then restart Claude '
+            f'Code. Until then, open sessions still run the hooks and put a few small files back into {shown(HOME)}; '
+            f'`syn uninstall` removes them again.']
+    if key:
+        todo.append(f'The key `syn key` made is gone from this machine; remove "Synchronauts ({machine})" from '
+                    f'github.com/settings/keys (SSH keys, type signing) if you do not want it listed.')
+    todo.append('If you installed the board as an app in your browser, remove it there.')
+    print('Still yours to do:\n' + '\n'.join(f'  - {x}' for x in todo))
+    if problems:
+        sys.exit('Not everything was removed:\n' + '\n'.join(f'  - {x}' for x in problems))
+    return 0
+
+
 def main(argv):
     for stream in (sys.stdout, sys.stderr):  # Windows pipes would use the ANSI code page and \r\n
         # a lone surrogate (JSON may carry one in a path) is written as \udcxx, never stops the output
@@ -7710,7 +8112,8 @@ def main(argv):
     if cmd in ('--help', '-h', 'help'):
         print(HELP)
         return 0
-    private_home()
+    if cmd != 'uninstall':  # it checks first what HOME is: no chmod of a folder that may be none of ours
+        private_home()
     if cmd == 'hook':
         event = {}
         try:
@@ -7730,10 +8133,11 @@ def main(argv):
 
 
 USAGE = {'send': 'send <name|all>[@repo] "<text>"', 'task': 'task "<one sentence>"', 'rooms': 'rooms [--refresh]',
-         'notify': 'notify [on|off|test]',
+         'notify': 'notify [on|off|test]', 'leave': 'leave [--yes] [--force]', 'uninstall': 'uninstall [--yes] [--force]',
          'mission': 'mission propose --with <name>[@repo][,…] [--hours N] "<plan>" · mission approve <id> · '
                     'mission end [--id <id>] "<result>"'}
-COMMANDS = ('status', 'send', 'task', 'claim', 'mission', 'ui', 'line', 'state', 'notify', 'rooms', 'codex', 'setup', 'key')
+COMMANDS = ('status', 'send', 'task', 'claim', 'mission', 'ui', 'line', 'state', 'notify', 'rooms', 'codex', 'setup', 'key', 'leave',
+            'uninstall')
 
 HELP = f"""synchronauts {VERSION}: your team's agents see each other, talk, and stay off each other's files.
 
@@ -7751,6 +8155,8 @@ HELP = f"""synchronauts {VERSION}: your team's agents see each other, talk, and 
   setup <owner/repo> [--org a,b]     join a room, a private GitHub repo the team shares; makes it if it is yours
         [--invite login,...]         and not there yet, and invites teammates
   key                                a key of this machine for signing only, added to your GitHub account
+  leave [--yes] [--force]            this machine leaves the room; the sessions here go on alone
+  uninstall [--yes] [--force]        leaves, stops the background service, removes the Codex hooks and ~/.synchronauts
   --version, --help
 
 Exit codes: 0 done · 1 could not be done · 2 wrong call (missing argument, unknown command) · 3 written, not uploaded yet
@@ -7815,6 +8221,10 @@ def dispatch(cmd, rest):
         return 0
     if cmd == 'key':
         return cmd_key(k)
+    if cmd == 'leave':
+        return cmd_leave(k, rest)
+    if cmd == 'uninstall':
+        return cmd_uninstall(k, rest)
     if not is_setup(k):
         if cmd in ('send', 'mission'):
             sys.exit(room_hint())

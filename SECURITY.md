@@ -168,7 +168,12 @@ Things that work as designed or as far as tested, so that nobody counts on more 
   arrive committed (`git pull`) are not seen. Only paths go to the room.
 - Versions before 0.6.0 left the objects of the conflict check (a snapshot commit and merge results, referenced by no
   branch) in the `.git` folder of the work repository; `git gc` removes them. The check no longer writes there.
-- There is no `leave` or `uninstall` command yet. See the guide for removing the plugin by hand.
+- `syn uninstall` deletes only a folder it can tell is its own (an absolute path that is no link, not the root or
+  the home folder, with a mark of Synchronauts and no file of someone else) and follows no link while it deletes. It
+  cannot remove the plugin from Claude Code, the signing key on your GitHub account or the board as an app in your
+  browser; its output names what is left. The question Claude Code asks before `syn leave` or `syn uninstall` is a
+  guard of the same kind as the one for missions: a call built so that the hooks cannot read it is not asked about,
+  but still needs `--yes` outside a terminal.
 
 ## Hardening checklist for a room
 

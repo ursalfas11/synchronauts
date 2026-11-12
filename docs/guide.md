@@ -179,12 +179,34 @@ Claude calls these via Bash; you can too. `~/.synchronauts/syn` is a small scrip
 | `~/.synchronauts/syn key` | makes a key of this machine for signing only and adds it to your GitHub account |
 | `~/.synchronauts/syn rooms [--refresh]` | the room's id that signed mission mail carries; `--refresh` finds it out again after the repo was renamed or moved |
 | `~/.synchronauts/syn codex [--remove]` | adds the hooks to Codex CLI, or removes them |
+| `~/.synchronauts/syn leave [--yes] [--force]` | this machine leaves the room: its branch is deleted, the background service and the board stop, the sessions here go on alone; see [Leaving and removing](#leaving-and-removing) |
+| `~/.synchronauts/syn uninstall [--yes] [--force]` | leaves, then removes the Codex hooks that `syn codex` wrote and the folder `~/.synchronauts`; only a folder it can tell is its own |
 | `~/.synchronauts/syn line` | one short line for a status bar, empty when nothing is going on |
 | `~/.synchronauts/syn state` | everything the board gets, as JSON |
 | `~/.synchronauts/syn notify [on\|off\|test]` | system notifications on, off, or a sample |
 | `~/.synchronauts/syn --version` | the installed version; `--help` lists the commands |
 
-Exit codes: 0 done, 1 could not be done, 2 a wrong call (missing argument, unknown command, with the usage of the command), 3 written but not uploaded yet (`send`, `mission end`). A claim list over 30 entries says which claims were not kept (exit 1).
+Exit codes: 0 done, 1 could not be done, 2 a wrong call (missing argument, unknown command, with the usage of the command), 3 written but not uploaded yet (`send`, `mission end`). `leave` and `uninstall` without `--yes` outside a terminal are a wrong call (2). A claim list over 30 entries says which claims were not kept (exit 1).
+
+## Leaving and removing
+
+`syn leave` takes this machine out of its room. The sessions here keep working alone, as before any setup: the own sessions and worktrees of this machine see each other, and nothing leaves the machine.
+
+- **The branch.** It deletes the branch of this machine in the room, `syn/<login>/<machine>`, so your teammates stop seeing a machine that no longer reports. Only that branch goes, and only at the commit it has just read (`--force-with-lease`): a branch of another machine of yours, of another person, or one that was pushed to in the meantime stays. If the room cannot be reached, leaving still works: the branch stays in the room, `leave` says so, and it counts as dead after 30 days without a push. `git push origin --delete syn/<login>/<machine>` from any clone of the room deletes it at once.
+- **What stops.** The background service and the board stop, and `leave` waits until they are gone. The room is taken out of `config.json` and its local copy is deleted, so no session start joins it again. The name, the machine name and the signing key stay. A `SYN_REMOTE` in your environment would join the room again: `leave` says so, unset it.
+- **Mail.** Messages that wait in the outbox for a signature and messages that did not reach the room yet are dropped; `leave` says how many. Messages that arrived are not kept either: they came from the room.
+- **A mission.** If sessions of this machine joined a mission that is running, `leave` stops and names it: end it first (`syn mission end "<result>"` from a session in it), or add `--force`, after which the others see the mission run out at its end time.
+- **A yes.** `leave` asks in a terminal. Where there is none (a script, Claude's Bash tool) it needs `--yes`, otherwise it prints what it would do and ends with exit code 2. In Claude Code the call also makes Claude Code ask first and show the whole command; Codex cannot ask, so its call is refused for you to run in a terminal, and so is a run without a human (`claude -p`).
+
+`syn uninstall` removes Synchronauts from this machine:
+
+1. It leaves the room as above (when the room is out of reach, it goes on and says that the branch stays), stops the background service and the board and waits until no file of them is open.
+2. It takes the hooks that `syn codex` wrote out of Codex's `hooks.json`; any other hook and any other setting there stays.
+3. It deletes the folder `~/.synchronauts` (or the folder `SYN_HOME` names): the short command `syn`, the state, the logs, the key that `syn key` made and the local copy of the room. Synchronauts installs no service, login item or scheduled job, so there is none to remove.
+
+It deletes only a folder it can tell is its own, and refuses with exit code 1, changing nothing, when the path is not absolute or has a `..` in it, when it is a link, the root of the file system, your home folder or a folder above it, the folder that holds `syn.py`, a folder with no sign of Synchronauts in it, or one that holds a file Synchronauts did not write (a `syn` that is not its launcher counts too). It prints what it removed and what it could not.
+
+Still yours to do, and named in its output: remove the plugin with `claude plugin uninstall synchronauts` in a terminal (add `--scope project` or `--scope local` if you installed it there), or in Claude Code with `/plugin`, and restart Claude Code. Do it after `syn uninstall`: the short command starts the plugin's script. Until the plugin is gone, sessions that are still open run its hooks and put a few small files back into `~/.synchronauts`; `syn uninstall` removes them again. If `syn key` made a key, remove "Synchronauts (<machine>)" from your signing keys on GitHub (Settings, SSH and GPG keys), and an installed board app in your browser.
 
 ## What is shared and what is not
 
@@ -294,7 +316,7 @@ A session counts as inactive three hours after its last sign of life. Mail that 
 - Before 0.6.0 the conflict check wrote objects (a snapshot commit and merge results that no branch refers to) into the `.git` folder of your work repository; `git gc` removes the old ones. It writes none now.
 - At most 300 branches of the room are read. Over that, the branches of your own login come first, then the live ones, then the dead ones, each in alphabetical order; the watcher reports how many live branches were left out in the error text (`errors.json`, shown by `status` and the board) for as long as it is so. A room that large wants its dead branches deleted by their owners (`git push origin --delete syn/<login>/<machine>`).
 - A machine deletes only its own dead branches. The branches of people who left stay in the room until somebody with the right to does it, and a room whose server forbids deleting branches keeps them all (a failed delete is not reported).
-- There is no `leave` or `uninstall` command yet. To remove Synchronauts by hand: remove the plugin in Claude Code (`/plugin`), and run `~/.synchronauts/syn codex --remove` first if you added the Codex hooks. Synchronauts installs no service, login item or scheduled job: the watcher ends 15 minutes after the last hook and the board's server after 30 minutes without a request, and nothing starts them again once the plugin is gone. Then delete the folder `~/.synchronauts` (or the folder `SYN_HOME` names): it holds the state, the keys, the short command `syn` and the local copy of the room. Your branch `syn/<login>/<machine>` stays in the room repo until you delete it there (`git push origin --delete syn/<login>/<machine>`), and the installed board app, if any, is removed in your browser.
+- `syn uninstall` cannot remove the plugin from Claude Code (`claude plugin uninstall synchronauts` does, in a terminal), the signing key that `syn key` added to your GitHub account, or the board as an app in your browser; its output names what is left. The question that Claude Code asks before `syn leave` or `syn uninstall` is a guard of the same kind as the one for missions: a call built so that the hooks cannot read it is not asked about, but still needs `--yes` outside a terminal. On Windows a file of a running program stays locked: if `syn uninstall` cannot delete one, it names it and ends with exit code 1; close the terminal that runs the program and run it again.
 - On Windows, the hooks and Claude's commands need Git Bash, which comes with Git for Windows.
 
 ## Settings (environment variables)

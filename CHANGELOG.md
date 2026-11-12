@@ -221,6 +221,14 @@ This file is in English only; the README and the guide exist in English and Germ
   direction character written as such in any file) and can run in two shards (`SHARD=a|b`).
 - `syn --version` prints the installed version and `syn --help` the commands with a line each, both with exit code
   0 and without touching `~/.synchronauts`. The bug report form asks for the version that way.
+- `syn leave` and `syn uninstall`. `leave` takes this machine out of its room: it deletes its own branch there (only
+  at the commit it just read; when the room is out of reach it still leaves and says that the branch stays), stops the
+  background service and the board, deletes the local copy of the room, drops the queued mail and says how many, and
+  keeps the name and the signing key; the sessions here go on alone. A running mission stops it unless `--force`.
+  `uninstall` leaves, removes the hooks `syn codex` wrote and the folder `~/.synchronauts`, and only a folder it can
+  tell is its own: it refuses the root, your home folder, a link, a relative path, a folder with a file of someone
+  else, and prints what is still yours to do (`claude plugin uninstall synchronauts`, the key on GitHub). Both ask in
+  a terminal and need `--yes` elsewhere, and Claude Code asks before a Bash call of either.
 
 - The room cleans itself up. A machine deletes the branches of its own login that no machine pushed to for 30 days
   (at setup and when the watcher starts; a machine that comes back simply pushes again), and never a branch of
@@ -294,6 +302,9 @@ This file is in English only; the README and the guide exist in English and Germ
 
 ### Fixed
 
+- `syn codex --remove` no longer creates `~/.codex/hooks.json` when there is none and leaves a file without hooks of
+  Synchronauts as it is; it says "No Synchronauts hooks in …". A hooks file that is valid JSON of another shape stops
+  `syn codex` with a sentence instead of a traceback, and is not rewritten.
 - On Windows a state file that another process replaced at that moment read as empty: a teammate's name fell back to
   the login, a session could miss from the picture for one hook. Such a read is tried again for up to half a second.
 - A harmless command that names `mission` and `approve` (a `sed`, a `curl`, a script that holds both words) is still
