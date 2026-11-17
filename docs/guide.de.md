@@ -70,7 +70,7 @@ legt einen Schlüssel für diesen Rechner an (`~/.synchronauts/signing-key`) und
 
 **Codex CLI** (optional, macOS und Linux): `~/.synchronauts/syn codex` trägt die Hooks in `~/.codex/hooks.json` ein, neben die, die schon da sind. In Codex einmal `/hooks` öffnen und ihnen vertrauen. `syn codex --remove` nimmt sie wieder heraus.
 
-**Team-Repos** sind die Repos, deren Sessions im Bild auftauchen. Standard sind die Repos des Raum-Besitzers (`alice/*`). Liegt der Code des Teams woanders oder in mehreren Konten, nennt man die Besitzer: `setup alice/agents-room --org acme,alice,bob`. Sessions in anderen Repos verlassen den Rechner nie.
+**Team-Repos** sind die Repos, deren Sessions im Bild auftauchen. Standard sind die Repos des Raum-Besitzers (`alice/*`). Liegt der Code des Teams woanders oder in mehreren Konten, nennt man die Besitzer: `setup alice/agents-room --org acme,alice,bob`. Sessions in anderen Repos verlassen den Rechner nie. Setup und `status` nennen die GitHub-Repos deiner letzten Sessions, die außen vor bleiben, samt dem setup, das ihre Besitzer hinzufügt.
 
 ## Was Claude sieht
 

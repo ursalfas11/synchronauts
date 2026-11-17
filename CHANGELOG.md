@@ -236,6 +236,9 @@ This file is in English only; the README and the guide exist in English and Germ
   picture. When the room has more than 300 branches, those of the own login are read first, and the watcher reports
   how many were not read (`status`, the board) instead of dropping the logins late in the alphabet without a word. The
   room's git folder on each machine prunes the loose objects of every push after an hour, not after two weeks.
+- Setup and `status` name the GitHub repos of this machine's recent sessions that are no team repos, so their sessions
+  stay on the machine, with the setup that adds their owners (`setup <room> --org <owners>`). Before, a team whose code
+  lives in an organization other than the room's owner saw nobody and only read "nobody else in a team repo".
 
 ### Changed
 
