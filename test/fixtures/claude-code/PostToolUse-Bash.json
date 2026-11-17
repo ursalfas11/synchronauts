@@ -1,0 +1,25 @@
+{
+ "session_id": "{SESSION}",
+ "transcript_path": "{TRANSCRIPT}",
+ "cwd": "{WORK}",
+ "prompt_id": "024df92f-b424-4d7a-8071-e281af1f300f",
+ "permission_mode": "acceptEdits",
+ "effort": {
+  "level": "high"
+ },
+ "hook_event_name": "PostToolUse",
+ "tool_name": "Bash",
+ "tool_input": {
+  "command": "git status",
+  "description": "Show working tree status"
+ },
+ "tool_response": {
+  "stdout": "On branch main\nChanges not staged for commit:\n\tmodified:   app.py\n",
+  "stderr": "",
+  "interrupted": false,
+  "isImage": false,
+  "noOutputExpected": false
+ },
+ "tool_use_id": "toolu_01AUkAjU1vjXhSQ35CJR8h2m",
+ "duration_ms": 128
+}

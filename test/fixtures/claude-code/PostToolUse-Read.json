@@ -1,0 +1,27 @@
+{
+ "session_id": "{SESSION}",
+ "transcript_path": "{TRANSCRIPT}",
+ "cwd": "{WORK}",
+ "prompt_id": "024df92f-b424-4d7a-8071-e281af1f300f",
+ "permission_mode": "acceptEdits",
+ "effort": {
+  "level": "high"
+ },
+ "hook_event_name": "PostToolUse",
+ "tool_name": "Read",
+ "tool_input": {
+  "file_path": "{WORK}/app.py"
+ },
+ "tool_response": {
+  "type": "text",
+  "file": {
+   "filePath": "{WORK}/app.py",
+   "content": "a = 1\n",
+   "numLines": 2,
+   "startLine": 1,
+   "totalLines": 2
+  }
+ },
+ "tool_use_id": "toolu_019gMxc6yRnnJJDMjqiar3jJ",
+ "duration_ms": 3
+}

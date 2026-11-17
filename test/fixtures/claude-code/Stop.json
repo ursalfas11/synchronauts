@@ -1,0 +1,15 @@
+{
+ "session_id": "{SESSION}",
+ "transcript_path": "{TRANSCRIPT}",
+ "cwd": "{WORK}",
+ "prompt_id": "024df92f-b424-4d7a-8071-e281af1f300f",
+ "permission_mode": "acceptEdits",
+ "effort": {
+  "level": "high"
+ },
+ "hook_event_name": "Stop",
+ "stop_hook_active": false,
+ "last_assistant_message": "Done: a = 2 in app.py, and notes.md has one line.",
+ "background_tasks": [],
+ "session_crons": []
+}

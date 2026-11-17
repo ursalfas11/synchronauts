@@ -146,6 +146,11 @@ block() { block_end; BLOCK_NAME="$1: $2"; BLOCK_AT=$SECONDS; [ "$1" = all ] || [
 block all 'documents and repo files'
 "$PY" "$ROOT/test/docs_check.py" "$ROOT" | crlf_safe
 
+# The hooks as Claude Code runs them: the command lines of hooks.json with input recorded from Claude Code
+if block b 'hooks.json with recorded Claude Code input'; then
+"$PY" "$ROOT/test/hooks_check.py" "$ROOT" | crlf_safe
+fi
+
 if block b 'without a room, an open invitation, an unknown command'; then
 out=$(SYN_REMOTE= SYN_HOME="$T/home-new" SYN_ME=new-gh SYN_MACHINE=one "$PY" "$SYN" setup 2>&1) && fail 'setup without a room' "$out" \
   || check "$out" 'Setup failed: no room yet' 'setup without a room explains itself'

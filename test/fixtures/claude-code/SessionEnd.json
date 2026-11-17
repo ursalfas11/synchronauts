@@ -1,0 +1,8 @@
+{
+ "session_id": "{SESSION}",
+ "transcript_path": "{TRANSCRIPT}",
+ "cwd": "{WORK}",
+ "prompt_id": "024df92f-b424-4d7a-8071-e281af1f300f",
+ "hook_event_name": "SessionEnd",
+ "reason": "other"
+}
