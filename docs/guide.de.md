@@ -180,6 +180,7 @@ Claude ruft sie per Bash auf, du kannst es auch. `~/.synchronauts/syn` ist ein k
 | `~/.synchronauts/syn setup <owner/repo> [--invite a,b] [--org a,b]` | tritt einem Raum bei und legt ihn an, wenn er ein Repo deines eigenen Kontos ist und noch nicht existiert; `--invite` lädt GitHub-Logins ein; `--org` legt fest, wessen Repos als Team-Repos zählen |
 | `~/.synchronauts/syn key` | legt einen Schlüssel dieses Rechners an, der nur signiert, und hinterlegt ihn in deinem GitHub-Konto |
 | `~/.synchronauts/syn rooms [--refresh]` | die Raum-ID, die signierte Auftrags-Post trägt; `--refresh` ermittelt sie neu, wenn das Repo umbenannt oder verschoben wurde |
+| `~/.synchronauts/syn doctor` | was auf diesem Rechner geht und was nicht: Python, git, die Hooks, der Raum, der Hintergrunddienst, `gh`, Team-Repos, Signatur, Benachrichtigungen; ✓ geht, ⚠️ geht eingeschränkt, ✗ kaputt, jeweils mit dem Befehl, der es behebt, Exit 1 wenn etwas kaputt ist |
 | `~/.synchronauts/syn codex [--remove]` | trägt die Hooks in Codex CLI ein oder nimmt sie heraus |
 | `~/.synchronauts/syn leave [--yes] [--force]` | dieser Rechner verlässt den Raum: Sein Branch wird gelöscht, Hintergrunddienst und Board enden, die Sessions hier arbeiten allein weiter; siehe [Verlassen und entfernen](#verlassen-und-entfernen) |
 | `~/.synchronauts/syn uninstall [--yes] [--force]` | verlässt den Raum, entfernt dann die Codex-Hooks, die `syn codex` eingetragen hat, und den Ordner `~/.synchronauts`; nur einen Ordner, von dem es sicher weiß, dass er ihm gehört |

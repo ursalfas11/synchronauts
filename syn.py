@@ -7766,6 +7766,79 @@ def cmd_notify(args):
           f"sessions keeps the watcher running." if on else 'Notifications are off. `notify on` turns them on.')
 
 
+def span(seconds):
+    """A duration in words for a human: 40 s, 12 min, 3 h, 2 days."""
+    for size, unit in ((86400, ' days'), (3600, ' h'), (60, ' min')):
+        if seconds >= 2 * size or size == 60 and seconds >= size:
+            return f'{int(seconds // size)}{unit}'
+    return f'{int(seconds)} s'
+
+
+def cmd_doctor(k):
+    """What works on this machine and what does not, one line each: ✓ works, ⚠️ works with less, ✗ broken, with the
+    command that mends it. Changes nothing; asks the room and GitHub once each. Exit 1 if something is broken."""
+    rows = []
+
+    def row(mark, text):
+        rows.append(f'{mark} {text}')
+        print(rows[-1], flush=True)
+
+    row('✓', f"Synchronauts {VERSION}, Python {'.'.join(map(str, sys.version_info[:3]))}")
+    try:
+        found = git('--version', cwd=Path.home(), timeout=10)  # cwd: the room's repo may not be there
+        numbers = tuple(int(x) for x in re.findall(r'\d+', found)[:2])
+        if numbers >= (2, 38):
+            row('✓', found)
+        else:
+            row('⚠️', f'{found}: the check for real merge conflicts needs 2.38 or newer, the other warnings work')
+    except (RuntimeError, OSError, subprocess.TimeoutExpired, ValueError):
+        row('✗', 'git does not run: Synchronauts needs git on the PATH')
+    last = max((s.get('active', 0) for s in (load(f, {}) for f in SESSIONS.glob('*.json'))
+                if isinstance(s, dict) and isinstance(s.get('active'), (int, float))), default=0)
+    if last:
+        row('✓', f'Claude Code runs the hooks: the last call was {span(max(time.time() - last, 0))} ago')
+    else:
+        row('⚠️', 'no hook has run on this machine yet: install the plugin and restart Claude Code')
+    if not is_setup(k):
+        row('✓', f'No room: your sessions on this machine see each other, nothing leaves it. {room_hint()}')
+    else:
+        room = '/'.join(github_path(k['remote']) or (without_userinfo(k['remote']),))
+        try:
+            ls_remote()
+            row('✓', f'the room {room} answers')
+        except (RuntimeError, OSError, subprocess.TimeoutExpired) as error:
+            row('✗', f'the room {room} does not answer: {without_userinfo(one_line(str(error), 300))}')
+        try:
+            with Lock('watcher', wait=False):
+                running = False
+        except BlockingIOError:
+            running = True
+        if running:
+            row('✓', 'the background service runs')
+        else:
+            row('⚠️', 'the background service does not run; the next hook or `status` starts it')
+        if error_text():
+            row('✗', f'sync is failing: {one_line(error_text(), 300)}')
+        if github_path(k['remote']):
+            login = gh('api', 'user', '--jq', '.login')
+            if login.lower() == str(k.get('me', '')).lower():
+                row('✓', f'gh is logged in as {login}')
+            else:
+                row('⚠️', f"gh is {'logged in as ' + login if login else 'not logged in'}, the room knows you as "
+                          f"{k.get('me')}: invitations and the check of who sent a message need `gh auth login`")
+        row('✓', f"team repos: those owned by {', '.join(orgs(k))}")
+        outside = outside_line(k, outside_repos(k, [os.getcwd()] + recent_folders()))
+        if outside:
+            row('⚠️', outside)
+        signed = key_line(k)
+        row('✓' if signed.startswith(('Messages are signed', 'No key needed')) else '⚠️', signed)
+    if notify_on(load(HOME / 'config.json', {})):
+        row('✓', 'system notifications are on')
+    else:
+        row('⚠️', f'system notifications are off: `{CMD} notify on`')
+    return 1 if any(r.startswith('✗') for r in rows) else 0
+
+
 def private_chmod(path):
     """Takes group and other rights from a folder that exists. Not on Windows, which has no such modes."""
     try:
@@ -8177,7 +8250,7 @@ USAGE = {'send': 'send <name|all>[@repo] "<text>"', 'task': 'task "<one sentence
          'mission': 'mission propose --with <name>[@repo][,…] [--hours N] "<plan>" · mission approve <id> · '
                     'mission end [--id <id>] "<result>"'}
 COMMANDS = ('status', 'send', 'task', 'claim', 'mission', 'ui', 'line', 'state', 'notify', 'rooms', 'codex', 'setup', 'key', 'leave',
-            'uninstall')
+            'uninstall', 'doctor')
 
 HELP = f"""synchronauts {VERSION}: your team's agents see each other, talk, and stay off each other's files.
 
@@ -8191,6 +8264,7 @@ HELP = f"""synchronauts {VERSION}: your team's agents see each other, talk, and 
   state                              everything the board gets, as JSON
   notify [on|off|test]               system notifications
   rooms [--refresh]                  the id of the room
+  doctor                             what works on this machine and what does not, with the command that mends it
   codex [--remove]                   the hooks for Codex CLI
   setup <owner/repo> [--org a,b]     join a room, a private GitHub repo the team shares; makes it if it is yours
         [--invite login,...]         and not there yet, and invites teammates
@@ -8264,6 +8338,8 @@ def dispatch(cmd, rest):
         return 0
     if cmd == 'key':
         return cmd_key(k)
+    if cmd == 'doctor':
+        return cmd_doctor(k)
     if cmd == 'leave':
         return cmd_leave(k, rest)
     if cmd == 'uninstall':

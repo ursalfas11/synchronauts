@@ -178,6 +178,7 @@ Claude calls these via Bash; you can too. `~/.synchronauts/syn` is a small scrip
 | `~/.synchronauts/syn setup <owner/repo> [--invite a,b] [--org a,b]` | joins a room, and makes it if it is a repo of your own account that is not there yet; `--invite` invites GitHub logins; `--org` sets whose repos count as team repos |
 | `~/.synchronauts/syn key` | makes a key of this machine for signing only and adds it to your GitHub account |
 | `~/.synchronauts/syn rooms [--refresh]` | the room's id that signed mission mail carries; `--refresh` finds it out again after the repo was renamed or moved |
+| `~/.synchronauts/syn doctor` | what works on this machine and what does not: Python, git, the hooks, the room, the background service, `gh`, team repos, signing, notifications; ✓ works, ⚠️ works with less, ✗ broken, each with the command that mends it, exit 1 if something is broken |
 | `~/.synchronauts/syn codex [--remove]` | adds the hooks to Codex CLI, or removes them |
 | `~/.synchronauts/syn leave [--yes] [--force]` | this machine leaves the room: its branch is deleted, the background service and the board stop, the sessions here go on alone; see [Leaving and removing](#leaving-and-removing) |
 | `~/.synchronauts/syn uninstall [--yes] [--force]` | leaves, then removes the Codex hooks that `syn codex` wrote and the folder `~/.synchronauts`; only a folder it can tell is its own |
