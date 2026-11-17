@@ -168,6 +168,10 @@ This file is in English only; the README and the guide exist in English and Germ
 
 ### Added
 
+- `syn doctor` says what works on this machine and what does not, one line each with the command that mends it:
+  Python, git (2.38 for the conflict check), whether Claude Code runs the hooks, the room, the background service,
+  `gh`, the team repos and the ones left out, who vouches for your messages, notifications. It changes nothing and ends
+  with 1 if something is broken.
 - Edits made through Bash are tracked. The hooks compare the changed files of the repo (`git status`, 1.5 s at most,
   read-only, ignored files left out) before and after each Bash command, and what the command changed counts like an
   Edit or Write: it enters the session's file list and the overlap warnings. A command cannot be asked about before it

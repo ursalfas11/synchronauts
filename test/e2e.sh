@@ -198,6 +198,18 @@ SECONDS_BEFORE=$SECONDS; out=$(SYN_REMOTE= SYN_ME= SYN_NAME= SYN_MACHINE= SYN_HO
 check "$out" 'My sessions on this machine' 'status works without a room'
 check "$out" 'No room yet. Talking to teammates needs a room: .*setup <owner/repo of the room>' 'and says in one line that no room is set up and how to do it'
 [ $((SECONDS - SECONDS_BEFORE)) -lt 5 ] && ok 'and does not wait for a watcher either' || fail 'solo status waits'
+out=$(SYN_REMOTE= SYN_ME= SYN_NAME= SYN_MACHINE= SYN_HOME="$T/home-solo" "$PY" "$SYN" doctor) && ok 'doctor without a room ends with 0' || fail 'doctor without a room' "$out"
+check "$out" '^✓ No room: your sessions on this machine see each other' 'doctor without a room says that this is fine'
+check "$out" '^✓ Claude Code runs the hooks: the last call was' 'and when a hook ran last'
+check "$out" '^✓ git version' 'and checks git'
+# A room that is gone: doctor says so and ends with 1
+git init -q --bare "$T/gone.git"
+gone() { SYN_REMOTE="$T/gone.git" SYN_HOME="$T/home-gone" SYN_ME=jule-gh SYN_NAME=Jule SYN_MACHINE=one SYN_SIGNING_KEY="$T/jule-key" "$@"; }
+gone "$PY" "$SYN" setup >/dev/null || fail 'setup of the room that will go'
+rm -rf "$T/gone.git"
+rc=0; out=$(gone "$PY" "$SYN" doctor 2>&1) || rc=$?
+[ $rc = 1 ] && ok 'doctor ends with 1 when the room does not answer' || fail "doctor with the room gone: exit $rc" "$out"
+check "$out" '^✗ the room .*gone.git does not answer' 'and names the room'
 
 # Two worktrees change the same line: the check merges both working trees and reports a real conflict
 printf 'main\n' > "$T/sam-demo/src/a.ts"; printf 'feature\n' > "$T/sam-demo-wt/src/a.ts"
@@ -1122,6 +1134,12 @@ out=$(as_user sam "$PY" "$SYN" status)
 check "$out" 'Not shared, not a team repo: someone/private\.' 'status names a repo of an own session that is no team repo'
 check "$out" 'setup .* --org acme,someone`' 'with the setup that adds its owner'
 lacks "$(as_user alex "$PY" "$SYN" status)" 'Not shared' 'sessions only in team repos get no such line'
+out=$(as_user sam "$PY" "$SYN" doctor) && ok 'doctor in a room that works ends with 0' || fail 'doctor in the room' "$out"
+check "$out" '^✓ the room .* answers' 'doctor asks the room'
+check "$out" '^✓ the background service runs' 'sees the watcher'
+check "$out" '^✓ team repos: those owned by acme' 'names the team repos'
+check "$out" '^⚠️ Not shared, not a team repo: someone/private' 'and the repo left out'
+check "$out" '^✓ Messages are signed with' 'and who vouches for the messages'
 
 # Sam starts in the same repo: sees Alex and the task
 out=$(hook sam SessionStart "$(session sam33333 "$T/sam-demo")")
