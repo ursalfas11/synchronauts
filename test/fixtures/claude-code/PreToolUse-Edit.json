@@ -1,0 +1,19 @@
+{
+ "session_id": "{SESSION}",
+ "transcript_path": "{TRANSCRIPT}",
+ "cwd": "{WORK}",
+ "prompt_id": "024df92f-b424-4d7a-8071-e281af1f300f",
+ "permission_mode": "acceptEdits",
+ "effort": {
+  "level": "high"
+ },
+ "hook_event_name": "PreToolUse",
+ "tool_name": "Edit",
+ "tool_input": {
+  "file_path": "{WORK}/app.py",
+  "old_string": "a = 1",
+  "new_string": "a = 2",
+  "replace_all": false
+ },
+ "tool_use_id": "toolu_0125oRtukBY8CymHSKxa5o2n"
+}

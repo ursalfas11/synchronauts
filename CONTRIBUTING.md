@@ -26,6 +26,9 @@ Windows avoid `touch -d`, `kill -0` on foreign processes and `sed -i`; pass JSON
 `crlf_safe`, and run every check on file modes or process ids through `posix_only`, which prints a stable
 `ok skipped:` line there.
 
+`test/hooks_check.py` (part of `e2e.sh`) runs every command line of `hooks/hooks.json` the way Claude Code does, with
+input recorded from Claude Code in `test/fixtures/claude-code`; when Claude Code changes what it sends, record them anew.
+
 `python3 test/board_check.py` opens the board in headless Chrome or Chromium and checks the rendered page (no uncaught
 JavaScript error, the session of the test state, English and German texts); without a browser it prints a `skip` line and
 ends with 0. CI runs it as its own job on Linux, with `SYN_REQUIRE_CHROME=1`, which turns the skip into a failure there.

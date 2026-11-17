@@ -1,0 +1,26 @@
+{
+ "session_id": "{SESSION}",
+ "transcript_path": "{TRANSCRIPT}",
+ "cwd": "{WORK}",
+ "prompt_id": "024df92f-b424-4d7a-8071-e281af1f300f",
+ "permission_mode": "acceptEdits",
+ "effort": {
+  "level": "high"
+ },
+ "hook_event_name": "PostToolUse",
+ "tool_name": "Write",
+ "tool_input": {
+  "file_path": "{WORK}/notes.md",
+  "content": "a is 2 now.\n"
+ },
+ "tool_response": {
+  "type": "create",
+  "filePath": "{WORK}/notes.md",
+  "content": "a is 2 now.\n",
+  "structuredPatch": [],
+  "originalFile": null,
+  "userModified": false
+ },
+ "tool_use_id": "toolu_012cCgqmyyC473Z6QGC1DBpu",
+ "duration_ms": 1
+}
