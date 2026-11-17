@@ -398,6 +398,43 @@ def orgs(k):
     return [o.strip().lower() for o in str(s).split(',') if o.strip()]
 
 
+def outside_repos(k, folders):
+    """GitHub repos of these folders whose owner is no team owner: their sessions stay on this machine. Sorted
+    owner/repo names; none without a room, where every repo counts."""
+    owners, found = orgs(k), set()
+    if owners is None:
+        return []
+    for folder in folders:
+        d = Path(folder).expanduser()
+        if not d.is_dir():
+            continue
+        try:
+            gp = github_path(git('config', '--get', 'remote.origin.url', cwd=d, timeout=3))
+        except (RuntimeError, OSError, subprocess.TimeoutExpired):
+            continue
+        if gp and gp[0].lower() not in owners:
+            found.add(f'{gp[0]}/{gp[1]}')
+    return sorted(found)
+
+
+def recent_folders():
+    """The folders the sessions of this machine started or worked in within ACTIVE, ended ones left out."""
+    limit = time.time() - ACTIVE.total_seconds()
+    return [s['cwd'] for s in (load(f, {}) for f in SESSIONS.glob('*.json'))
+            if isinstance(s, dict) and isinstance(s.get('cwd'), str) and not s.get('ended')
+            and isinstance(s.get('active'), (int, float)) and s['active'] > limit]
+
+
+def outside_line(k, repos):
+    """One line on repos outside the team repos, with the setup that adds their owners; empty if there are none."""
+    if not repos:
+        return ''
+    room = '/'.join(github_path(k.get('remote')) or (k.get('remote'),))
+    owners = ','.join(dict.fromkeys(orgs(k) + [r.split('/')[0].lower() for r in repos]))
+    return (f"Not shared, not a team repo: {', '.join(repos[:5])}{' …' if len(repos) > 5 else ''}. If the team "
+            f"works there too: `{CMD} setup {room} --org {owners}`.")
+
+
 def is_setup(k):
     return bool(k.get('me') and k.get('machine') and k.get('remote')) and (GIT / 'HEAD').exists()
 
@@ -6929,6 +6966,9 @@ def cmd_status(k):
            if s.get('repos') and parse(s.get('last')) > now() - ACTIVE]
     print('\nMy sessions on this machine:')
     print('\n'.join(line(k.get('name'), s, full=True) for s in own) or '- none in a team repo')
+    outside = outside_line(k, outside_repos(k, recent_folders()))
+    if outside:
+        print(outside)
     held = outbox_state()
     if held['waiting']:
         print(f"\nWaiting for your key to sign: {held['waiting']} mission message(s), since {clock(held['since'])}. "
@@ -8211,6 +8251,9 @@ def dispatch(cmd, rest):
             print(f"Accepted the invitation to {room}.")
         print(f"Set up: {k['name']} ({k['me']}) on {k['machine']}, room {k['remote']}, branch {own_branch(k)}. "
               f"Team repos are those owned by {', '.join(orgs(k))}.")
+        here = outside_line(k, outside_repos(k, [os.getcwd()] + recent_folders()))
+        if here:
+            print(f'⚠️ {here}')
         join = f'install the plugin, restart Claude Code and run `{CMD} setup {room}`'
         for login, why in invite(k['remote'], people):
             print(f'Invited {login}: they {join}.' if not why else f'Could not invite {login}: {why}')

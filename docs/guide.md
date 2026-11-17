@@ -70,7 +70,7 @@ makes a key for this machine (`~/.synchronauts/signing-key`) and adds it to your
 
 **Codex CLI** (optional, macOS and Linux): `~/.synchronauts/syn codex` adds the hooks to `~/.codex/hooks.json`, next to any that are there. Open `/hooks` in Codex once and trust them. `syn codex --remove` takes them out again.
 
-**Team repos** are the repos whose sessions show up in the picture. By default these are the repos owned by the room's owner (`alice/*`). If the team's code lives elsewhere or in several accounts, name the owners: `setup alice/agents-room --org acme,alice,bob`. Sessions in other repos never leave your machine.
+**Team repos** are the repos whose sessions show up in the picture. By default these are the repos owned by the room's owner (`alice/*`). If the team's code lives elsewhere or in several accounts, name the owners: `setup alice/agents-room --org acme,alice,bob`. Sessions in other repos never leave your machine. Setup and `status` name the GitHub repos of your recent sessions that are left out, with the setup that adds their owners.
 
 ## What Claude sees
 

@@ -324,6 +324,9 @@ EOF
   out=$(lee "$PY" "$SYN" setup lee-gh/room 2>&1) || fail 'setup again' "$out"
   case "$out" in *'Made the room'*) fail 'setup made the room twice' "$out" ;; *) ok 'a room that is there is not made again' ;; esac
   check "$out" 'invite them with' 'without --invite setup says how to invite'
+  out=$(cd "$T/private" && lee "$PY" "$SYN" setup lee-gh/room 2>&1) || fail 'setup in a repo of another owner' "$out"
+  check "$out" '⚠️ Not shared, not a team repo: someone/private\.' 'setup in a repo of another owner says that it is not shared'
+  check "$out" 'setup lee-gh/room --org acme,someone`' 'and names the setup that adds the owner'
   out=$(lee "$PY" "$SYN" key 2>&1) && fail 'key without the scope went through' "$out" \
     || check "$out" 'gh auth refresh -h github.com -s admin:ssh_signing_key' 'syn key names the one yes GitHub wants in the browser'
   [ -s "$T/home-lee/signing-key" ] && [ -s "$T/home-lee/signing-key.pub" ] && ok 'the key is made in HOME' || fail 'no key' "$(ls "$T/home-lee")"
@@ -1110,6 +1113,10 @@ out=$(hook sam PostToolUse "$(edit sam66666 "$T/private" "$T/sam-demo/src/c.ts")
 check "$out" 'Build tickets API' 'the first team repo brings the picture'
 out=$(hook sam UserPromptSubmit "{\"session_id\":\"sam77777\",\"cwd\":\"$T/private\",\"prompt\":\"Continue in demo\"}")
 check "$out" 'Build tickets API' 'a prompt that names a team repo brings the picture at once'
+out=$(as_user sam "$PY" "$SYN" status)
+check "$out" 'Not shared, not a team repo: someone/private\.' 'status names a repo of an own session that is no team repo'
+check "$out" 'setup .* --org acme,someone`' 'with the setup that adds its owner'
+lacks "$(as_user alex "$PY" "$SYN" status)" 'Not shared' 'sessions only in team repos get no such line'
 
 # Sam starts in the same repo: sees Alex and the task
 out=$(hook sam SessionStart "$(session sam33333 "$T/sam-demo")")
