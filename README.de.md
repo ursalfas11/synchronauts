@@ -15,11 +15,11 @@
   <img src="https://img.shields.io/badge/license-MIT-0A84FF?style=flat-square" alt="MIT">
 </p>
 
-<h3 align="center">Die Coding-Agenten deines Teams sehen sich, reden miteinander<br>und kommen sich nicht mehr in die Quere. Ohne Server.</h3>
+<h3 align="center">Mit anderen am selben Projekt?<br>Du weißt immer, woran ihre Agenten gerade arbeiten.</h3>
 
-**Zwei Leute, sechs Claude-Code-Sessions, eine Codebasis.** Jeder Agent arbeitet, als wäre er allein. Also bauen zwei dasselbe Feature von zwei Seiten oder schreiben dieselbe Datei um, und ihr merkt es erst beim Merge.
+**Du und ein, zwei Kollegen, jeder mit ein paar Claude-Code-Sessions, am selben Projekt.** Jeder Agent arbeitet, als wäre er allein: Deiner weiß nicht, dass Alex' Claude gerade den Checkout umbaut oder dass Sams Claude mitten in der Datei steckt, die deiner gleich ändert. Ihr merkt es, wenn jemand im Team-Chat fragt, oder erst beim Merge.
 
-Synchronauts ist ein Plugin für Claude Code (und Codex CLI), das die Sessions deines Teams verbindet. Jeder Agent weiß, wer an welchem Repo, auf welchem Branch und an welchen Dateien arbeitet. Bevor Claude eine Datei ändert, an der die Session eines Kollegen gerade arbeitet, fragt Claude Code dich. Echte Merge-Konflikte werden vor dem Pull Request vorhergesagt, nicht erst darin gefunden. Und wenn dein Claude etwas von Alex' Claude braucht, schickt er eine Nachricht, die Alex' wartende Session weckt.
+Synchronauts ist ein Plugin für Claude Code (und Codex CLI), das die Agenten aller auf dem Laufenden hält. Jede Session meldet Repo, Branch, bearbeitete Dateien und ihr Vorhaben in einem Satz. Sobald dein Claude in einem Repo arbeitet, in dem auch jemand anderes zugange ist, sieht er, wer woran sitzt, und danach, was neu ist. Du siehst es live im Board. Bevor Claude eine Datei ändert, an der die Session eines Kollegen gerade arbeitet, fragt Claude Code dich, und echte Merge-Konflikte zeigen sich vor dem Pull Request. Braucht dein Claude etwas von Alex' Claude, schickt er eine Nachricht, die Alex' wartende Session weckt.
 
 Es ist schnell ausprobiert, und du gibst wenig preis. Ein Befehl installiert es, ohne Server und ohne neues Konto: Alles läuft über ein privates GitHub-Repo eures Teams. Der Raum sieht Repo, Branch, Dateipfade und das Vorhaben in einem Satz, nie Prompts, Code oder Dateiinhalte. Ein Prompt oder Werkzeugaufruf ohne Neuigkeit kostet keine Tokens. Allein funktioniert es auch, über deine eigenen Sessions und Worktrees hinweg, und von deiner Arbeit verlässt nichts den Rechner.
 
@@ -29,8 +29,8 @@ Es ist schnell ausprobiert, und du gibst wenig preis. Ein Befehl installiert es,
 
 | | |
 |---|---|
-| **Alle sehen alle** | Jede Session meldet Repo, Branch und Dateien. Über Personen und Rechner hinweg. |
-| **Konflikte, bevor sie passieren** | `git merge-tree` sagt die echten Merge-Konflikte voraus, während ihr arbeitet. |
+| **Wer woran sitzt** | Jede Session meldet Repo, Branch, Dateien und ihr Vorhaben. Über Personen und Rechner hinweg. |
+| **Konflikte, bevor sie passieren** | Eine Rückfrage, bevor die Datei eines Kollegen geändert wird; `git merge-tree` sagt die echten Merge-Konflikte voraus. |
 | **Agenten reden** | `send alex "…"` erreicht Alex' Claude und weckt ihn. |
 | **Aufträge** | Die Claudes mehrerer Leute teilen ein Problem auf und lösen es selbst. |
 | **Geprüfte Absender** | GitHub zeigt, von welchem Konto eine Nachricht kommt. Kein Schlüssel einzurichten. |

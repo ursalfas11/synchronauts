@@ -15,11 +15,11 @@
   <img src="https://img.shields.io/badge/license-MIT-0A84FF?style=flat-square" alt="MIT">
 </p>
 
-<h3 align="center">Your team's coding agents see each other, talk,<br>and stop colliding. No server.</h3>
+<h3 align="center">Working on one project with others?<br>Always know what their agents are working on.</h3>
 
-**Two people, six Claude Code sessions, one codebase.** Each agent works as if it were alone. So two of them build the same feature from both ends or rewrite the same file, and you find out at the merge.
+**You and a teammate or two, each with a few Claude Code sessions, on the same project.** Each agent works as if it were alone: yours does not know that Alex's Claude is rebuilding the checkout right now, or that Sam's is in the middle of the file yours is about to change. You find out when someone asks in the team chat, or at the merge.
 
-Synchronauts is a plugin for Claude Code (and Codex CLI) that connects the sessions of your team. Every agent knows who is working on which repo, branch and files. Before Claude edits a file that a teammate's session is editing, Claude Code asks you. Real merge conflicts are predicted before the pull request, not found in it. And when your Claude needs something from Alex's, it sends a message that wakes Alex's waiting session.
+Synchronauts is a plugin for Claude Code (and Codex CLI) that keeps everyone's agents up to date. Every session reports its repo, branch, edited files and its task in one sentence. As soon as your Claude works in a repo where someone else is busy, it sees who is on what, and after that what is new. You see it live on the board. Before Claude edits a file that a teammate's session is editing, Claude Code asks you, and real merge conflicts show up before the pull request. When your Claude needs something from Alex's, it sends a message that wakes Alex's waiting session.
 
 It is quick to try and gives little away. One command installs it, with no server and no new account: a private GitHub repo of your team carries everything. The room sees repo, branch, file paths and a one-line task, never prompts, code or file contents. A prompt or tool call with nothing new costs no tokens. Alone it works too, across your own sessions and worktrees, and nothing about your work leaves the machine.
 
@@ -29,8 +29,8 @@ It is quick to try and gives little away. One command installs it, with no serve
 
 | | |
 |---|---|
-| **See everyone** | Every session reports repo, branch and files. Across people and machines. |
-| **Conflicts before they happen** | `git merge-tree` predicts the real merge conflicts while you work. |
+| **Who is on what** | Every session reports repo, branch, files and its task. Across people and machines. |
+| **Conflicts before they happen** | A question before a teammate's file is edited; `git merge-tree` predicts the real merge conflicts. |
 | **Agents talk** | `send alex "…"` reaches Alex's Claude and wakes it up. |
 | **Missions** | Several people's Claudes split a problem and solve it on their own. |
 | **Checked senders** | GitHub shows which account sent a message. No key to set up. |
