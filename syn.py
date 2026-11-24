@@ -82,6 +82,12 @@ IDLE = setting('SYN_IDLE', 900.0)  # the watcher keeps running this long without
 WAKE_WINDOW = min(setting('SYN_WAKE_MIN', 55.0) * 60, 8 * 3600 - 120)  # Stop hook: 8 h timeout
 WAKES_PER_HOUR = 4                  # brake in case two Claudes keep waking each other
 MISSION_WAKES_PER_HOUR = 30         # within a mission the Claudes are meant to wake each other
+# A reply goes back to the session that last wrote to its sender (create_message notes it) for this long, also while
+# that session does not wait: it then shows the reply at its next prompt, and no other session takes it over.
+REPLY_HOLD = 8 * 3600
+# Folders of bots (Orca's always-on agents and the like), separated like PATH; empty turns it off. A session working
+# there shows mail first only as the session that asked, and gets no FYI.
+NO_MAIL_DIRS = [d.strip() for d in os.environ.get('SYN_NO_MAIL_DIRS', '~/.orca/bots').split(os.pathsep) if d.strip()]
 MISSION_HOURS = 2                   # default length of a mission in hours
 MISSION_MAX_HOURS = 7.5             # the longest one; the Stop hook waits at most 8 h
 MAX_FILES = 30
@@ -2850,16 +2856,30 @@ def conflict_lines(k, sid):
                f"{', '.join(files[:6])}")
 
 
+def mail_off(cwd):
+    """Whether a session working in cwd (as its session file notes it, with ~ for the home folder) is a bot of
+    NO_MAIL_DIRS."""
+    if not isinstance(cwd, str) or not cwd:
+        return False
+    c, dirs = norm_dir(cwd), [norm_dir(d) for d in NO_MAIL_DIRS]
+    return any(c == d or c.startswith(d.rstrip(os.sep) + os.sep) for d in dirs)
+
+
+def norm_dir(path):
+    """A folder as mail_off() compares it: ~ expanded, normalised, in the case the system compares names in."""
+    return os.path.normcase(os.path.normpath(os.path.expanduser(path)))
+
+
 def sessions_here():
-    """sid → (active, repos) of this machine's sessions that are working right now (hook in the last 10 minutes) or
-    wait for mail within their wake window (Stop hook with a fresh pulse)."""
+    """sid → (active, repos, bot) of this machine's sessions that are working right now (hook in the last 10 minutes)
+    or wait for mail within their wake window (Stop hook with a fresh pulse); bot: mail_off()."""
     repos = {sid: set(s.get('repos', {})) for sid, s in load(HOME / 'status.json', {}).get('sessions', {}).items()}
     t, here = time.time(), {}
     for p in SESSIONS.glob('*.json'):
         s = load(p, {})
         waiting = s.get('waiting_since', 0) >= s.get('active', 0) and t - s.get('pulse', 0) < 90
         if not s.get('ended') and t - s.get('active', 0) < (s.get('window', WAKE_WINDOW) if waiting else 600):
-            here[p.stem] = (s.get('active', 0), repos.get(p.stem, set()))
+            here[p.stem] = (s.get('active', 0), repos.get(p.stem, set()), mail_off(s.get('cwd')))
     return here
 
 
@@ -2867,32 +2887,66 @@ def matches(repo, name):
     return name.lower() in (repo.lower(), short(repo).lower())
 
 
-def target(n, here, joined=()):
+def talks():
+    """sid → ({login: when it wrote to them}, repos) of this machine's sessions that wrote to somebody within REPLY_HOLD,
+    were active within it and have not ended."""
+    t, out = time.time(), {}
+    repos = {sid: set(s.get('repos', {})) for sid, s in load(HOME / 'status.json', {}).get('sessions', {}).items()}
+    for p in SESSIONS.glob('*.json'):
+        s = load(p, {})
+        w = s.get('wrote') if isinstance(s, dict) else None
+        if isinstance(w, dict) and not s.get('ended') and t - s.get('active', 0) < REPLY_HOLD:
+            w = {x: v for x, v in w.items() if isinstance(v, (int, float)) and t - v < REPLY_HOLD}
+            if w:
+                out[p.stem] = (w, repos.get(p.stem, set()))
+    return out
+
+
+def talker(n, talks_):
+    """The session that wrote to the sender of n last (talks()), with a repo in n one in that repo; None if none did."""
+    found = [(w[n['from']], sid) for sid, (w, repos) in talks_.items()
+             if n['from'] in w and (not n.get('repo') or any(matches(r, n['repo']) for r in repos))]
+    return max(found)[1] if found else None
+
+
+def target(n, here, joined=(), talk=None):
     """The session of this machine that shows a message nobody has seen yet: for mission mail the one that joined
-    the mission, otherwise the most recently active one in the message's repo, otherwise the most recently active one
-    at all."""
-    in_repo = [sid for sid, (_, repos) in here.items() if n.get('repo') and any(matches(r, n['repo']) for r in repos)]
-    return max([sid for sid in here if sid in joined] or in_repo or here, key=lambda sid: here[sid][0], default=None)
+    the mission; otherwise talk, the session that wrote to the sender last (talker()), whether it waits or not;
+    otherwise the most recently active one in the message's repo, otherwise the most recently active one at all.
+    A bot (mail_off) only as the session that joined or wrote."""
+    joined = [sid for sid in here if sid in joined]
+    if joined:
+        return max(joined, key=lambda sid: here[sid][0])
+    if talk:
+        return talk
+    pool = [sid for sid in here if not here[sid][2]]
+    in_repo = [sid for sid in pool if n.get('repo') and any(matches(r, n['repo']) for r in here[sid][1])]
+    return max(in_repo or pool, key=lambda sid: here[sid][0], default=None)
 
 
 def new_mail(k, sid, s, ms=None):
     """([(message, first)], waiting) for mail to me that this session has not seen yet. Mail nobody has seen yet is
     only shown by its target session; mail already shown reaches the others as FYI if it arrived after they started,
-    for mail to a repo only the sessions in that repo, mission mail never. waiting: there is mail nobody has seen yet."""
+    for mail to a repo only the sessions in that repo, mission mail and bots never. waiting: there is mail nobody has
+    seen yet whose target can change (not mail held for the session that asked)."""
     inbox, delivered = load(HOME / 'inbox.json', {}), load(HOME / 'delivered.json', {})
     here, limit, ms = sessions_here(), now() - MAIL_WINDOW, missions(k) if ms is None else ms
     mine = set(load(HOME / 'status.json', {}).get('sessions', {}).get(sid, {}).get('repos', {}))
-    out, waiting = [], False
+    out, waiting, talks_ = [], False, None
     for n in mail_to_me(k):
         if n['id'] not in inbox or n.get('repo') == UI_TARGET:  # mail to the UI is shown by no session
             continue
         new = n['id'] not in delivered and parse(inbox[n['id']]) > limit
-        waiting = waiting or new
+        talk = None
+        if new and not n.get('mission') and n.get('trust') != 'bad':  # a forgery does not steer where it shows
+            talks_ = talks() if talks_ is None else talks_
+            talk = talker(n, talks_)
+        waiting = waiting or new and not (talk and talk not in here)
         if n['id'] in s.get('seen', []):
             continue
-        if new and target(n, here, joined_here(k, ms.get(n.get('mission')))) == sid:
+        if new and target(n, here, joined_here(k, ms.get(n.get('mission'))), talk) == sid:
             out.append((n, True))
-        elif n.get('mission'):
+        elif n.get('mission') or mail_off(s.get('cwd')):
             continue
         elif (n['id'] in delivered and parse(inbox[n['id']]) >= parse(s.get('start'))
               and (not n.get('repo') or any(matches(r, n['repo']) for r in mine))):
@@ -6707,8 +6761,8 @@ def create_message(k, to, text, source=None):
     if not targets:
         raise Nobody('Nobody else is in the room yet.')
     fields = {'repo': repo, 'source': source}  # source 'ui': the human writes in person, the reply goes to their UI
+    sid = '' if source else current_session()
     if not source:
-        sid = current_session()
         own = load(HOME / 'status.json', {}).get('sessions', {}).get(sid, {}).get('repos') or {}
         if own:  # so that a reply finds its way back to this session
             fields['from_repo'] = short(max(own.items(), key=lambda x: x[1].get('last', ''))[0])
@@ -6716,6 +6770,11 @@ def create_message(k, to, text, source=None):
         if m and set(targets) <= partners(k, m):  # within the mission: approved work on the other side
             fields['mission'] = m['id']
     n = post(k, targets, text, **fields)
+    if sid and (SESSIONS / f'{sid}.json').exists():  # a reply comes back to this session (talker())
+        t = time.time()
+        update_session(sid, lambda s: s.update(wrote={**{x: v for x, v in (s.get('wrote') or {}).items()
+                                                        if isinstance(v, (int, float)) and t - v < REPLY_HOLD},
+                                                     **{x: t for x in targets}}))
     to_repo = repo and repo != UI_TARGET
     who = ', '.join(full(x, nm) for x in targets) + (f' (session in {repo})' if to_repo else ' (UI)' if repo else '')
     there = {key.split('/')[0] for _, key, s, _ in others(k, own=False)

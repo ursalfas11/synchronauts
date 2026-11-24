@@ -5,6 +5,16 @@ This file is in English only; the README and the guide exist in English and Germ
 
 ## [Unreleased]
 
+### Changed
+
+- A reply goes back to the session that asked. Mail from someone a session wrote to within the last 8 hours goes to
+  that session first, also when another session of the machine is more recent; with `@repo` only if it worked in that
+  repo. If it does not wait, it shows the reply at its next prompt instead of another waiting session taking it over.
+  Before, a reply without `@repo`, or one that came after the wake window, went to whichever session was most recently
+  active, which could be a bot.
+- Sessions of bots never show mail first and get no FYI, unless they asked the sender themselves. `SYN_NO_MAIL_DIRS`
+  names their folders, by default `~/.orca/bots` (Orca's always-on agents); empty turns it off.
+
 ## [0.6.0] - unreleased
 
 ### Security
