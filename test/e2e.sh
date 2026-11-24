@@ -1253,6 +1253,62 @@ rc=0; exit_of $W3 5 || rc=$?
 rc=0; exit_of $W4 10 || rc=$?
 [ $rc = 0 ] && ok 'after the wake window the Stop hook ends quietly' || fail "Stop hook: exit $rc" "$(cat "$T/wake4")"
 
+# mail_in <from> <to> <file> <text>: the last message with that text that <from> sent is in the file of <to>'s SYN_HOME:
+# in inbox.json a hook can show it, in notified.json the watcher has dealt with its notification
+mail_in() { "$PY" -c 'import json,sys
+ids = [n["id"] for n in json.load(open(sys.argv[1], encoding="utf-8")) if sys.argv[3] in n.get("text", "")]
+x = json.load(open(sys.argv[2], encoding="utf-8"))
+sys.exit(not ids or ids[-1] not in (x["mail"] if isinstance(x.get("mail"), list) else x))' "$T/home-$1/mail.json" "$T/home-$2/$3" "$4"; }
+# A reply goes back to the session that asked, although another session is more recent
+hook alex SessionStart "$(session alr11111 "$T/alex-demo")" >/dev/null
+hook alex SessionStart "$(session alr22222 "$T/alex-demo")" >/dev/null
+from_session alr11111 as_user alex "$PY" "$SYN" send sam 'Which port does the API use?' >/dev/null
+T0=$(now_s); hook alex Stop "$(session alr11111 "$T/alex-demo")" 2>"$T/wake-r1" & WR1=$!
+await_waiter alex alr11111 "$T0"
+hook alex PostToolUse "$(bash_call alr22222 "$T/alex-demo")" >/dev/null
+as_user sam "$PY" "$SYN" send alex 'Port 8080.' >/dev/null
+rc=0; exit_of $WR1 20 || rc=$?
+[ $rc = 2 ] && ok 'a reply wakes the session that asked, not the more recent one' || fail "reply: exit $rc" "$(cat "$T/wake-r1")"
+check "$(cat "$T/wake-r1")" 'Port 8080' 'the wake text carries the reply'
+check "$(hook alex PostToolUse "$(bash_call alr22222 "$T/alex-demo")")" 'FYI' 'the more recent session gets it as FYI only'
+
+# The session that asked has been quiet for a while: the reply waits for its next prompt, no waiting session takes it
+T0=$(now_s); hook alex Stop "$(session alr22222 "$T/alex-demo")" 2>"$T/wake-r2" & WR2=$!
+await_waiter alex alr22222 "$T0"
+from_session alr11111 as_user alex "$PY" "$SYN" send sam 'And the database?' >/dev/null
+"$PY" -c 'import json,sys,time; p=sys.argv[1]; s=json.load(open(p)); s["active"]=time.time()-1200; json.dump(s,open(p,"w"))' \
+  "$T/home-alex/sessions/alr11111.json"
+as_user sam "$PY" "$SYN" send alex 'Postgres 16.' >/dev/null
+until_ok 20 'the reply is at Alex' mail_in sam alex inbox.json 'Postgres 16'
+rc=0; exit_of $WR2 2 || rc=$?
+[ $rc = 124 ] && ok 'a waiting session is not woken by a reply to a quiet one' || fail 'wrong session woken' "$(cat "$T/wake-r2")"
+check "$(hook alex UserPromptSubmit "$(session alr11111 "$T/alex-demo")")" 'Postgres 16' 'the session that asked shows it at its next prompt'
+check "$(hook alex UserPromptSubmit "$(session alr22222 "$T/alex-demo")")" 'FYI' 'the other one gets it as FYI'
+rc=0; exit_of $WR2 5 || rc=$?
+[ $rc = 0 ] && ok 'its Stop hook ends quietly' || fail "Stop hook: exit $rc"
+
+# A bot (SYN_NO_MAIL_DIRS) never shows mail first and gets no FYI, although it is the most recent session and waits
+hook alex SessionEnd "$(session alr11111 "$T/alex-demo")" >/dev/null  # an ended session gets no replies any more
+export SYN_NO_MAIL_DIRS="$T/bots"; mkdir -p "$T/bots/dev"
+hook alex SessionStart "$(session alb11111 "$T/bots/dev")" >/dev/null
+T0=$(now_s); hook alex Stop "$(session alb11111 "$T/bots/dev")" 2>"$T/wake-r3" & WR3=$!
+await_waiter alex alb11111 "$T0"
+as_user sam "$PY" "$SYN" send alex 'Release at five.' >/dev/null
+until_ok 20 'the mail is at Alex' mail_in sam alex inbox.json 'Release at five'
+rc=0; exit_of $WR3 2 || rc=$?
+[ $rc = 124 ] && ok 'the waiting bot is not woken' || fail 'bot woken' "$(cat "$T/wake-r3")"
+check "$(hook alex PostToolUse "$(bash_call alr22222 "$T/alex-demo")")" 'Release at five' "the human's session shows it"
+lacks "$(hook alex UserPromptSubmit "$(session alb11111 "$T/bots/dev")")" 'Release at five' 'the bot gets no FYI'
+rc=0; exit_of $WR3 5 || rc=$?
+[ $rc = 0 ] && ok "the bot's Stop hook ends quietly" || fail "Stop hook: exit $rc"
+hook alex SessionEnd "$(session alb11111 "$T/bots/dev")" >/dev/null; unset SYN_NO_MAIL_DIRS
+# these messages must not use up the notifications (NOTIFY_MAX in 10 minutes) that later checks need
+until_ok 20 "Alex's watcher has dealt with the notifications" mail_in sam alex notified.json 'Release at five'
+until_ok 20 "Sam's watcher has dealt with the notifications" mail_in alex sam notified.json 'And the database?'
+for who in alex sam; do
+  "$PY" -c 'import json,sys; p=sys.argv[1]; d=json.load(open(p)); d["sent"]=[]; json.dump(d,open(p,"w"))' "$T/home-$who/notified.json"
+done
+
 # A second machine of Sam's gets its own branch and does not overwrite the first one
 as_user sam2 "$PY" "$SYN" setup >/dev/null
 hook sam2 SessionStart "$(session sam44444 "$T/sam-demo")" >/dev/null
@@ -2022,7 +2078,8 @@ until_ok 15 'Mallory calls herself Sam: both show with their login' names_are al
 until_ok 15 "Mallory's message arrives" shown alex ale66666 'Hello from mal-gh'
 check "$(cat "$T/shown")" "Message from Sam (@mal-gh)'s Claude (@mal-gh, " 'its header tells the two apart by the login'
 check "$(from_session sam33333 as_user sam "$PY" "$SYN" send alex 'Real Sam here.')" 'Ready for Alex (@alex-gh)' 'the sender learns the login it went to'
-until_ok 15 "the real Sam's message arrives" shown alex ale66666 'Real Sam here'
+# ale11111 wrote to Sam last: Sam's message goes to it, not to the more recent ale66666
+until_ok 15 "the real Sam's message arrives" shown alex ale11111 'Real Sam here'
 check "$(cat "$T/shown")" "Message from Sam (@sam-gh)'s Claude (@sam-gh, from demo, " "the real Sam's header shows his"
 out=$(as_user alex "$PY" "$SYN" send Sam 'Which Sam?' 2>&1) && fail 'a name of two people went through' "$out" \
   || check "$out" 'Sam is ambiguous: Sam (@mal-gh), Sam (@sam-gh). Ask Alex which login is meant; never pick one yourself.' 'send refuses a name that fits two people, Claude asks its human'
@@ -2129,7 +2186,9 @@ out=$(codex sam PreToolUse "$(callc cod11111 "$T/sam-demo" c2 bypassPermissions 
 check "$out" 'must be the whole command' 'a chained call from Codex is refused as well'
 data=$(curl -s -H "X-SYN-Token: $tok" "$U/api/state")
 ui_check "any(s['agent'] == 'codex' and not s['wakeable'] for s in d['sessions'])" 'the UI shows the Codex session, never as wakeable'
-# Codex cannot wait in the background: mail that came during the turn starts the next one at Stop
+# Codex cannot wait in the background: mail that came during the turn starts the next one at Stop. Codex asks first,
+# so that the answer comes back to it and not to the session of Sam's that wrote to Alex before
+from_session cod11111 as_user sam "$PY" "$SYN" send alex 'Where did the schema go?' >/dev/null
 from_session ale11111 as_user alex "$PY" "$SYN" send sam@demo 'Codex, the schema moved to db/schema.sql.' >/dev/null
 codex_stop() { codex sam Stop "$(session cod11111 "$T/sam-demo")" > "$T/codex-stop"; grep -q '"decision": "block"' "$T/codex-stop"; }
 until_ok 15 'at Stop, new mail continues the Codex session' codex_stop
