@@ -5,7 +5,12 @@ This file is in English only; the README and the guide exist in English and Germ
 
 ## [Unreleased]
 
-## [0.6.0] - unreleased
+## [0.6.0] - 2026-11-10
+
+The security release before the repo went public. Missions rest on signed data only and are bound to their room, the
+hooks guard `~/.synchronauts` (also in `claude -p` runs), a name always comes with its login, and the board pairs with
+a one-time code. New: signing with a key in an ssh-agent or on a security key, `syn rooms`, `syn ui --pair`,
+`syn --version` and `syn --help`. Missions need 0.6 on every side; the upgrade notes are at the end of this section.
 
 ### Security
 
